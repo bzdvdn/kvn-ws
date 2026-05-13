@@ -14,6 +14,7 @@
 - `src/` — весь код, `docs/{ru,en}/` — двуязычная документация, `examples/` — примеры
 - TCP 443 + TLS 1.3 + WebSocket Binary Frames
 - IP-пул с динамическим выделением, BoltDB/SQLite persistence
+- Клиентская маршрутизация: server/direct, CIDR, DNS-имена, отдельные IP с ordered rules
 
 **Workflow/DoD:**
 - Каждая фича в отдельной ветке `feature/<slug>`

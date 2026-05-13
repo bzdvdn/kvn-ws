@@ -1,0 +1,19 @@
+# @sk-task foundation#T3.4: docker-compose orchestration (AC-004)
+services:
+  server:
+    build: .
+    ports:
+      - "443:443"
+    volumes:
+      - ./configs/server.yaml:/etc/kvn-ws/server.yaml
+    command: ["/usr/local/bin/server", "--config", "/etc/kvn-ws/server.yaml"]
+    restart: unless-stopped
+
+  client:
+    build: .
+    depends_on:
+      - server
+    volumes:
+      - ./configs/client.yaml:/etc/kvn-ws/client.yaml
+    command: ["/usr/local/bin/client", "--config", "/etc/kvn-ws/client.yaml"]
+    restart: unless-stopped

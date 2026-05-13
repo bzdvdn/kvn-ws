@@ -1,0 +1,8 @@
+server: https://example.com/ws
+auth:
+  token: your-token-here
+mtu: 1400
+ipv6: false
+auto_reconnect: true
+log:
+  level: info

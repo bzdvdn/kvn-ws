@@ -1,0 +1,29 @@
+# Binaries
+bin/
+
+# Go
+*.exe
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+
+# Build
+dist/
+coverage/
+tmp/
