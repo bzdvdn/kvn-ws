@@ -1,0 +1,53 @@
+version: 1
+project:
+    name: kvn-ws
+    constitution_file: CONSTITUTION.md
+runtime:
+    shell: sh
+paths:
+    specs_dir: specs/active
+    archive_dir: specs/archived
+    templates_dir: .speckeep/templates
+    scripts_dir: .speckeep/scripts
+language:
+    default: ru
+    docs: ru
+    agent: ru
+    comments: en
+agents:
+    update_agents_md: true
+    agents_file: AGENTS.md
+templates:
+    spec: spec.md
+    plan: plan.md
+    tasks: tasks.md
+    data_model: data-model.md
+    contracts_api: contracts/api.md
+    contracts_events: contracts/events.md
+    archive_summary: archive/summary.md
+    inspect_report: inspect.md
+    verify_report: verify.md
+    constitution: constitution.md
+    constitution_prompt: prompts/constitution.md
+    spec_prompt: prompts/spec.md
+    inspect_prompt: prompts/inspect.md
+    plan_prompt: prompts/plan.md
+    tasks_prompt: prompts/tasks.md
+    implement_prompt: prompts/implement.md
+    verify_prompt: prompts/verify.md
+scripts:
+    run_speckeep: run-speckeep.sh
+    inspect_spec: inspect-spec.sh
+    check_constitution: check-constitution.sh
+    check_spec_ready: check-spec-ready.sh
+    check_inspect_ready: check-inspect-ready.sh
+    check_plan_ready: check-plan-ready.sh
+    check_tasks_ready: check-tasks-ready.sh
+    check_implement_ready: check-implement-ready.sh
+    check_archive_ready: check-archive-ready.sh
+    check_verify_ready: check-verify-ready.sh
+    verify_task_state: verify-task-state.sh
+    list_open_tasks: list-open-tasks.sh
+    link_agents: link-agents.sh
+    list_specs: list-specs.sh
+    show_spec: show-spec.sh
