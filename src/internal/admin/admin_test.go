@@ -31,11 +31,11 @@ func TestAdminListSessions(t *testing.T) {
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
 	srv := NewAdminServer(cfg, sm)
 
-	_, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 0)
+	_, _, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 0, false)
 	if err != nil {
 		t.Fatalf("Create sess-1: %v", err)
 	}
-	_, _, err = sm.Create("sess-2", "user2", "10.0.0.2:1234", 0)
+	_, _, _, err = sm.Create("sess-2", "user2", "10.0.0.2:1234", 0, false)
 	if err != nil {
 		t.Fatalf("Create sess-2: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestAdminDeleteSession(t *testing.T) {
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
 	srv := NewAdminServer(cfg, sm)
 
-	_, _, err := sm.Create("sess-del", "user1", "10.0.0.1:1234", 0)
+	_, _, _, err := sm.Create("sess-del", "user1", "10.0.0.1:1234", 0, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestAdminSessionFields(t *testing.T) {
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
 	srv := NewAdminServer(cfg, sm)
 
-	_, _, err := sm.Create("sess-fields", "test-user", "10.0.0.1:9999", 0)
+	_, _, _, err := sm.Create("sess-fields", "test-user", "10.0.0.1:9999", 0, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

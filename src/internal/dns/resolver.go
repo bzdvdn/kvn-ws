@@ -29,13 +29,14 @@ func NewDefaultResolverWithTTL(cache *Cache, ttl time.Duration) *DefaultResolver
 }
 
 // @sk-task routing-split-tunnel#T3.1: dns lookup with ttl cache (AC-004)
+// @sk-task ipv6-dual-stack#T3.2: dual-stack DNS with A+AAAA queries (AC-005)
 func (r *DefaultResolver) Lookup(ctx context.Context, domain string) ([]netip.Addr, error) {
 	if r.cache != nil {
 		if ips, ok := r.cache.Get(domain); ok {
 			return ips, nil
 		}
 	}
-	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip4", domain)
+	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", domain)
 	if err != nil {
 		return nil, err
 	}

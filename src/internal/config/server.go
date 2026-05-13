@@ -33,8 +33,10 @@ type TLSCfg struct {
 	ClientAuth   string `mapstructure:"client_auth"`
 }
 
+// @sk-task ipv6-dual-stack#T1.1: add PoolIPv6 config field (AC-001, AC-002)
 type NetworkCfg struct {
 	PoolIPv4 PoolCfg `mapstructure:"pool_ipv4"`
+	PoolIPv6 PoolCfg `mapstructure:"pool_ipv6"`
 }
 
 type PoolCfg struct {

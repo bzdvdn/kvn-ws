@@ -109,6 +109,7 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 
 	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,
+		IPv6:         cfg.IPv6,
 		Token:        cfg.Auth.Token,
 	})
 	if err != nil {
@@ -158,6 +159,18 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 			logger.Error("set tun ip", zap.Error(err))
 			return
 		}
+		// @sk-task ipv6-dual-stack#T2.2: set assigned IPv6 on TUN (AC-001)
+		if serverHello.AssignedIPv6 != nil {
+			logger.Info("assigned IPv6", zap.String("ip6", serverHello.AssignedIPv6.String()))
+			v6Mask := &net.IPNet{
+				IP:   serverHello.AssignedIPv6,
+				Mask: net.CIDRMask(112, 128),
+			}
+			if err := tunDev.SetIP(serverHello.AssignedIPv6, v6Mask); err != nil {
+				logger.Error("set tun ipv6", zap.Error(err))
+				return
+			}
+		}
 		if cfg.MTU > 0 {
 			if err := tunDev.SetMTU(cfg.MTU); err != nil {
 				logger.Warn("set tun mtu", zap.Int("mtu", cfg.MTU), zap.Error(err))
@@ -182,11 +195,11 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 }
 
 // @sk-task production-hardening#T4.2: kill-switch enable (AC-003)
+// @sk-task ipv6-dual-stack#T3.3: add IPv6 kill-switch table (AC-005)
 func applyKillSwitch(cfg *config.ClientConfig, logger *zap.Logger) {
 	if cfg.KillSwitch == nil || !cfg.KillSwitch.Enabled {
 		return
 	}
-	// Create table + chain, then add reject rule to block all non-local traffic
 	cmds := [][]string{
 		{"add", "table", "ip", "kvn-kill"},
 		{"add", "chain", "ip", "kvn-kill", "prerouting", "{ type filter hook prerouting priority 0; }"},
@@ -198,16 +211,35 @@ func applyKillSwitch(cfg *config.ClientConfig, logger *zap.Logger) {
 			return
 		}
 	}
+	if cfg.IPv6 {
+		cmds6 := [][]string{
+			{"add", "table", "ip6", "kvn-kill"},
+			{"add", "chain", "ip6", "kvn-kill", "prerouting", "{ type filter hook prerouting priority 0; }"},
+			{"add", "rule", "ip6", "kvn-kill", "prerouting", "reject"},
+		}
+		for _, args := range cmds6 {
+			if err := exec.Command("nft", args...).Run(); err != nil {
+				logger.Warn("kill-switch: ipv6 nft command failed", zap.Strings("args", args), zap.Error(err))
+				return
+			}
+		}
+	}
 	logger.Info("kill-switch enabled: all traffic blocked")
 }
 
 // @sk-task production-hardening#T4.2: kill-switch disable (AC-003)
+// @sk-task ipv6-dual-stack#T3.3: remove IPv6 kill-switch table (AC-005)
 func removeKillSwitch(cfg *config.ClientConfig, logger *zap.Logger) {
 	if cfg.KillSwitch == nil || !cfg.KillSwitch.Enabled {
 		return
 	}
 	if err := exec.Command("nft", "delete", "table", "ip", "kvn-kill").Run(); err != nil {
 		logger.Warn("kill-switch: nftables delete failed", zap.Error(err))
+	}
+	if cfg.IPv6 {
+		if err := exec.Command("nft", "delete", "table", "ip6", "kvn-kill").Run(); err != nil {
+			logger.Warn("kill-switch: ipv6 nftables delete failed", zap.Error(err))
+		}
 	}
 }
 

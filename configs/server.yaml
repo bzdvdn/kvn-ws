@@ -7,6 +7,9 @@ network:
   pool_ipv4:
     subnet: 10.10.0.0/24
     gateway: 10.10.0.1
+  pool_ipv6:
+    subnet: fd00::/112
+    gateway: fd00::1
 session:
   max_clients: 100
   idle_timeout_sec: 120

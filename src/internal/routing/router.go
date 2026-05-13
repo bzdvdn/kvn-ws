@@ -6,7 +6,10 @@ import (
 	"net/netip"
 )
 
-const ipHeaderDstOffset = 16
+const (
+	ipHeaderDstOffset  = 16
+	ipv6HeaderDstOffset = 24
+)
 
 // @sk-task routing-split-tunnel#T2.4: tun router (AC-001)
 type TunRouter struct {
@@ -34,16 +37,37 @@ func (r *TunRouter) SetDNSOverride(enabled bool) {
 
 // @sk-task routing-split-tunnel#T2.4: route one packet (AC-001)
 // @sk-task routing-split-tunnel#T3.3: dns override route (AC-008)
+// @sk-task ipv6-dual-stack#T3.1: dual-stack routing dispatch (AC-005)
 func (r *TunRouter) RoutePacket(packet []byte) error {
-	if r.dnsOverride && isDNSQuery(packet) {
+	if len(packet) < 1 {
+		return r.sendDirect(packet)
+	}
+	ipVersion := packet[0] >> 4
+	if r.dnsOverride && ipVersion == 4 && isDNSQuery(packet) {
 		log.Printf("[routing] dns override: routing through tunnel")
 		return r.sendTunnel(packet)
 	}
-	dstIP, err := parseDstIP(packet)
-	if err != nil {
-		log.Printf("[routing] parse dst ip: %v", err)
+	switch ipVersion {
+	case 4:
+		dstIP, err := parseDstIP(packet)
+		if err != nil {
+			log.Printf("[routing] parse dst ip: %v", err)
+			return r.sendDirect(packet)
+		}
+		return r.routeByRule(dstIP, packet)
+	case 6:
+		dstIP, err := parseDstIP6(packet)
+		if err != nil {
+			log.Printf("[routing] parse dst ip6: %v", err)
+			return r.sendDirect(packet)
+		}
+		return r.routeByRule(dstIP, packet)
+	default:
 		return r.sendDirect(packet)
 	}
+}
+
+func (r *TunRouter) routeByRule(dstIP netip.Addr, packet []byte) error {
 	action := r.ruleSet.Route(dstIP)
 	switch action {
 	case RouteServer:
@@ -84,6 +108,20 @@ func parseDstIP(packet []byte) (netip.Addr, error) {
 		return netip.Addr{}, nil
 	}
 	return netip.AddrFrom4([4]byte{ip[0], ip[1], ip[2], ip[3]}), nil
+}
+
+// @sk-task ipv6-dual-stack#T3.1: parse IPv6 destination address (AC-005)
+func parseDstIP6(packet []byte) (netip.Addr, error) {
+	if len(packet) < 40 {
+		return netip.Addr{}, nil
+	}
+	ip := packet[ipv6HeaderDstOffset : ipv6HeaderDstOffset+16]
+	if len(ip) < 16 {
+		return netip.Addr{}, nil
+	}
+	var addr [16]byte
+	copy(addr[:], ip)
+	return netip.AddrFrom16(addr), nil
 }
 
 // parseDstIPPort returns destination IP and port from TCP/UDP header

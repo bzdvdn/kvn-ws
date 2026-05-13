@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand/v2"
 	"net"
 	"sync"
 	"time"
@@ -92,6 +93,39 @@ func NewIPPool(cfg PoolCfg) (*IPPool, error) {
 	}, nil
 }
 
+// @sk-task ipv6-dual-stack#T1.2: IPv6 pool constructor with random offset (AC-001, AC-002)
+func NewIPPool6(cfg PoolCfg) (*IPPool, error) {
+	_, subnet, err := net.ParseCIDR(cfg.Subnet)
+	if err != nil {
+		return nil, fmt.Errorf("parse v6 subnet %s: %w", cfg.Subnet, err)
+	}
+	gateway := net.ParseIP(cfg.Gateway)
+	if gateway == nil {
+		return nil, fmt.Errorf("parse v6 gateway %s", cfg.Gateway)
+	}
+	start := make(net.IP, 16)
+	copy(start, subnet.IP)
+	ones, bits := subnet.Mask.Size()
+	hostBits := bits - ones
+	maxHosts := int(math.Pow(2, float64(hostBits)))
+	if maxHosts > 2 {
+		offset := rand.IntN(maxHosts-2) + 1
+		for i := 15; offset > 0 && i >= 0; i-- {
+			start[i] += byte(offset & 0xff)
+			offset >>= 8
+		}
+	}
+	end := broadcastAddr(subnet)
+	return &IPPool{
+		subnet:    subnet,
+		gateway:   gateway,
+		start:     start,
+		end:       end,
+		allocated: make(map[string]net.IP),
+		usedIPs:   make(map[string]bool),
+	}, nil
+}
+
 func (p *IPPool) Allocate(sessionID string) (net.IP, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -159,6 +193,7 @@ type Session struct {
 	ID           string
 	TokenName    string
 	AssignedIP   net.IP
+	AssignedIPv6 net.IP
 	RemoteAddr   string
 	ConnectedAt  time.Time
 	LastActivity time.Time
@@ -166,14 +201,23 @@ type Session struct {
 
 // @sk-task production-hardening#T2.1: session manager with expiry (AC-005)
 // @sk-task security-acl#T5: max_sessions per token
+// @sk-task ipv6-dual-stack#T2.1: add pool6 and AssignedIPv6 for dual-stack (AC-004)
 type SessionManager struct {
 	mu          sync.Mutex
 	pool        *IPPool
+	pool6       *IPPool
 	sessions    map[string]*Session
 	sessionCnt  map[string]int
 	idleTimeout time.Duration
 	sessionTTL  time.Duration
 	stopCh      chan struct{}
+}
+
+// @sk-task ipv6-dual-stack#T2.3: set IPv6 pool for dual-stack allocation (AC-004)
+func (sm *SessionManager) SetPool6(pool6 *IPPool) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.pool6 = pool6
 }
 
 func NewSessionManager(pool *IPPool) *SessionManager {
@@ -240,34 +284,44 @@ func (sm *SessionManager) expireTTL() {
 }
 
 // @sk-task security-acl#T5: Create with maxSessions check
-func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSessions int) (*Session, net.IP, error) {
+// @sk-task ipv6-dual-stack#T2.1: dual-stack session creation with IPv6 allocation (AC-004)
+func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSessions int, ipv6 bool) (*Session, net.IP, net.IP, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if s, ok := sm.sessions[sessionID]; ok {
-		return s, s.AssignedIP, nil
+		return s, s.AssignedIP, s.AssignedIPv6, nil
 	}
 	if maxSessions > 0 {
 		cnt := sm.sessionCnt[tokenName]
 		if cnt >= maxSessions {
-			return nil, nil, fmt.Errorf("max sessions exceeded for token %s", tokenName)
+			return nil, nil, nil, fmt.Errorf("max sessions exceeded for token %s", tokenName)
 		}
 	}
 	ip, err := sm.pool.Allocate(sessionID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	var ip6 net.IP
+	if ipv6 && sm.pool6 != nil {
+		ip6, err = sm.pool6.Allocate(sessionID)
+		if err != nil {
+			sm.pool.Release(sessionID)
+			return nil, nil, nil, err
+		}
 	}
 	now := time.Now()
 	s := &Session{
 		ID:           sessionID,
 		TokenName:    tokenName,
 		AssignedIP:   ip,
+		AssignedIPv6: ip6,
 		RemoteAddr:   remoteAddr,
 		ConnectedAt:  now,
 		LastActivity: now,
 	}
 	sm.sessions[sessionID] = s
 	sm.sessionCnt[tokenName]++
-	return s, ip, nil
+	return s, ip, ip6, nil
 }
 
 // @sk-task security-acl#T5: Remove decrements session count

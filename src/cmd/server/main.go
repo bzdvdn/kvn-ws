@@ -24,6 +24,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/metrics"
+	"github.com/bzdvdn/kvn-ws/src/internal/nat"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/auth"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
@@ -118,6 +119,34 @@ func main() {
 	}
 
 	sm := session.NewSessionManager(pool)
+
+	// @sk-task ipv6-dual-stack#T2.3: init IPv6 pool and bolt store (AC-004)
+	if cfg.Network.PoolIPv6.Subnet != "" {
+		pool6, err := session.NewIPPool6(session.PoolCfg{
+			Subnet:  cfg.Network.PoolIPv6.Subnet,
+			Gateway: cfg.Network.PoolIPv6.Gateway,
+		})
+		if err != nil {
+			logger.Warn("create ipv6 pool, running ipv4-only", zap.Error(err))
+		} else {
+			if cfg.BoltDBPath != "" {
+				boltStore6, err := session.NewBoltStore6(cfg.BoltDBPath)
+				if err != nil {
+					logger.Warn("bolt db6 init", zap.Error(err))
+				} else {
+					pool6.SetBoltStore(boltStore6)
+					if err := pool6.LoadFromBolt(); err != nil {
+						logger.Warn("bolt db6 load", zap.Error(err))
+					}
+				}
+			}
+			sm.SetPool6(pool6)
+			logger.Info("ipv6 pool initialized", zap.String("subnet", cfg.Network.PoolIPv6.Subnet))
+		}
+	} else {
+		logger.Info("no ipv6 pool configured, running ipv4-only")
+	}
+
 	sm.Start(300*time.Second, 24*time.Hour, 10*time.Second)
 
 	collectors := metrics.NewCollectors()
@@ -133,6 +162,26 @@ func main() {
 	_, subnet, _ := netParseCIDR(cfg.Network.PoolIPv4.Subnet)
 	if err := tunDev.SetIP(gatewayIP, subnet); err != nil {
 		logger.Fatal("set tun ip", zap.Error(err))
+	}
+
+	// @sk-task ipv6-dual-stack#T2.2: set IPv6 gateway on TUN (AC-001)
+	if cfg.Network.PoolIPv6.Subnet != "" {
+		gatewayIPv6 := netParseIP(cfg.Network.PoolIPv6.Gateway)
+		_, v6Subnet, _ := netParseCIDR(cfg.Network.PoolIPv6.Subnet)
+		if err := tunDev.SetIP(gatewayIPv6, v6Subnet); err != nil {
+			logger.Warn("set tun ipv6", zap.Error(err))
+		}
+	}
+
+	// @sk-task ipv6-dual-stack#T2.3: setup IPv6 NAT masquerade (AC-003)
+	natMgr := nat.NewNFTManager()
+	if err := natMgr.Setup(); err != nil {
+		logger.Warn("nat setup", zap.Error(err))
+	}
+	if cfg.Network.PoolIPv6.Subnet != "" {
+		if err := natMgr.Setup6(); err != nil {
+			logger.Warn("ipv6 nat setup", zap.Error(err))
+		}
 	}
 
 	tlsCfg, err := tlspkg.NewServerTLSConfig(cfg.TLS.Cert, cfg.TLS.Key, cfg.TLS.ClientCAFile, cfg.TLS.ClientAuth)
@@ -313,7 +362,7 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	}
 
 	tokenName := tokenCfg.Name
-	sess, assignedIP, err := sm.Create(clientHello.Token, tokenName, r.RemoteAddr, tokenCfg.MaxSessions)
+	sess, assignedIP, assignedIPv6, err := sm.Create(clientHello.Token, tokenName, r.RemoteAddr, tokenCfg.MaxSessions, clientHello.IPv6)
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "max sessions exceeded") {
@@ -332,8 +381,9 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	}
 
 	serverHello, err := handshake.EncodeServerHello(&handshake.ServerHello{
-		SessionID:  sess.ID,
-		AssignedIP: assignedIP,
+		SessionID:    sess.ID,
+		AssignedIP:   assignedIP,
+		AssignedIPv6: assignedIPv6,
 	})
 	if err != nil {
 		logger.Error("encode server hello", zap.Error(err))

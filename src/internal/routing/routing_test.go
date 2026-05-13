@@ -222,3 +222,57 @@ func TestIsNotDNSQuery(t *testing.T) {
 		t.Error("expected no DNS query for TCP")
 	}
 }
+
+// @sk-test ipv6-dual-stack#T4.1: TestParseDstIP6 (AC-005)
+func TestParseDstIP6(t *testing.T) {
+	pkt := make([]byte, 40)
+	pkt[0] = 0x60 // IPv6, version 6
+	// dst addr at offset 24: fd00::2
+	pkt[24] = 0xfd
+	pkt[39] = 0x02
+
+	addr, err := parseDstIP6(pkt)
+	if err != nil {
+		t.Fatalf("parseDstIP6: %v", err)
+	}
+	expected := netip.MustParseAddr("fd00::2")
+	if addr != expected {
+		t.Errorf("got %s, want %s", addr, expected)
+	}
+}
+
+// @sk-test ipv6-dual-stack#T4.1: TestParseDstIP6Truncated (AC-005)
+func TestParseDstIP6Truncated(t *testing.T) {
+	pkt := make([]byte, 10)
+	_, err := parseDstIP6(pkt)
+	if err != nil {
+		t.Fatal("expected no error for short packet")
+	}
+}
+
+// @sk-test ipv6-dual-stack#T4.1: TestRoutePacketIPv6 (AC-005)
+func TestRoutePacketIPv6(t *testing.T) {
+	cfg := &config.RoutingCfg{DefaultRoute: "server"}
+	rs, err := NewRuleSet(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tunRead := func([]byte) (int, error) { return 0, nil }
+	tunWrite := func([]byte) (int, error) { return 0, nil }
+	tunnelSend := func([]byte) error { return nil }
+
+	router := NewTunRouter(rs, tunRead, tunWrite, tunnelSend)
+
+	// IPv6 packet to 2001:db8::1
+	pkt := make([]byte, 40)
+	pkt[0] = 0x60
+	pkt[24] = 0x20; pkt[25] = 0x01
+	pkt[26] = 0x0d; pkt[27] = 0xb8
+	pkt[39] = 0x01
+
+	err = router.RoutePacket(pkt)
+	if err != nil {
+		t.Fatalf("RoutePacket: %v", err)
+	}
+}

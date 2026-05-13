@@ -146,26 +146,55 @@ func TestIPPoolExhaustion(t *testing.T) {
 	}
 }
 
+// @sk-test ipv6-dual-stack#T4.1: TestIPv6PoolAllocate (AC-002)
+func TestIPv6PoolAllocate(t *testing.T) {
+	pool, err := NewIPPool6(PoolCfg{
+		Subnet:  "fd00::/112",
+		Gateway: "fd00::1",
+	})
+	if err != nil {
+		t.Fatalf("NewIPPool6: %v", err)
+	}
+	defer pool.Release("sess1")
+	defer pool.Release("sess2")
+
+	ip1, err := pool.Allocate("sess1")
+	if err != nil {
+		t.Fatalf("Allocate(sess1): %v", err)
+	}
+	ip2, err := pool.Allocate("sess2")
+	if err != nil {
+		t.Fatalf("Allocate(sess2): %v", err)
+	}
+
+	if ip1.Equal(ip2) {
+		t.Errorf("expected different IPv6 addresses, got same %s", ip1)
+	}
+	if !ip1.To16().IsGlobalUnicast() {
+		t.Errorf("expected global unicast IPv6, got %s", ip1)
+	}
+}
+
 // @sk-test security-acl#T5: max_sessions limit enforcement (AC-004)
 func TestSessionManagerMaxSessions(t *testing.T) {
 	pool := testPool(t)
 	sm := NewSessionManager(pool)
 
-	_, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 2)
+	_, _, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 2, false)
 	if err != nil {
 		t.Fatalf("Create sess-1: %v", err)
 	}
-	_, _, err = sm.Create("sess-2", "user1", "10.0.0.2:1234", 2)
+	_, _, _, err = sm.Create("sess-2", "user1", "10.0.0.2:1234", 2, false)
 	if err != nil {
 		t.Fatalf("Create sess-2: %v", err)
 	}
-	_, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 2)
+	_, _, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 2, false)
 	if err == nil {
 		t.Fatal("expected max sessions exceeded error")
 	}
 
 	sm.Remove("sess-1")
-	_, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 2)
+	_, _, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 2, false)
 	if err != nil {
 		t.Fatalf("Create sess-3 after remove: %v", err)
 	}
@@ -176,15 +205,15 @@ func TestSessionManagerMaxSessionsZero(t *testing.T) {
 	pool := testPool(t)
 	sm := NewSessionManager(pool)
 
-	_, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 0)
+	_, _, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 0, false)
 	if err != nil {
 		t.Fatalf("Create sess-1: %v", err)
 	}
-	_, _, err = sm.Create("sess-2", "user1", "10.0.0.2:1234", 0)
+	_, _, _, err = sm.Create("sess-2", "user1", "10.0.0.2:1234", 0, false)
 	if err != nil {
 		t.Fatalf("Create sess-2: %v", err)
 	}
-	_, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 0)
+	_, _, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 0, false)
 	if err != nil {
 		t.Fatalf("Create sess-3 with unlimited: %v", err)
 	}
@@ -194,7 +223,7 @@ func TestSessionManagerCreateGetRemove(t *testing.T) {
 	pool := testPool(t)
 	sm := NewSessionManager(pool)
 
-	sess, ip, err := sm.Create("session-1", "test-token", "10.0.0.1:1234", 0)
+	sess, ip, _, err := sm.Create("session-1", "test-token", "10.0.0.1:1234", 0, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
