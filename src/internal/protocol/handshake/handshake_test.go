@@ -192,6 +192,74 @@ func TestDecodeClientHelloWrongType(t *testing.T) {
 	}
 }
 
+// @sk-test performance-and-polish#T3.1: TestClientHelloMTU (AC-004)
+func TestClientHelloMTU(t *testing.T) {
+	original := &ClientHello{
+		ProtoVersion: ProtoVersion,
+		Token:        "test-token",
+		MTU:          1400,
+	}
+
+	frame, err := EncodeClientHello(original)
+	if err != nil {
+		t.Fatalf("EncodeClientHello: %v", err)
+	}
+
+	decoded, err := DecodeClientHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeClientHello: %v", err)
+	}
+
+	if decoded.MTU != 1400 {
+		t.Errorf("MTU = %d, want 1400", decoded.MTU)
+	}
+}
+
+// @sk-test performance-and-polish#T3.1: TestServerHelloMTU (AC-004)
+func TestServerHelloMTU(t *testing.T) {
+	original := &ServerHello{
+		SessionID:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIP: net.ParseIP("10.10.0.5").To4(),
+		MTU:        1400,
+	}
+
+	frame, err := EncodeServerHello(original)
+	if err != nil {
+		t.Fatalf("EncodeServerHello: %v", err)
+	}
+
+	decoded, err := DecodeServerHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeServerHello: %v", err)
+	}
+
+	if decoded.MTU != 1400 {
+		t.Errorf("MTU = %d, want 1400", decoded.MTU)
+	}
+}
+
+// @sk-test performance-and-polish#T3.1: TestClientHelloDefaultMTU (AC-004)
+func TestClientHelloDefaultMTU(t *testing.T) {
+	original := &ClientHello{
+		ProtoVersion: ProtoVersion,
+		Token:        "test-token",
+	}
+
+	frame, err := EncodeClientHello(original)
+	if err != nil {
+		t.Fatalf("EncodeClientHello: %v", err)
+	}
+
+	decoded, err := DecodeClientHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeClientHello: %v", err)
+	}
+
+	if decoded.MTU != DefaultMTU {
+		t.Errorf("MTU = %d, want %d", decoded.MTU, DefaultMTU)
+	}
+}
+
 func TestDecodeServerHelloTruncated(t *testing.T) {
 	f := &framing.Frame{
 		Type:    framing.FrameTypeHello,

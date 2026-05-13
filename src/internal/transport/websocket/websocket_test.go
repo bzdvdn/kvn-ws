@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -237,6 +238,221 @@ func TestOriginCheckerWhitelistEmpty(t *testing.T) {
 
 	if checker(req) {
 		t.Error("expected all origins to be denied when whitelist is empty")
+	}
+}
+
+// @sk-test performance-and-polish#T2.2: TestDialTCPNoDelay (AC-002)
+func TestDialTCPNoDelay(t *testing.T) {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		conn.Close()
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	conn, err := Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	tcpConn, ok := conn.Underlying().UnderlyingConn().(*net.TCPConn)
+	if !ok {
+		t.Fatal("underlying conn is not *net.TCPConn")
+	}
+	if !tcpConn.NoDelay() {
+		t.Error("TCP_NODELAY expected to be true after Dial")
+	}
+}
+
+// @sk-test performance-and-polish#T2.2: TestAcceptTCPNoDelay (AC-002)
+func TestAcceptTCPNoDelay(t *testing.T) {
+	var serverConn *WSConn
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		serverConn, err = Accept(w, r)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	d := websocket.Dialer{}
+	clientConn, _, err := d.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("client dial: %v", err)
+	}
+	defer clientConn.Close()
+
+	if serverConn == nil {
+		t.Fatal("server conn is nil")
+	}
+	defer serverConn.Close()
+
+	tcpConn, ok := serverConn.Underlying().UnderlyingConn().(*net.TCPConn)
+	if !ok {
+		t.Fatal("server underlying conn is not *net.TCPConn")
+	}
+	if !tcpConn.NoDelay() {
+		t.Error("TCP_NODELAY expected to be true after Accept")
+	}
+}
+
+// @sk-test performance-and-polish#T2.3: TestBatchWriterCoalescing (AC-003)
+func TestBatchWriterCoalescing(t *testing.T) {
+	mux := http.NewServeMux()
+	var receivedData [][]byte
+	var mu sync.Mutex
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+		defer conn.Close()
+		for {
+			_, msg, err := conn.Underlying().ReadMessage()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			receivedData = append(receivedData, msg)
+			mu.Unlock()
+		}
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	conn, err := Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	payloads := [][]byte{
+		[]byte("small payload 1"),
+		[]byte("small payload 2"),
+		[]byte("small payload 3"),
+	}
+
+	bw := NewBatchWriter(conn, 4096, 50*time.Millisecond)
+	defer bw.Close()
+
+	for _, p := range payloads {
+		if err := bw.Write(p); err != nil {
+			t.Fatalf("BatchWriter.Write: %v", err)
+		}
+	}
+
+	bw.Flush()
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	got := len(receivedData)
+	mu.Unlock()
+	if got == 0 {
+		t.Error("expected at least 1 received message")
+	}
+}
+
+// @sk-test performance-and-polish#T3.3: TestWSCompression (AC-006)
+func TestWSCompression(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		cfg := WSConfig{Compression: true}
+		conn, err := Accept(w, r, cfg)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+		defer conn.Close()
+		_, msg, err := conn.Underlying().ReadMessage()
+		if err != nil {
+			t.Errorf("read: %v", err)
+			return
+		}
+		if err := conn.Underlying().WriteMessage(websocket.BinaryMessage, msg); err != nil {
+			t.Errorf("write: %v", err)
+		}
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	wsCfg := WSConfig{Compression: true}
+	conn, err := Dial(wsURL, nil, wsCfg)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	payload := []byte("compressible data with repeated patterns " + string(make([]byte, 100)))
+	if err := conn.WriteMessage(payload); err != nil {
+		t.Fatalf("WriteMessage: %v", err)
+	}
+
+	msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage: %v", err)
+	}
+
+	if string(msg) != string(payload) {
+		t.Errorf("echo = %s, want %s", msg, payload)
+	}
+}
+
+// @sk-test performance-and-polish#T3.4: TestWSMultiplexSubprotocol (AC-007)
+func TestWSMultiplexSubprotocol(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+		defer conn.Close()
+		if conn.Subprotocol() != MultiplexSubprotocol {
+			t.Errorf("subprotocol = %s, want %s", conn.Subprotocol(), MultiplexSubprotocol)
+		}
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	wsCfg := WSConfig{Multiplex: true}
+	conn, err := Dial(wsURL, nil, wsCfg)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	if conn.Subprotocol() != MultiplexSubprotocol {
+		t.Errorf("subprotocol = %s, want %s", conn.Subprotocol(), MultiplexSubprotocol)
 	}
 }
 

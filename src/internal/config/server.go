@@ -10,6 +10,7 @@ import (
 
 // @sk-task foundation#T2.3: server config struct (AC-007)
 // @sk-task security-acl#T1: TokenCfg structured config
+// @sk-task performance-and-polish#T1.1: add Compression, Multiplex, MTU fields (AC-004, AC-006, AC-007)
 type ServerConfig struct {
 	Listen       string         `mapstructure:"listen"`
 	TLS          TLSCfg         `mapstructure:"tls"`
@@ -22,6 +23,9 @@ type ServerConfig struct {
 	ACL          ACLCfg         `mapstructure:"acl"`
 	Origin       OriginCfg      `mapstructure:"origin"`
 	Admin        AdminCfg       `mapstructure:"admin"`
+	Compression  bool           `mapstructure:"compression"`
+	Multiplex    bool           `mapstructure:"multiplex"`
+	MTU          int            `mapstructure:"mtu"`
 }
 
 // @sk-task security-acl#T1: TLSCfg extended with mTLS fields

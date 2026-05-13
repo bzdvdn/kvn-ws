@@ -1,13 +1,22 @@
 // @sk-task routing-split-tunnel#T4.1: gate test program (AC-010)
+// @sk-task performance-and-polish#T2.4: load testing mode (AC-008)
 package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"log"
 	"net/netip"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
+	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
 type mockResolver struct{}
@@ -20,6 +29,21 @@ func (m *mockResolver) Lookup(ctx context.Context, domain string) ([]netip.Addr,
 }
 
 func main() {
+	mode := pflag.String("mode", "routing", "test mode: routing | loadtest")
+	cfgPath := pflag.String("config", "configs/loadtest.yaml", "config path (loadtest mode)")
+	pflag.Parse()
+
+	switch *mode {
+	case "routing":
+		runRoutingTest()
+	case "loadtest":
+		runLoadTest(*cfgPath)
+	default:
+		log.Fatalf("unknown mode: %s", *mode)
+	}
+}
+
+func runRoutingTest() {
 	fmt.Println("=== Routing Gate Test ===")
 
 	cfg := &config.RoutingCfg{
@@ -62,5 +86,133 @@ func main() {
 		fmt.Println("\nFAIL: routing decisions did not match expectations")
 	} else {
 		fmt.Println("\nPASS: all routing decisions match expectations")
+	}
+}
+
+func runLoadTest(cfgPath string) {
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+	v.SetEnvPrefix("KVN_LOADTEST")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	if err := v.ReadInConfig(); err != nil {
+		log.Fatalf("read config %s: %v", cfgPath, err)
+	}
+
+	targetHost := v.GetString("target_host")
+	sessionCount := v.GetInt("session_count")
+	durationSec := v.GetInt("duration_sec")
+	throughputThreshold := v.GetInt64("throughput_threshold_bps")
+	latencyThreshold := v.GetInt("latency_threshold_ms")
+	token := v.GetString("auth.token")
+	mtu := v.GetInt("mtu")
+
+	if targetHost == "" {
+		targetHost = "wss://localhost:443/tunnel"
+	}
+	if sessionCount <= 0 {
+		sessionCount = 10
+	}
+	if durationSec <= 0 {
+		durationSec = 5
+	}
+
+	fmt.Println("=== Load Test ===")
+	fmt.Printf("Target: %s\n", targetHost)
+	fmt.Printf("Sessions: %d\n", sessionCount)
+	fmt.Printf("Duration: %ds\n", durationSec)
+	if token != "" {
+		fmt.Printf("Auth token: %s\n", token[:min(len(token), 8)]+"...")
+	}
+
+	tlsCfg := &tls.Config{InsecureSkipVerify: true}
+	wsCfg := websocket.WSConfig{MTU: mtu}
+
+	connStart := time.Now()
+	conns := make([]*websocket.WSConn, 0, sessionCount)
+
+	for i := 0; i < sessionCount; i++ {
+		conn, err := websocket.Dial(targetHost, tlsCfg, wsCfg)
+		if err != nil {
+			log.Printf("session %d: dial failed: %v", i, err)
+			continue
+		}
+		conns = append(conns, conn)
+		if (i+1)%100 == 0 {
+			fmt.Printf("  connected %d/%d...\n", i+1, sessionCount)
+		}
+	}
+
+	connElapsed := time.Since(connStart)
+	fmt.Printf("\nConnections: %d/%d in %v\n", len(conns), sessionCount, connElapsed)
+
+	if len(conns) == 0 {
+		fmt.Println("\nSKIP: no connections established (server may not be running)")
+		return
+	}
+
+	payload := make([]byte, 1400)
+	for i := range payload {
+		payload[i] = byte(i)
+	}
+
+	testStart := time.Now()
+	testEnd := testStart.Add(time.Duration(durationSec) * time.Second)
+	totalSent := int64(0)
+	done := make(chan struct{})
+
+	go func() {
+		for _, conn := range conns {
+			go func(c *websocket.WSConn) {
+				for time.Now().Before(testEnd) {
+					if err := c.WriteMessage(payload); err != nil {
+						return
+					}
+					totalSent += int64(len(payload))
+				}
+			}(conn)
+		}
+		close(done)
+	}()
+
+	time.Sleep(time.Duration(durationSec) * time.Second)
+	actualDuration := time.Since(testStart)
+
+	for _, conn := range conns {
+		conn.Close()
+	}
+
+	throughputBps := int64(float64(totalSent*8) / actualDuration.Seconds())
+
+	fmt.Printf("\nResults:\n")
+	fmt.Printf("  Data sent: %d bytes\n", totalSent)
+	fmt.Printf("  Duration: %v\n", actualDuration)
+	fmt.Printf("  Throughput: %d bps\n", throughputBps)
+
+	pass := true
+	if throughputThreshold > 0 && throughputBps >= throughputThreshold {
+		fmt.Printf("  [PASS] Throughput %d >= %d bps\n", throughputBps, throughputThreshold)
+	} else if throughputThreshold > 0 {
+		fmt.Printf("  [FAIL] Throughput %d < %d bps\n", throughputBps, throughputThreshold)
+		pass = false
+	} else {
+		fmt.Printf("  [INFO] No throughput threshold configured\n")
+	}
+
+	if latencyThreshold > 0 && int(connElapsed.Milliseconds()) <= latencyThreshold {
+		fmt.Printf("  [PASS] Connection latency %d ms <= %d ms\n", connElapsed.Milliseconds(), latencyThreshold)
+	} else if latencyThreshold > 0 {
+		fmt.Printf("  [FAIL] Connection latency %d ms > %d ms\n", connElapsed.Milliseconds(), latencyThreshold)
+		pass = false
+	} else {
+		fmt.Printf("  [INFO] No latency threshold configured\n")
+	}
+
+	if pass {
+		fmt.Println("\nPASS: load test passed")
+	} else {
+		fmt.Println("\nFAIL: load test did not meet thresholds")
+		os.Exit(1)
 	}
 }

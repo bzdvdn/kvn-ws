@@ -1,0 +1,9 @@
+# @sk-task performance-and-polish#T1.2: load testing config (AC-008)
+target_host: wss://localhost:443/tunnel
+session_count: 1000
+duration_sec: 60
+throughput_threshold_bps: 800000000
+latency_threshold_ms: 150
+auth:
+  token: test-token
+mtu: 1400

@@ -1,16 +1,19 @@
 package config
 
 // @sk-task foundation#T2.3: client config struct (AC-006)
+// @sk-task performance-and-polish#T1.1: add Compression, Multiplex fields (AC-006, AC-007)
 type ClientConfig struct {
-	Server        string        `mapstructure:"server"`
-	Auth          AuthCfg       `mapstructure:"auth"`
-	MTU           int           `mapstructure:"mtu"`
-	IPv6          bool          `mapstructure:"ipv6"`
-	AutoReconnect bool          `mapstructure:"auto_reconnect"`
-	Log           LogConfig     `mapstructure:"log"`
-	Routing       *RoutingCfg   `mapstructure:"routing"`
+	Server        string         `mapstructure:"server"`
+	Auth          AuthCfg        `mapstructure:"auth"`
+	MTU           int            `mapstructure:"mtu"`
+	IPv6          bool           `mapstructure:"ipv6"`
+	AutoReconnect bool           `mapstructure:"auto_reconnect"`
+	Log           LogConfig      `mapstructure:"log"`
+	Routing       *RoutingCfg    `mapstructure:"routing"`
 	KillSwitch    *KillSwitchCfg `mapstructure:"kill_switch"`
 	Reconnect     *ReconnectCfg  `mapstructure:"reconnect"`
+	Compression   bool           `mapstructure:"compression"`
+	Multiplex     bool           `mapstructure:"multiplex"`
 }
 
 // @sk-task routing-split-tunnel#T1.1: routing config struct (AC-009)

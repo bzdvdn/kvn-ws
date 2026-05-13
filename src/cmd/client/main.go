@@ -86,7 +86,13 @@ func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.Client
 		attempt++
 		logger.Info("connecting", zap.Int("attempt", attempt), zap.Duration("backoff", backoff))
 
-		wsConn, err := websocket.Dial(cfg.Server, tlsCfg)
+		// @sk-task performance-and-polish#T1.1: pass Compression, Multiplex, MTU to Dial (AC-004, AC-006, AC-007)
+		wsCfg := websocket.WSConfig{
+			Compression: cfg.Compression,
+			Multiplex:   cfg.Multiplex,
+			MTU:         cfg.MTU,
+		}
+		wsConn, err := websocket.Dial(cfg.Server, tlsCfg, wsCfg)
 		if err != nil {
 			logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
 			applyKillSwitch(cfg, logger)
@@ -111,6 +117,7 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 		ProtoVersion: handshake.ProtoVersion,
 		IPv6:         cfg.IPv6,
 		Token:        cfg.Auth.Token,
+		MTU:          cfg.MTU,
 	})
 	if err != nil {
 		logger.Error("encode client hello", zap.Error(err))
@@ -122,9 +129,11 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 		return
 	}
 	if err := wsConn.WriteMessage(helloData); err != nil {
+		framing.ReturnBuffer(helloData)
 		logger.Error("send hello", zap.Error(err))
 		return
 	}
+	framing.ReturnBuffer(helloData)
 
 	respData, err := wsConn.ReadMessage()
 	if err != nil {
@@ -285,8 +294,10 @@ func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 			return err
 		}
 		if err := conn.WriteMessage(data); err != nil {
+			framing.ReturnBuffer(data)
 			return fmt.Errorf("ws write: %w", err)
 		}
+		framing.ReturnBuffer(data)
 	}
 }
 
@@ -307,8 +318,10 @@ func wsToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 		}
 		if f.Type == framing.FrameTypeData {
 			if _, err := dev.Write(f.Payload); err != nil {
+				f.Release()
 				return fmt.Errorf("tun write: %w", err)
 			}
+			f.Release()
 		}
 	}
 }

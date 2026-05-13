@@ -1,4 +1,5 @@
 # @sk-task foundation#T4.1: CI pipeline (AC-005)
+# @sk-task performance-and-polish#T4.2: add gatetest routing step (AC-008)
 name: CI
 
 on: [push, pull_request]
@@ -23,3 +24,5 @@ jobs:
         run: go build ./src/...
       - name: Build binaries
         run: ./scripts/build.sh
+      - name: Gatetest routing
+        run: go run ./src/cmd/gatetest/ --mode routing

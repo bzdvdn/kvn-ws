@@ -223,7 +223,13 @@ func main() {
 			http.Error(w, "429 too many requests", http.StatusTooManyRequests)
 			return
 		}
-		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, bwMgr, originChecker, collectors, logger)
+		wsCfg := websocket.WSConfig{
+			Compression: cfg.Compression,
+			Multiplex:   cfg.Multiplex,
+			MTU:         cfg.MTU,
+		}
+		// @sk-task performance-and-polish#T1.1: pass Compression, Multiplex, MTU to Accept (AC-004, AC-006, AC-007)
+		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, bwMgr, originChecker, wsCfg, collectors, logger)
 	})
 
 	cidrMiddleware := func(next http.Handler) http.Handler {
@@ -321,8 +327,8 @@ func main() {
 	logger.Info("shutting down")
 }
 
-func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []config.TokenCfg, prl *sessionPacketLimiter, bwMgr *session.TokenBandwidthManager, originChecker func(r *http.Request) bool, collectors *metrics.Collectors, logger *zap.Logger) {
-	wsConn, err := websocket.Accept(w, r, originChecker)
+func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []config.TokenCfg, prl *sessionPacketLimiter, bwMgr *session.TokenBandwidthManager, originChecker func(r *http.Request) bool, wsCfg websocket.WSConfig, collectors *metrics.Collectors, logger *zap.Logger) {
+	wsConn, err := websocket.Accept(w, r, originChecker, wsCfg)
 	if err != nil {
 		logger.Error("ws upgrade", zap.Error(err))
 		return
@@ -357,6 +363,7 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "invalid token"})
 		authData, _ := authFrame.Encode()
 		wsConn.WriteMessage(authData)
+		framing.ReturnBuffer(authData)
 		wsConn.Close()
 		return
 	}
@@ -376,14 +383,20 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: errMsg})
 		authData, _ := authFrame.Encode()
 		wsConn.WriteMessage(authData)
+		framing.ReturnBuffer(authData)
 		wsConn.Close()
 		return
 	}
 
+	mtu := wsCfg.MTU
+	if mtu <= 0 {
+		mtu = handshake.DefaultMTU
+	}
 	serverHello, err := handshake.EncodeServerHello(&handshake.ServerHello{
 		SessionID:    sess.ID,
 		AssignedIP:   assignedIP,
 		AssignedIPv6: assignedIPv6,
+		MTU:          mtu,
 	})
 	if err != nil {
 		logger.Error("encode server hello", zap.Error(err))
@@ -397,10 +410,12 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		return
 	}
 	if err := wsConn.WriteMessage(helloData); err != nil {
+		framing.ReturnBuffer(helloData)
 		logger.Error("send server hello", zap.Error(err))
 		wsConn.Close()
 		return
 	}
+	framing.ReturnBuffer(helloData)
 
 	logger.Info("session created",
 		zap.String("session", sess.ID),
@@ -455,10 +470,13 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 		}
 		if f.Type == framing.FrameTypeData {
 			n, err := dev.Write(f.Payload)
+			f.Release()
 			if err != nil {
 				return err
 			}
 			collectors.AddThroughput("rx", float64(n))
+		} else {
+			f.Release()
 		}
 	}
 }
@@ -489,8 +507,10 @@ func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 			return err
 		}
 		if err := conn.WriteMessage(data); err != nil {
+			framing.ReturnBuffer(data)
 			return err
 		}
+		framing.ReturnBuffer(data)
 	}
 }
 
