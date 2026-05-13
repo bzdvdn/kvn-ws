@@ -2,19 +2,24 @@ package main
 
 import (
 	"context"
-	"flag"
+	"fmt"
 	"log"
+	"math/rand"
 	"net"
+	"os/exec"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
+	"github.com/bzdvdn/kvn-ws/src/internal/protocol/control"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
+	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
@@ -23,9 +28,11 @@ import (
 // @sk-task foundation#T3.2: client main with graceful shutdown (AC-010)
 // @sk-task core-tunnel-mvp#T4.1: client forwarding loops (AC-007, AC-008)
 // @sk-task core-tunnel-mvp#T4.2: graceful shutdown (AC-010)
+// @sk-task production-hardening#T4.2: reconnect + kill-switch (AC-001, AC-003)
+// @sk-task production-hardening#T4.3: pflag CLI (AC-011)
 func main() {
-	cfgPath := flag.String("config", "configs/client.yaml", "path to config file")
-	flag.Parse()
+	cfgPath := pflag.String("config", "configs/client.yaml", "path to config file")
+	pflag.Parse()
 
 	cfg, err := config.LoadClientConfig(*cfgPath)
 	if err != nil {
@@ -49,11 +56,55 @@ func main() {
 	}
 	defer tunDev.Close()
 
-	tlsCfg := tls.NewClientTLSConfig(true)
-	wsConn, err := websocket.Dial(cfg.Server, tlsCfg)
-	if err != nil {
-		logger.Fatal("ws dial", zap.Error(err))
+	reconnectLoop(ctx, tunDev, cfg, logger)
+}
+
+// @sk-task production-hardening#T4.2: reconnect loop with backoff (AC-001)
+func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.ClientConfig, logger *zap.Logger) {
+	minBackoff := 1 * time.Second
+	maxBackoff := 30 * time.Second
+	if cfg.Reconnect != nil {
+		if cfg.Reconnect.MinBackoffSec > 0 {
+			minBackoff = time.Duration(cfg.Reconnect.MinBackoffSec) * time.Second
+		}
+		if cfg.Reconnect.MaxBackoffSec > 0 {
+			maxBackoff = time.Duration(cfg.Reconnect.MaxBackoffSec) * time.Second
+		}
 	}
+
+	tlsCfg := tls.NewClientTLSConfig(true)
+	backoff := minBackoff
+	attempt := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		attempt++
+		logger.Info("connecting", zap.Int("attempt", attempt), zap.Duration("backoff", backoff))
+
+		wsConn, err := websocket.Dial(cfg.Server, tlsCfg)
+		if err != nil {
+			logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
+			applyKillSwitch(cfg, logger)
+			sleepWithContext(ctx, backoff)
+			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
+			continue
+		}
+
+		wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
+
+		removeKillSwitch(cfg, logger)
+		backoff = minBackoff
+
+		runSession(ctx, tunDev, wsConn, cfg, logger)
+	}
+}
+
+func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSConn, cfg *config.ClientConfig, logger *zap.Logger) {
 	defer wsConn.Close()
 
 	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
@@ -61,23 +112,28 @@ func main() {
 		Token:        cfg.Auth.Token,
 	})
 	if err != nil {
-		logger.Fatal("encode client hello", zap.Error(err))
+		logger.Error("encode client hello", zap.Error(err))
+		return
 	}
 	helloData, err := helloFrame.Encode()
 	if err != nil {
-		logger.Fatal("encode hello frame", zap.Error(err))
+		logger.Error("encode hello frame", zap.Error(err))
+		return
 	}
 	if err := wsConn.WriteMessage(helloData); err != nil {
-		logger.Fatal("send hello", zap.Error(err))
+		logger.Error("send hello", zap.Error(err))
+		return
 	}
 
 	respData, err := wsConn.ReadMessage()
 	if err != nil {
-		logger.Fatal("read server hello", zap.Error(err))
+		logger.Error("read server hello", zap.Error(err))
+		return
 	}
 	var respFrame framing.Frame
 	if err := respFrame.Decode(respData); err != nil {
-		logger.Fatal("decode response frame", zap.Error(err))
+		logger.Error("decode response frame", zap.Error(err))
+		return
 	}
 
 	switch respFrame.Type {
@@ -87,7 +143,8 @@ func main() {
 	case framing.FrameTypeHello:
 		serverHello, err := handshake.DecodeServerHello(&respFrame)
 		if err != nil {
-			logger.Fatal("decode server hello", zap.Error(err))
+			logger.Error("decode server hello", zap.Error(err))
+			return
 		}
 		logger.Info("handshake complete",
 			zap.String("session", serverHello.SessionID),
@@ -98,7 +155,8 @@ func main() {
 			Mask: net.CIDRMask(24, 32),
 		}
 		if err := tunDev.SetIP(serverHello.AssignedIP, mask); err != nil {
-			logger.Fatal("set tun ip", zap.Error(err))
+			logger.Error("set tun ip", zap.Error(err))
+			return
 		}
 		if cfg.MTU > 0 {
 			if err := tunDev.SetMTU(cfg.MTU); err != nil {
@@ -106,7 +164,8 @@ func main() {
 			}
 		}
 	default:
-		logger.Fatal("unexpected response type", zap.Int("type", int(respFrame.Type)))
+		logger.Error("unexpected response type", zap.Int("type", int(respFrame.Type)))
+		return
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
@@ -120,8 +179,56 @@ func main() {
 	if err := eg.Wait(); err != nil {
 		logger.Info("forwarding stopped", zap.Error(err))
 	}
+}
 
-	logger.Info("shutting down")
+// @sk-task production-hardening#T4.2: kill-switch enable (AC-003)
+func applyKillSwitch(cfg *config.ClientConfig, logger *zap.Logger) {
+	if cfg.KillSwitch == nil || !cfg.KillSwitch.Enabled {
+		return
+	}
+	// Create table + chain, then add reject rule to block all non-local traffic
+	cmds := [][]string{
+		{"add", "table", "ip", "kvn-kill"},
+		{"add", "chain", "ip", "kvn-kill", "prerouting", "{ type filter hook prerouting priority 0; }"},
+		{"add", "rule", "ip", "kvn-kill", "prerouting", "reject"},
+	}
+	for _, args := range cmds {
+		if err := exec.Command("nft", args...).Run(); err != nil {
+			logger.Warn("kill-switch: nft command failed", zap.Strings("args", args), zap.Error(err))
+			return
+		}
+	}
+	logger.Info("kill-switch enabled: all traffic blocked")
+}
+
+// @sk-task production-hardening#T4.2: kill-switch disable (AC-003)
+func removeKillSwitch(cfg *config.ClientConfig, logger *zap.Logger) {
+	if cfg.KillSwitch == nil || !cfg.KillSwitch.Enabled {
+		return
+	}
+	if err := exec.Command("nft", "delete", "table", "ip", "kvn-kill").Run(); err != nil {
+		logger.Warn("kill-switch: nftables delete failed", zap.Error(err))
+	}
+}
+
+func nextBackoff(current, min, max time.Duration) time.Duration {
+	next := current * 2
+	jitter := time.Duration(rand.Int63n(int64(time.Second))) - time.Second/2
+	next += jitter
+	if next < min {
+		return min
+	}
+	if next > max {
+		return max
+	}
+	return next
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	}
 }
 
 func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, logger *zap.Logger) error {
@@ -134,7 +241,7 @@ func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 		}
 		n, err := dev.Read(buf)
 		if err != nil {
-			return err
+			return fmt.Errorf("tun read: %w", err)
 		}
 		f := framing.Frame{
 			Type:    framing.FrameTypeData,
@@ -146,7 +253,7 @@ func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 			return err
 		}
 		if err := conn.WriteMessage(data); err != nil {
-			return err
+			return fmt.Errorf("ws write: %w", err)
 		}
 	}
 }
@@ -160,7 +267,7 @@ func wsToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 		}
 		data, err := conn.ReadMessage()
 		if err != nil {
-			return err
+			return fmt.Errorf("ws read: %w", err)
 		}
 		var f framing.Frame
 		if err := f.Decode(data); err != nil {
@@ -168,7 +275,7 @@ func wsToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 		}
 		if f.Type == framing.FrameTypeData {
 			if _, err := dev.Write(f.Payload); err != nil {
-				return err
+				return fmt.Errorf("tun write: %w", err)
 			}
 		}
 	}

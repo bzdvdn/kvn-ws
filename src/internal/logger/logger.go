@@ -7,6 +7,15 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// @sk-task production-hardening#T2.3: structured audit logger (AC-010)
+func Audit(logger *zap.Logger, level zapcore.Level, msg string, fields ...zap.Field) {
+	ce := logger.Check(level, msg)
+	if ce == nil {
+		return
+	}
+	ce.Write(fields...)
+}
+
 // @sk-task foundation#T3.1: zap logger with JSON output (AC-008)
 func New(level string) (*zap.Logger, error) {
 	var lvl zapcore.Level

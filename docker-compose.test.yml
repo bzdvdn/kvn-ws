@@ -16,3 +16,11 @@ services:
       - KVN_CLIENT_ROUTING_DEFAULT_ROUTE=direct
       - KVN_CLIENT_ROUTING_INCLUDE_RANGES=10.0.0.0/8,172.16.0.0/12
       - KVN_CLIENT_ROUTING_INCLUDE_DOMAINS=corp.example.com
+
+  stability:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    entrypoint: ["test-stability.sh", "200"]
+    cap_add:
+      - NET_ADMIN

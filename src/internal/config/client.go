@@ -2,13 +2,15 @@ package config
 
 // @sk-task foundation#T2.3: client config struct (AC-006)
 type ClientConfig struct {
-	Server        string      `mapstructure:"server"`
-	Auth          AuthCfg     `mapstructure:"auth"`
-	MTU           int         `mapstructure:"mtu"`
-	IPv6          bool        `mapstructure:"ipv6"`
-	AutoReconnect bool        `mapstructure:"auto_reconnect"`
-	Log           LogConfig   `mapstructure:"log"`
-	Routing       *RoutingCfg `mapstructure:"routing"`
+	Server        string        `mapstructure:"server"`
+	Auth          AuthCfg       `mapstructure:"auth"`
+	MTU           int           `mapstructure:"mtu"`
+	IPv6          bool          `mapstructure:"ipv6"`
+	AutoReconnect bool          `mapstructure:"auto_reconnect"`
+	Log           LogConfig     `mapstructure:"log"`
+	Routing       *RoutingCfg   `mapstructure:"routing"`
+	KillSwitch    *KillSwitchCfg `mapstructure:"kill_switch"`
+	Reconnect     *ReconnectCfg  `mapstructure:"reconnect"`
 }
 
 // @sk-task routing-split-tunnel#T1.1: routing config struct (AC-009)
@@ -20,6 +22,17 @@ type RoutingCfg struct {
 	ExcludeIPs     []string `mapstructure:"exclude_ips"`
 	IncludeDomains []string `mapstructure:"include_domains"`
 	ExcludeDomains []string `mapstructure:"exclude_domains"`
+}
+
+// @sk-task production-hardening#T1.1: kill switch config (AC-003)
+type KillSwitchCfg struct {
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// @sk-task production-hardening#T1.1: reconnect config (AC-001)
+type ReconnectCfg struct {
+	MinBackoffSec int `mapstructure:"min_backoff_sec"`
+	MaxBackoffSec int `mapstructure:"max_backoff_sec"`
 }
 
 type AuthCfg struct {

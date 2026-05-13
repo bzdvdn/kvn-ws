@@ -16,13 +16,13 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/transport/framing/` — binary frame protocol (stub)
 - `src/internal/protocol/handshake/` — Client/Server Hello (stub)
 - `src/internal/protocol/auth/` — token/jwt/basic auth (stub)
-- `src/internal/protocol/control/` — PING, CLOSE, ROUTE_UPDATE (stub)
+- `src/internal/protocol/control/` — PING/PONG keepalive, session control
 - `src/internal/routing/` — packet routing engine (RuleSet, CIDR/IP/domain matchers, ordered rules)
 - `src/internal/dns/` — DNS resolver with in-memory TTL cache
 - `src/internal/nat/` — nftables MASQUERADE (server-side NAT)
-- `src/internal/session/` — session management + IP pool (stub)
+- `src/internal/session/` — session management, IP pool, expiry/reclaim, BoltDB persistence
 - `src/internal/crypto/` — app-layer encryption (stub)
-- `src/internal/metrics/` — Prometheus metrics (stub)
+- `src/internal/metrics/` — Prometheus metrics (active_sessions, throughput, errors)
 - `src/pkg/api/` — public API package (stub)
 
 ## Key Paths
@@ -41,7 +41,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 ## Where To Edit
 - Core tunnel logic — `src/internal/tun/`, `src/internal/transport/*`, `src/internal/protocol/*`
 - Routing/rules — `src/internal/routing/`, `src/internal/nat/`, `src/internal/dns/`
-- Session/auth — `src/internal/session/`, `src/internal/protocol/auth/`
+- Session/auth — `src/internal/session/`, `src/internal/protocol/auth/`, `src/internal/logger/`
 - Config changes — `src/internal/config/`
 - Logging/metrics — `src/internal/logger/`, `src/internal/metrics/`
 

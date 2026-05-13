@@ -3,16 +3,20 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
-	"github.com/bzdvdn/kvn-ws/src/internal/logger"
+	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
+	"github.com/bzdvdn/kvn-ws/src/internal/metrics"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/auth"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
@@ -20,8 +24,11 @@ import (
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/time/rate"
 )
 
 // @sk-task foundation#T1.1: Go module init (AC-001)
@@ -37,7 +44,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	logger, err := logger.New(cfg.Logging.Level)
+	logger, err := pkglog.New(cfg.Logging.Level)
 	if err != nil {
 		log.Fatalf("logger: %v", err)
 	}
@@ -48,6 +55,26 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	// @sk-task production-hardening#T5.1: sighup reload handler (AC-009)
+	cfgPtr := config.NewAtomicConfig(cfg)
+	sighupCh := make(chan os.Signal, 1)
+	signal.Notify(sighupCh, syscall.SIGHUP)
+	cfgPathVal := *cfgPath
+	go func() {
+		for range sighupCh {
+			logger.Info("sighup received, reloading config")
+			newCfg, err := config.LoadServerConfig(cfgPathVal)
+			if err != nil {
+				logger.Warn("config reload failed, keeping old config", zap.Error(err))
+				continue
+			}
+			cfgPtr.Store(newCfg)
+			logger.Info("config reloaded",
+				zap.Int("tokens", len(newCfg.Auth.Tokens)),
+			)
+		}
+	}()
+
 	pool, err := session.NewIPPool(session.PoolCfg{
 		Subnet:     cfg.Network.PoolIPv4.Subnet,
 		Gateway:    cfg.Network.PoolIPv4.Gateway,
@@ -57,8 +84,25 @@ func main() {
 	if err != nil {
 		logger.Fatal("create ip pool", zap.Error(err))
 	}
+
+	if cfg.BoltDBPath != "" {
+		boltStore, err := session.NewBoltStore(cfg.BoltDBPath)
+		if err != nil {
+			logger.Warn("bolt db init, using in-memory pool", zap.Error(err))
+		} else {
+			pool.SetBoltStore(boltStore)
+			if err := pool.LoadFromBolt(); err != nil {
+				logger.Warn("bolt db load", zap.Error(err))
+			}
+			logger.Info("ip pool loaded from bolt", zap.String("path", cfg.BoltDBPath))
+		}
+	}
+
 	sm := session.NewSessionManager(pool)
-	_ = sm
+	sm.Start(300*time.Second, 24*time.Hour, 10*time.Second)
+
+	collectors := metrics.NewCollectors()
+	ready := false
 
 	tunDev := tun.NewTunDevice()
 	if err := tunDev.Open(); err != nil {
@@ -84,13 +128,39 @@ func main() {
 	defer tlsListener.Close()
 
 	mux := http.NewServeMux()
+
+	rl := newRateLimiter(cfg.RateLimiting.AuthBurst, cfg.RateLimiting.AuthPerMinute)
+	prl := newSessionPacketLimiter(cfg.RateLimiting.PacketsPerSec)
+
 	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
-		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, logger)
+		if !rl.Allow(r.RemoteAddr) {
+			pkglog.Audit(logger, zapcore.WarnLevel, "auth rate limited",
+				zap.String("remote_addr", r.RemoteAddr),
+				zap.String("reason", "rate limit exceeded"),
+			)
+			http.Error(w, "429 too many requests", http.StatusTooManyRequests)
+			return
+		}
+		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, collectors, logger)
 	})
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !ready {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"status": "not ready"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+
+	mux.Handle("/metrics", promhttp.Handler())
 
 	httpServer := &http.Server{
 		Handler: mux,
 	}
+
+	ready = true
 
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
@@ -115,7 +185,7 @@ func main() {
 	logger.Info("shutting down")
 }
 
-func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []string, logger *zap.Logger) {
+func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger) {
 	wsConn, err := websocket.Accept(w, r)
 	if err != nil {
 		logger.Error("ws upgrade", zap.Error(err))
@@ -142,7 +212,11 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	}
 
 	if !auth.ValidateToken(clientHello.Token, validTokens) {
-		logger.Warn("auth failed")
+		pkglog.Audit(logger, zapcore.WarnLevel, "auth failed",
+			zap.String("session_id", ""),
+			zap.String("reason", "invalid token"),
+			zap.String("remote_addr", r.RemoteAddr),
+		)
 		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "invalid token"})
 		authData, _ := authFrame.Encode()
 		wsConn.WriteMessage(authData)
@@ -185,13 +259,14 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		zap.String("session", sess.ID),
 		zap.String("ip", assignedIP.String()),
 	)
+	collectors.ActiveSessions.Inc()
 
 	eg, ctx := errgroup.WithContext(context.Background())
 	eg.Go(func() error {
-		return serverWSToTun(ctx, tunDev, wsConn, logger)
+		return serverWSToTun(ctx, tunDev, wsConn, sess.ID, prl, collectors, logger)
 	})
 	eg.Go(func() error {
-		return serverTunToWS(ctx, tunDev, wsConn, sess.ID, logger)
+		return serverTunToWS(ctx, tunDev, wsConn, sess.ID, collectors, logger)
 	})
 
 	if err := eg.Wait(); err != nil {
@@ -201,17 +276,25 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 			zap.Error(err),
 		)
 	}
+	collectors.ActiveSessions.Dec()
 
 	sm.Remove(sess.ID)
 	wsConn.Close()
 }
 
-func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, logger *zap.Logger) error {
+func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+		if prl != nil && !prl.Allow(sessionID) {
+			pkglog.Audit(logger, zapcore.WarnLevel, "packet rate limited",
+				zap.String("session_id", sessionID),
+				zap.String("reason", "packet rate exceeded"),
+			)
+			continue
 		}
 		data, err := conn.ReadMessage()
 		if err != nil {
@@ -222,14 +305,16 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 			return err
 		}
 		if f.Type == framing.FrameTypeData {
-			if _, err := dev.Write(f.Payload); err != nil {
+			n, err := dev.Write(f.Payload)
+			if err != nil {
 				return err
 			}
+			collectors.AddThroughput("rx", float64(n))
 		}
 	}
 }
 
-func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, logger *zap.Logger) error {
+func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, collectors *metrics.Collectors, logger *zap.Logger) error {
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -254,6 +339,58 @@ func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 			return err
 		}
 	}
+}
+
+// @sk-task production-hardening#T2.2: auth rate limiter per IP (AC-004)
+type ipRateLimiter struct {
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+	burst    int
+	perMin   int
+}
+
+func newRateLimiter(burst, perMin int) *ipRateLimiter {
+	return &ipRateLimiter{
+		limiters: make(map[string]*rate.Limiter),
+		burst:    burst,
+		perMin:   perMin,
+	}
+}
+
+func (rl *ipRateLimiter) Allow(addr string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	lim, ok := rl.limiters[addr]
+	if !ok {
+		lim = rate.NewLimiter(rate.Limit(rl.perMin)/60, rl.burst)
+		rl.limiters[addr] = lim
+	}
+	return lim.Allow()
+}
+
+// @sk-task production-hardening#T2.2: per-session packet rate limiter (AC-004)
+type sessionPacketLimiter struct {
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+	perSec   int
+}
+
+func newSessionPacketLimiter(perSec int) *sessionPacketLimiter {
+	return &sessionPacketLimiter{
+		limiters: make(map[string]*rate.Limiter),
+		perSec:   perSec,
+	}
+}
+
+func (pl *sessionPacketLimiter) Allow(sessionID string) bool {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	lim, ok := pl.limiters[sessionID]
+	if !ok {
+		lim = rate.NewLimiter(rate.Limit(pl.perSec), pl.perSec)
+		pl.limiters[sessionID] = lim
+	}
+	return lim.Allow()
 }
 
 var tunnelShutdownTimeout = 5 * time.Second

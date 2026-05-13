@@ -4,6 +4,7 @@ package session
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"net"
 	"sync"
@@ -26,6 +27,33 @@ type IPPool struct {
 	end       net.IP
 	allocated map[string]net.IP
 	usedIPs   map[string]bool
+	boltStore *BoltStore
+}
+
+// @sk-task production-hardening#T3.1: set bolt store for pool persistence (AC-006)
+func (p *IPPool) SetBoltStore(s *BoltStore) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.boltStore = s
+}
+
+// @sk-task production-hardening#T3.1: load allocations from bolt store (AC-006)
+func (p *IPPool) LoadFromBolt() error {
+	if p.boltStore == nil {
+		return nil
+	}
+	allocated, err := p.boltStore.LoadAllocations()
+	if err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.usedIPs = make(map[string]bool)
+	for sessionID, ip := range allocated {
+		p.allocated[sessionID] = ip
+		p.usedIPs[ip.String()] = true
+	}
+	return nil
 }
 
 func NewIPPool(cfg PoolCfg) (*IPPool, error) {
@@ -92,6 +120,7 @@ func (p *IPPool) Allocate(sessionID string) (net.IP, error) {
 		copy(assigned, ip)
 		p.allocated[sessionID] = assigned
 		p.usedIPs[ipStr] = true
+		p.saveBolt()
 		return assigned, nil
 	}
 	return nil, fmt.Errorf("ip pool exhausted for subnet %s", p.subnet)
@@ -103,6 +132,16 @@ func (p *IPPool) Release(sessionID string) {
 	if ip, ok := p.allocated[sessionID]; ok {
 		delete(p.usedIPs, ip.String())
 		delete(p.allocated, sessionID)
+		p.saveBolt()
+	}
+}
+
+func (p *IPPool) saveBolt() {
+	if p.boltStore == nil {
+		return
+	}
+	if err := p.boltStore.SaveAllocations(p.allocated); err != nil {
+		log.Printf("[pool] bolt save: %v", err)
 	}
 }
 
@@ -117,21 +156,81 @@ func (p *IPPool) Resolve(sessionID string) (net.IP, bool) {
 }
 
 type Session struct {
-	ID          string
-	AssignedIP  net.IP
-	ConnectedAt time.Time
+	ID           string
+	AssignedIP   net.IP
+	ConnectedAt  time.Time
+	LastActivity time.Time
 }
 
+// @sk-task production-hardening#T2.1: session manager with expiry (AC-005)
 type SessionManager struct {
-	mu       sync.Mutex
-	pool     *IPPool
-	sessions map[string]*Session
+	mu          sync.Mutex
+	pool        *IPPool
+	sessions    map[string]*Session
+	idleTimeout time.Duration
+	sessionTTL  time.Duration
+	stopCh      chan struct{}
 }
 
 func NewSessionManager(pool *IPPool) *SessionManager {
 	return &SessionManager{
 		pool:     pool,
 		sessions: make(map[string]*Session),
+		stopCh:   make(chan struct{}),
+	}
+}
+
+// @sk-task production-hardening#T2.1: start expiry goroutine (AC-005)
+func (sm *SessionManager) Start(idleTimeout, sessionTTL, interval time.Duration) {
+	sm.mu.Lock()
+	sm.idleTimeout = idleTimeout
+	sm.sessionTTL = sessionTTL
+	sm.mu.Unlock()
+
+	go sm.reclaimLoop(interval)
+}
+
+func (sm *SessionManager) Stop() {
+	close(sm.stopCh)
+}
+
+func (sm *SessionManager) reclaimLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			sm.expireIdle()
+			sm.expireTTL()
+		case <-sm.stopCh:
+			return
+		}
+	}
+}
+
+// @sk-task production-hardening#T2.1: expire idle sessions (AC-005)
+func (sm *SessionManager) expireIdle() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	now := time.Now()
+	for id, s := range sm.sessions {
+		if sm.idleTimeout > 0 && now.Sub(s.LastActivity) > sm.idleTimeout {
+			delete(sm.sessions, id)
+			sm.pool.Release(id)
+		}
+	}
+}
+
+// @sk-task production-hardening#T2.1: expire ttl sessions (AC-005)
+func (sm *SessionManager) expireTTL() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	now := time.Now()
+	for id, s := range sm.sessions {
+		if sm.sessionTTL > 0 && now.Sub(s.ConnectedAt) > sm.sessionTTL {
+			delete(sm.sessions, id)
+			sm.pool.Release(id)
+		}
 	}
 }
 
@@ -145,10 +244,12 @@ func (sm *SessionManager) Create(sessionID string) (*Session, net.IP, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	now := time.Now()
 	s := &Session{
-		ID:          sessionID,
-		AssignedIP:  ip,
-		ConnectedAt: time.Now(),
+		ID:           sessionID,
+		AssignedIP:   ip,
+		ConnectedAt:  now,
+		LastActivity: now,
 	}
 	sm.sessions[sessionID] = s
 	return s, ip, nil
@@ -166,6 +267,15 @@ func (sm *SessionManager) Get(sessionID string) (*Session, bool) {
 	defer sm.mu.Unlock()
 	s, ok := sm.sessions[sessionID]
 	return s, ok
+}
+
+// @sk-task production-hardening#T2.1: update session activity (AC-005)
+func (sm *SessionManager) UpdateActivity(sessionID string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if s, ok := sm.sessions[sessionID]; ok {
+		s.LastActivity = time.Now()
+	}
 }
 
 func nextIP(ip net.IP) net.IP {
