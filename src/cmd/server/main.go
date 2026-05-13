@@ -1,3 +1,6 @@
+// @sk-task security-acl#T3: CIDR ACL middleware integration
+// @sk-task security-acl#T7: Bandwidth limiter integration
+// @sk-task security-acl#T10: Admin API integration
 package main
 
 import (
@@ -5,15 +8,19 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/acl"
+	"github.com/bzdvdn/kvn-ws/src/internal/admin"
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/metrics"
@@ -75,6 +82,18 @@ func main() {
 		}
 	}()
 
+	// @sk-task security-acl#T3: CIDR matcher setup
+	cidrMatcher, err := acl.NewCIDRMatcher(cfg.ACL.AllowCIDRs, cfg.ACL.DenyCIDRs)
+	if err != nil {
+		logger.Fatal("cidr matcher", zap.Error(err))
+	}
+	if len(cfg.ACL.DenyCIDRs) > 0 {
+		logger.Info("cidr deny list", zap.Strings("cidrs", cfg.ACL.DenyCIDRs))
+	}
+	if len(cfg.ACL.AllowCIDRs) > 0 {
+		logger.Info("cidr allow list", zap.Strings("cidrs", cfg.ACL.AllowCIDRs))
+	}
+
 	pool, err := session.NewIPPool(session.PoolCfg{
 		Subnet:     cfg.Network.PoolIPv4.Subnet,
 		Gateway:    cfg.Network.PoolIPv4.Gateway,
@@ -116,9 +135,12 @@ func main() {
 		logger.Fatal("set tun ip", zap.Error(err))
 	}
 
-	tlsCfg, err := tlspkg.NewServerTLSConfig(cfg.TLS.Cert, cfg.TLS.Key)
+	tlsCfg, err := tlspkg.NewServerTLSConfig(cfg.TLS.Cert, cfg.TLS.Key, cfg.TLS.ClientCAFile, cfg.TLS.ClientAuth)
 	if err != nil {
 		logger.Fatal("tls config", zap.Error(err))
+	}
+	if cfg.TLS.ClientCAFile != "" {
+		logger.Info("mtls enabled", zap.String("client_ca", cfg.TLS.ClientCAFile), zap.String("client_auth", cfg.TLS.ClientAuth))
 	}
 
 	tlsListener, err := tls.Listen("tcp", cfg.Listen, tlsCfg)
@@ -127,12 +149,23 @@ func main() {
 	}
 	defer tlsListener.Close()
 
+	// @sk-task security-acl#T4: origin checker
+	originChecker := websocket.NewOriginChecker(cfg.Origin.Whitelist, cfg.Origin.AllowEmpty)
+
+	// @sk-task security-acl#T6: bandwidth manager
+	bwCfg := make(map[string]int)
+	for _, tc := range cfg.Auth.Tokens {
+		bwCfg[tc.Name] = tc.BandwidthBPS
+	}
+	bwMgr := session.NewTokenBandwidthManager(bwCfg)
+
 	mux := http.NewServeMux()
 
 	rl := newRateLimiter(cfg.RateLimiting.AuthBurst, cfg.RateLimiting.AuthPerMinute)
 	prl := newSessionPacketLimiter(cfg.RateLimiting.PacketsPerSec)
 
-	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
+	// @sk-task security-acl#T3: CIDR ACL middleware
+	tunnelHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !rl.Allow(r.RemoteAddr) {
 			pkglog.Audit(logger, zapcore.WarnLevel, "auth rate limited",
 				zap.String("remote_addr", r.RemoteAddr),
@@ -141,8 +174,29 @@ func main() {
 			http.Error(w, "429 too many requests", http.StatusTooManyRequests)
 			return
 		}
-		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, collectors, logger)
+		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, bwMgr, originChecker, collectors, logger)
 	})
+
+	cidrMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				host = r.RemoteAddr
+			}
+			ip := net.ParseIP(host)
+			if ip != nil && !cidrMatcher.Allowed(ip) {
+				pkglog.Audit(logger, zapcore.WarnLevel, "connection denied by CIDR ACL",
+					zap.String("remote_addr", r.RemoteAddr),
+					zap.String("ip", host),
+				)
+				http.Error(w, "403 forbidden", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	mux.Handle("/tunnel", cidrMiddleware(tunnelHandler))
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -178,6 +232,39 @@ func main() {
 		return httpServer.Shutdown(shutdownCtx)
 	})
 
+	// @sk-task security-acl#T10: Admin API server
+	if cfg.Admin.Enabled {
+		adminCfg := admin.AdminCfg{
+			Enabled: cfg.Admin.Enabled,
+			Listen:  cfg.Admin.Listen,
+			Token:   cfg.Admin.Token,
+		}
+		adminSrv := admin.NewAdminServer(adminCfg, sm)
+
+		if cfg.Admin.Token == "" {
+			logger.Warn("admin api token not set, disabling admin api")
+		} else {
+			addr := cfg.Admin.Listen
+			if !strings.HasPrefix(addr, "localhost:") && !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "unix:") {
+				logger.Warn("admin api listening on non-loopback interface", zap.String("addr", addr))
+			}
+			logger.Info("admin api enabled", zap.String("listen", addr))
+
+			eg.Go(func() error {
+				if err := adminSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					return fmt.Errorf("admin api: %w", err)
+				}
+				return nil
+			})
+			eg.Go(func() error {
+				<-ctx.Done()
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), tunnelShutdownTimeout)
+				defer cancel()
+				return adminSrv.Shutdown(shutdownCtx)
+			})
+		}
+	}
+
 	if err := eg.Wait(); err != nil {
 		logger.Info("server stopped", zap.Error(err))
 	}
@@ -185,8 +272,8 @@ func main() {
 	logger.Info("shutting down")
 }
 
-func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger) {
-	wsConn, err := websocket.Accept(w, r)
+func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []config.TokenCfg, prl *sessionPacketLimiter, bwMgr *session.TokenBandwidthManager, originChecker func(r *http.Request) bool, collectors *metrics.Collectors, logger *zap.Logger) {
+	wsConn, err := websocket.Accept(w, r, originChecker)
 	if err != nil {
 		logger.Error("ws upgrade", zap.Error(err))
 		return
@@ -211,7 +298,8 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		return
 	}
 
-	if !auth.ValidateToken(clientHello.Token, validTokens) {
+	tokenCfg := auth.FindToken(clientHello.Token, validTokens)
+	if tokenCfg == nil {
 		pkglog.Audit(logger, zapcore.WarnLevel, "auth failed",
 			zap.String("session_id", ""),
 			zap.String("reason", "invalid token"),
@@ -224,10 +312,19 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		return
 	}
 
-	sess, assignedIP, err := sm.Create(clientHello.Token)
+	tokenName := tokenCfg.Name
+	sess, assignedIP, err := sm.Create(clientHello.Token, tokenName, r.RemoteAddr, tokenCfg.MaxSessions)
 	if err != nil {
-		logger.Error("session create", zap.Error(err))
-		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "pool exhausted"})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "max sessions exceeded") {
+			pkglog.Audit(logger, zapcore.WarnLevel, "max sessions exceeded",
+				zap.String("token_name", tokenName),
+				zap.String("remote_addr", r.RemoteAddr),
+			)
+		} else {
+			logger.Error("session create", zap.Error(err))
+		}
+		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: errMsg})
 		authData, _ := authFrame.Encode()
 		wsConn.WriteMessage(authData)
 		wsConn.Close()
@@ -257,6 +354,7 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 
 	logger.Info("session created",
 		zap.String("session", sess.ID),
+		zap.String("token", tokenName),
 		zap.String("ip", assignedIP.String()),
 	)
 	collectors.ActiveSessions.Inc()
@@ -266,12 +364,13 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		return serverWSToTun(ctx, tunDev, wsConn, sess.ID, prl, collectors, logger)
 	})
 	eg.Go(func() error {
-		return serverTunToWS(ctx, tunDev, wsConn, sess.ID, collectors, logger)
+		return serverTunToWS(ctx, tunDev, wsConn, sess.ID, tokenName, bwMgr, collectors, logger)
 	})
 
 	if err := eg.Wait(); err != nil {
 		logger.Info("session ended",
 			zap.String("session", sess.ID),
+			zap.String("token", tokenName),
 			zap.String("ip", assignedIP.String()),
 			zap.Error(err),
 		)
@@ -314,7 +413,7 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 	}
 }
 
-func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, collectors *metrics.Collectors, logger *zap.Logger) error {
+func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID, tokenName string, bwMgr *session.TokenBandwidthManager, collectors *metrics.Collectors, logger *zap.Logger) error {
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -325,6 +424,10 @@ func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 		n, err := dev.Read(buf)
 		if err != nil {
 			return err
+		}
+		if bwMgr != nil && !bwMgr.Allow(tokenName, n) {
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 		f := framing.Frame{
 			Type:    framing.FrameTypeData,

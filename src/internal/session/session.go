@@ -157,16 +157,20 @@ func (p *IPPool) Resolve(sessionID string) (net.IP, bool) {
 
 type Session struct {
 	ID           string
+	TokenName    string
 	AssignedIP   net.IP
+	RemoteAddr   string
 	ConnectedAt  time.Time
 	LastActivity time.Time
 }
 
 // @sk-task production-hardening#T2.1: session manager with expiry (AC-005)
+// @sk-task security-acl#T5: max_sessions per token
 type SessionManager struct {
 	mu          sync.Mutex
 	pool        *IPPool
 	sessions    map[string]*Session
+	sessionCnt  map[string]int
 	idleTimeout time.Duration
 	sessionTTL  time.Duration
 	stopCh      chan struct{}
@@ -174,9 +178,10 @@ type SessionManager struct {
 
 func NewSessionManager(pool *IPPool) *SessionManager {
 	return &SessionManager{
-		pool:     pool,
-		sessions: make(map[string]*Session),
-		stopCh:   make(chan struct{}),
+		pool:       pool,
+		sessions:   make(map[string]*Session),
+		sessionCnt: make(map[string]int),
+		stopCh:     make(chan struct{}),
 	}
 }
 
@@ -234,11 +239,18 @@ func (sm *SessionManager) expireTTL() {
 	}
 }
 
-func (sm *SessionManager) Create(sessionID string) (*Session, net.IP, error) {
+// @sk-task security-acl#T5: Create with maxSessions check
+func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSessions int) (*Session, net.IP, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if s, ok := sm.sessions[sessionID]; ok {
 		return s, s.AssignedIP, nil
+	}
+	if maxSessions > 0 {
+		cnt := sm.sessionCnt[tokenName]
+		if cnt >= maxSessions {
+			return nil, nil, fmt.Errorf("max sessions exceeded for token %s", tokenName)
+		}
 	}
 	ip, err := sm.pool.Allocate(sessionID)
 	if err != nil {
@@ -247,26 +259,50 @@ func (sm *SessionManager) Create(sessionID string) (*Session, net.IP, error) {
 	now := time.Now()
 	s := &Session{
 		ID:           sessionID,
+		TokenName:    tokenName,
 		AssignedIP:   ip,
+		RemoteAddr:   remoteAddr,
 		ConnectedAt:  now,
 		LastActivity: now,
 	}
 	sm.sessions[sessionID] = s
+	sm.sessionCnt[tokenName]++
 	return s, ip, nil
 }
 
+// @sk-task security-acl#T5: Remove decrements session count
 func (sm *SessionManager) Remove(sessionID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	s, ok := sm.sessions[sessionID]
+	if ok {
+		sm.sessionCnt[s.TokenName]--
+		if sm.sessionCnt[s.TokenName] <= 0 {
+			delete(sm.sessionCnt, s.TokenName)
+		}
+	}
 	delete(sm.sessions, sessionID)
 	sm.pool.Release(sessionID)
 }
 
-func (sm *SessionManager) Get(sessionID string) (*Session, bool) {
+func (sm *SessionManager) Get(sessionID string) *Session {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	s, ok := sm.sessions[sessionID]
-	return s, ok
+	if !ok {
+		return nil
+	}
+	return s
+}
+
+func (sm *SessionManager) List() []*Session {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	result := make([]*Session, 0, len(sm.sessions))
+	for _, s := range sm.sessions {
+		result = append(result, s)
+	}
+	return result
 }
 
 // @sk-task production-hardening#T2.1: update session activity (AC-005)

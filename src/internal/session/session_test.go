@@ -1,3 +1,4 @@
+// @sk-task security-acl#T5: session max_sessions tests
 package session
 
 import (
@@ -145,11 +146,55 @@ func TestIPPoolExhaustion(t *testing.T) {
 	}
 }
 
+// @sk-test security-acl#T5: max_sessions limit enforcement (AC-004)
+func TestSessionManagerMaxSessions(t *testing.T) {
+	pool := testPool(t)
+	sm := NewSessionManager(pool)
+
+	_, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 2)
+	if err != nil {
+		t.Fatalf("Create sess-1: %v", err)
+	}
+	_, _, err = sm.Create("sess-2", "user1", "10.0.0.2:1234", 2)
+	if err != nil {
+		t.Fatalf("Create sess-2: %v", err)
+	}
+	_, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 2)
+	if err == nil {
+		t.Fatal("expected max sessions exceeded error")
+	}
+
+	sm.Remove("sess-1")
+	_, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 2)
+	if err != nil {
+		t.Fatalf("Create sess-3 after remove: %v", err)
+	}
+}
+
+// @sk-test security-acl#T5: max_sessions=0 means unlimited (AC-004)
+func TestSessionManagerMaxSessionsZero(t *testing.T) {
+	pool := testPool(t)
+	sm := NewSessionManager(pool)
+
+	_, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 0)
+	if err != nil {
+		t.Fatalf("Create sess-1: %v", err)
+	}
+	_, _, err = sm.Create("sess-2", "user1", "10.0.0.2:1234", 0)
+	if err != nil {
+		t.Fatalf("Create sess-2: %v", err)
+	}
+	_, _, err = sm.Create("sess-3", "user1", "10.0.0.3:1234", 0)
+	if err != nil {
+		t.Fatalf("Create sess-3 with unlimited: %v", err)
+	}
+}
+
 func TestSessionManagerCreateGetRemove(t *testing.T) {
 	pool := testPool(t)
 	sm := NewSessionManager(pool)
 
-	sess, ip, err := sm.Create("session-1")
+	sess, ip, err := sm.Create("session-1", "test-token", "10.0.0.1:1234", 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -161,17 +206,17 @@ func TestSessionManagerCreateGetRemove(t *testing.T) {
 		t.Fatal("assigned IP is nil")
 	}
 
-	got, ok := sm.Get("session-1")
-	if !ok {
-		t.Fatal("Get returned false")
+	got := sm.Get("session-1")
+	if got == nil {
+		t.Fatal("Get returned nil")
 	}
 	if got.ID != "session-1" {
 		t.Errorf("Get ID = %s", got.ID)
 	}
 
 	sm.Remove("session-1")
-	_, ok = sm.Get("session-1")
-	if ok {
-		t.Error("Get after Remove returned true")
+	got = sm.Get("session-1")
+	if got != nil {
+		t.Error("Get after Remove returned non-nil")
 	}
 }

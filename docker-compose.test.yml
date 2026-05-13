@@ -24,3 +24,24 @@ services:
     entrypoint: ["test-stability.sh", "200"]
     cap_add:
       - NET_ADMIN
+
+  security-acl:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    entrypoint: ["test-security.sh"]
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - KVN_SERVER_LISTEN=:1443
+      - KVN_SERVER_ACL_DENY_CIDRS=["10.0.0.0/8"]
+      - KVN_SERVER_AUTH_TOKENS=[{"name":"test","secret":"tok","bandwidth_bps":0,"max_sessions":0}]
+      - KVN_SERVER_ADMIN_ENABLED=true
+      - KVN_SERVER_ADMIN_LISTEN=localhost:8443
+      - KVN_SERVER_ADMIN_TOKEN=admin-secret
+      - KVN_SERVER_TLS_CERT=
+      - KVN_SERVER_TLS_KEY=
+      - KVN_SERVER_NETWORK_POOL_IPV4_SUBNET=10.20.0.0/24
+      - KVN_SERVER_NETWORK_POOL_IPV4_GATEWAY=10.20.0.1
+      - KVN_SERVER_NETWORK_POOL_IPV4_RANGE_START=10.20.0.10
+      - KVN_SERVER_NETWORK_POOL_IPV4_RANGE_END=10.20.0.20

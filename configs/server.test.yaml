@@ -15,6 +15,9 @@ session:
 auth:
   mode: token
   tokens:
-    - test-token
+    - name: test-user
+      secret: test-token
+      bandwidth_bps: 0
+      max_sessions: 0
 logging:
   level: debug

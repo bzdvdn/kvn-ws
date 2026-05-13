@@ -1,12 +1,14 @@
 // @sk-task foundation#T1.3: internal stubs (AC-002)
 // @sk-task production-hardening#T4.1: keepalive support (AC-002)
 
+// @sk-task security-acl#T4: Origin/Referer validation with configurable CheckOrigin
 package websocket
 
 import (
 	"crypto/tls"
 	"log"
 	"net/http"
+	"path"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -63,11 +65,36 @@ func Dial(serverURL string, tlsConfig *tls.Config) (*WSConn, error) {
 	return &WSConn{conn: conn}, nil
 }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+// @sk-task security-acl#T4: NewOriginChecker creates origin check function from whitelist
+func NewOriginChecker(whitelist []string, allowEmpty bool) func(r *http.Request) bool {
+	return func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = r.Header.Get("Referer")
+		}
+		if origin == "" {
+			return allowEmpty
+		}
+		for _, p := range whitelist {
+			matched, err := path.Match(p, origin)
+			if err == nil && matched {
+				return true
+			}
+		}
+		return false
+	}
 }
 
-func Accept(w http.ResponseWriter, r *http.Request) (*WSConn, error) {
+func Accept(w http.ResponseWriter, r *http.Request, originCheckers ...func(r *http.Request) bool) (*WSConn, error) {
+	var checkOrigin func(r *http.Request) bool
+	if len(originCheckers) > 0 && originCheckers[0] != nil {
+		checkOrigin = originCheckers[0]
+	} else {
+		checkOrigin = func(r *http.Request) bool { return true }
+	}
+	upgrader := websocket.Upgrader{
+		CheckOrigin: checkOrigin,
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return nil, err
@@ -78,8 +105,4 @@ func Accept(w http.ResponseWriter, r *http.Request) (*WSConn, error) {
 	return &WSConn{conn: conn}, nil
 }
 
-func ResetUpgrader() {
-	upgrader = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
-	}
-}
+func ResetUpgrader() {}

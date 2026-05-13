@@ -13,6 +13,9 @@ session:
 auth:
   mode: token
   tokens:
-    - your-token-here
+    - name: default
+      secret: your-token-here
+      bandwidth_bps: 0
+      max_sessions: 0
 logging:
   level: info
