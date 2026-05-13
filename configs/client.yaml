@@ -6,3 +6,11 @@ ipv6: false
 auto_reconnect: true
 log:
   level: info
+routing:
+  default_route: server
+  include_ranges: []
+  exclude_ranges: []
+  include_ips: []
+  exclude_ips: []
+  include_domains: []
+  exclude_domains: []

@@ -1,0 +1,18 @@
+# @sk-task routing-split-tunnel#T4.1: gate test docker-compose (AC-010)
+services:
+  gate-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - /lib/modules:/lib/modules:ro
+    environment:
+      - KVN_SERVER_LISTEN=:443
+      - KVN_SERVER_AUTH_TOKENS=test-token
+      - KVN_CLIENT_SERVER=https://localhost:443/ws
+      - KVN_CLIENT_AUTH_TOKEN=test-token
+      - KVN_CLIENT_ROUTING_DEFAULT_ROUTE=direct
+      - KVN_CLIENT_ROUTING_INCLUDE_RANGES=10.0.0.0/8,172.16.0.0/12
+      - KVN_CLIENT_ROUTING_INCLUDE_DOMAINS=corp.example.com

@@ -1,0 +1,19 @@
+server: https://kvn-server:443/ws
+auth:
+  token: test-token
+mtu: 1400
+ipv6: false
+auto_reconnect: true
+log:
+  level: debug
+routing:
+  default_route: direct
+  include_ranges:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+  exclude_ranges: []
+  include_ips: []
+  exclude_ips: []
+  include_domains:
+    - corp.example.com
+  exclude_domains: []

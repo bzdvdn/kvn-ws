@@ -5,6 +5,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 ## Entry Points
 - `src/cmd/client/main.go` — CLI entrypoint: KVN-over-WS client
 - `src/cmd/server/main.go` — CLI entrypoint: KVN-over-WS server
+- `src/cmd/gatetest/main.go` — routing gate test program (AC-010 simulation)
 
 ## Top-Level Code
 - `src/internal/config/` — YAML config parsing (viper + env override)
@@ -16,8 +17,9 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/protocol/handshake/` — Client/Server Hello (stub)
 - `src/internal/protocol/auth/` — token/jwt/basic auth (stub)
 - `src/internal/protocol/control/` — PING, CLOSE, ROUTE_UPDATE (stub)
-- `src/internal/routing/` — packet routing (stub)
-- `src/internal/nat/` — MASQUERADE/SNAT (stub)
+- `src/internal/routing/` — packet routing engine (RuleSet, CIDR/IP/domain matchers, ordered rules)
+- `src/internal/dns/` — DNS resolver with in-memory TTL cache
+- `src/internal/nat/` — nftables MASQUERADE (server-side NAT)
 - `src/internal/session/` — session management + IP pool (stub)
 - `src/internal/crypto/` — app-layer encryption (stub)
 - `src/internal/metrics/` — Prometheus metrics (stub)
@@ -25,15 +27,20 @@ Go stack: `go.mod` at root, all source under `src/`.
 
 ## Key Paths
 - `configs/client.yaml` — client config template
+- `configs/client.test.yaml` — test config for split tunnel
 - `configs/server.yaml` — server config template
+- `configs/server.test.yaml` — test server config
 - `Dockerfile` — multi-stage Docker build
+- `Dockerfile.test` — gate test image (alpine + nftables)
 - `docker-compose.yml` — local dev orchestration
+- `docker-compose.test.yml` — gate test compose
 - `scripts/build.sh` — native binary build to `bin/`
+- `scripts/test-gate.sh` — gate test script
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 
 ## Where To Edit
 - Core tunnel logic — `src/internal/tun/`, `src/internal/transport/*`, `src/internal/protocol/*`
-- Routing/rules — `src/internal/routing/`, `src/internal/nat/`
+- Routing/rules — `src/internal/routing/`, `src/internal/nat/`, `src/internal/dns/`
 - Session/auth — `src/internal/session/`, `src/internal/protocol/auth/`
 - Config changes — `src/internal/config/`
 - Logging/metrics — `src/internal/logger/`, `src/internal/metrics/`
