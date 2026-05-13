@@ -1,7 +1,6 @@
 package config
 
 // @sk-task foundation#T2.3: client config struct (AC-006)
-
 type ClientConfig struct {
 	Server        string    `mapstructure:"server"`
 	Auth          AuthCfg   `mapstructure:"auth"`

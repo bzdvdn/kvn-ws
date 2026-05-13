@@ -1,7 +1,6 @@
 package config
 
 // @sk-task foundation#T2.3: server config struct (AC-007)
-
 type ServerConfig struct {
 	Listen  string       `mapstructure:"listen"`
 	TLS     TLSCfg       `mapstructure:"tls"`

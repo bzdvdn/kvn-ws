@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// @sk-task foundation#T3.1: zap logger with JSON output (AC-008)
 func New(level string) (*zap.Logger, error) {
 	var lvl zapcore.Level
 	if err := lvl.UnmarshalText([]byte(level)); err != nil {
