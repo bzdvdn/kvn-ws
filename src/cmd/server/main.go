@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -446,6 +447,9 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	wsConn.Close()
 }
 
+// @sk-task local-proxy-mode#T1.2: server-side proxy stream handler (AC-001)
+var proxyStreams sync.Map
+
 func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger) error {
 	for {
 		select {
@@ -475,6 +479,71 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 				return err
 			}
 			collectors.AddThroughput("rx", float64(n))
+		} else if f.Type == framing.FrameTypeProxy {
+			// @sk-task local-proxy-mode#T1.2: proxy frame handler (AC-001)
+			payload := f.Payload
+			if len(payload) < 6 {
+				f.Release()
+				continue
+			}
+			streamID := binary.BigEndian.Uint32(payload[0:4])
+			dstLen := binary.BigEndian.Uint16(payload[4:6])
+			if int(6+dstLen) > len(payload) {
+				f.Release()
+				continue
+			}
+			dst := string(payload[6 : 6+dstLen])
+			data := payload[6+dstLen:]
+
+			if v, ok := proxyStreams.Load(streamID); ok {
+				tcpConn := v.(net.Conn)
+				tcpConn.Write(data)
+				f.Release()
+			} else {
+				tcpConn, err := net.Dial("tcp", dst)
+				if err != nil {
+					logger.Warn("proxy dial failed", zap.String("dst", dst), zap.Error(err))
+					f.Release()
+					continue
+				}
+				proxyStreams.Store(streamID, tcpConn)
+				if len(data) > 0 {
+					tcpConn.Write(data)
+				}
+				f.Release()
+
+				go func(sid uint32, tcp net.Conn, ws *websocket.WSConn) {
+					defer func() {
+						tcp.Close()
+						proxyStreams.Delete(sid)
+					}()
+					buf := make([]byte, 4096)
+					for {
+						n, err := tcp.Read(buf)
+						if err != nil {
+							return
+						}
+						frame := framing.Frame{
+							Type:    framing.FrameTypeProxy,
+							Flags:   framing.FrameFlagNone,
+							Payload: make([]byte, 4+2+len(dst)+n),
+						}
+						binary.BigEndian.PutUint32(frame.Payload[0:4], sid)
+						binary.BigEndian.PutUint16(frame.Payload[4:6], uint16(len(dst)))
+						copy(frame.Payload[6:], dst)
+						copy(frame.Payload[6+len(dst):], buf[:n])
+						encoded, err := frame.Encode()
+						if err != nil {
+							return
+						}
+						if err := ws.WriteMessage(encoded); err != nil {
+							framing.ReturnBuffer(encoded)
+							return
+						}
+						framing.ReturnBuffer(encoded)
+					}
+				}(streamID, tcpConn, conn)
+			}
 		} else {
 			f.Release()
 		}

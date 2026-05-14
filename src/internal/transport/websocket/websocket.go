@@ -207,6 +207,9 @@ func Accept(w http.ResponseWriter, r *http.Request, originCheckers ...interface{
 		CheckOrigin:        checkOrigin,
 		EnableCompression:  cfg.Compression,
 	}
+	if cfg.Multiplex {
+		upgrader.Subprotocols = []string{MultiplexSubprotocol}
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return nil, err

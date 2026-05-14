@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
+	"net/netip"
 	"os/exec"
 	"os/signal"
 	"syscall"
@@ -15,6 +17,8 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/control"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
+	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
+	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
@@ -50,6 +54,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	if cfg.Mode == "proxy" {
+		// @sk-task local-proxy-mode#T1.1: proxy mode entry (AC-003)
+		runProxyMode(ctx, cfg, logger)
+		return
+	}
+
 	tunDev := tun.NewTunDevice()
 	if err := tunDev.Open(); err != nil {
 		logger.Fatal("open tun", zap.Error(err))
@@ -57,6 +67,125 @@ func main() {
 	defer tunDev.Close()
 
 	reconnectLoop(ctx, tunDev, cfg, logger)
+}
+
+// @sk-task local-proxy-mode#T1.1: proxy mode entry (AC-003)
+// @sk-task local-proxy-mode#T2.1: SOCKS5 listener in proxy mode (AC-001)
+// @sk-task local-proxy-mode#T2.2: stream manager initialization (AC-001)
+func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger) {
+	tlsCfg := tls.NewClientTLSConfig(true)
+
+	wsConn, err := websocket.Dial(cfg.Server, tlsCfg, websocket.WSConfig{
+		Compression: cfg.Compression,
+		Multiplex:   cfg.Multiplex,
+		MTU:         cfg.MTU,
+	})
+	if err != nil {
+		logger.Fatal("proxy dial", zap.Error(err))
+	}
+	defer wsConn.Close()
+
+	streamMgr := proxy.NewManager(wsConn)
+
+	// @sk-task local-proxy-mode#T3.3: CIDR/domain exclusion in proxy mode (AC-007)
+	var routeSet *routing.RuleSet
+	if cfg.Routing != nil {
+		rs, err := routing.NewRuleSet(cfg.Routing)
+		if err != nil {
+			logger.Warn("routing init, using default", zap.Error(err))
+		} else {
+			routeSet = rs
+		}
+	}
+
+	pl := proxy.NewListener(*cfg, func(client net.Conn, dst string) {
+		// Check exclusion rules
+		if routeSet != nil {
+			host, _, err := net.SplitHostPort(dst)
+			if err != nil {
+				host = dst
+			}
+			ipAddr := net.ParseIP(host)
+			if ipAddr == nil {
+				addrs, _ := net.DefaultResolver.LookupHost(context.Background(), host)
+				if len(addrs) > 0 {
+					ipAddr = net.ParseIP(addrs[0])
+				}
+			}
+			var nip netip.Addr
+			if ipAddr != nil {
+				if v4 := ipAddr.To4(); v4 != nil {
+					nip, _ = netip.AddrFromSlice(v4)
+				} else {
+					nip, _ = netip.AddrFromSlice(ipAddr)
+				}
+			}
+			if nip.IsValid() && routeSet.Route(nip) == routing.RouteDirect {
+				logger.Debug("proxy direct", zap.String("dst", dst))
+				go func() {
+					defer client.Close()
+					target, err := net.Dial("tcp", dst)
+					if err != nil {
+						return
+					}
+					defer target.Close()
+					errc := make(chan error, 2)
+					go func() { _, err := io.Copy(target, client); errc <- err }()
+					go func() { _, err := io.Copy(client, target); errc <- err }()
+					<-errc
+				}()
+				return
+			}
+		}
+
+		stream := &proxy.Stream{
+			ID:    proxy.NewStreamID(),
+			Dst:   dst,
+			Local: client,
+		}
+		streamMgr.Add(stream)
+
+		go stream.ForwardToWS(wsConn)
+	})
+
+	if err := pl.Start(); err != nil {
+		logger.Fatal("proxy start", zap.Error(err))
+	}
+	defer pl.Close()
+
+	logger.Info("proxy mode", zap.String("listen", pl.Addr().String()))
+
+	go func() {
+		if err := pl.AcceptLoop(); err != nil {
+			logger.Warn("proxy accept loop ended", zap.Error(err))
+		}
+	}()
+
+	// Read incoming Proxy frames from WS and route to local streams
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			data, err := wsConn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var f framing.Frame
+			if err := f.Decode(data); err != nil {
+				continue
+			}
+			if f.Type == framing.FrameTypeProxy {
+				streamMgr.HandleIncomingFrame(&f)
+			}
+			f.Release()
+		}
+	}()
+
+	<-ctx.Done()
+	logger.Info("proxy mode stopped")
 }
 
 // @sk-task production-hardening#T4.2: reconnect loop with backoff (AC-001)

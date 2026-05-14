@@ -24,6 +24,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/crypto/` — app-layer encryption (stub)
 - `src/internal/metrics/` — Prometheus metrics (active_sessions, throughput, errors)
 - `src/pkg/api/` — public API package (stub)
+- `src/internal/proxy/` — SOCKS5 + HTTP CONNECT proxy listener for local proxy mode
 
 ## Key Paths
 - `configs/client.yaml` — client config template

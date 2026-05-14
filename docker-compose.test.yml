@@ -40,6 +40,22 @@ services:
       - NET_ADMIN
     environment:
       - KVN_SERVER_LISTEN=:1443
+
+  proxy-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    entrypoint: ["test-proxy.sh"]
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - KVN_SERVER_LISTEN=:443
+      - KVN_SERVER_NETWORK_POOL_IPV4_SUBNET=10.10.0.0/24
+      - KVN_SERVER_NETWORK_POOL_IPV4_GATEWAY=10.10.0.1
+      - KVN_SERVER_AUTH_TOKENS=test-token
+      - KVN_CLIENT_SERVER=https://localhost:443/tunnel
+      - KVN_CLIENT_AUTH_TOKEN=test-token
+      - KVN_CLIENT_MODE=proxy
       - KVN_SERVER_ACL_DENY_CIDRS=["10.0.0.0/8"]
       - KVN_SERVER_AUTH_TOKENS=[{"name":"test","secret":"tok","bandwidth_bps":0,"max_sessions":0}]
       - KVN_SERVER_ADMIN_ENABLED=true

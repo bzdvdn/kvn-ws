@@ -2,6 +2,7 @@ package config
 
 // @sk-task foundation#T2.3: client config struct (AC-006)
 // @sk-task performance-and-polish#T1.1: add Compression, Multiplex fields (AC-006, AC-007)
+// @sk-task local-proxy-mode#T1.1: add Mode, ProxyListen, ProxyAuth fields (AC-003, AC-004)
 type ClientConfig struct {
 	Server        string         `mapstructure:"server"`
 	Auth          AuthCfg        `mapstructure:"auth"`
@@ -14,6 +15,14 @@ type ClientConfig struct {
 	Reconnect     *ReconnectCfg  `mapstructure:"reconnect"`
 	Compression   bool           `mapstructure:"compression"`
 	Multiplex     bool           `mapstructure:"multiplex"`
+	Mode          string         `mapstructure:"mode"`
+	ProxyListen   string         `mapstructure:"proxy_listen"`
+	ProxyAuth     *ProxyAuthCfg  `mapstructure:"proxy_auth"`
+}
+
+type ProxyAuthCfg struct {
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
 }
 
 // @sk-task routing-split-tunnel#T1.1: routing config struct (AC-009)
