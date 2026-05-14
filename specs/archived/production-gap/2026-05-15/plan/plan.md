@@ -58,6 +58,7 @@ Stop if: в ходе реализации потребуется менять in
 - `AC-004` -> подготовить полный slug artifact set для verify-path и привязать release evidence к текущему slug; результат наблюдается через успешный `check-verify-ready`.
 - `AC-005` -> защитить `/metrics` shared token gate'ом, сохранить admin token semantics, прогнать privileged smoke/lint/security checks и зафиксировать proof в `verify.md`; результат наблюдается через endpoint auth checks и verify artifact.
 - `AC-006` -> исправить все pre-existing lint issues (50 errcheck + 1 staticcheck) и подтвердить `golangci-lint run ./src/...` с exit 0; результат наблюдается через clean lint output.
+- `AC-007` -> добавить http.Server таймауты, defer NAT/BoltDB cleanup и rate limiter GC; результат наблюдается через code review и успешные тесты.
 
 ## Данные и контракты
 
@@ -88,6 +89,13 @@ Why: `/metrics` и admin surface уже находятся в одном operati
 Tradeoff: один operational token защищает две поверхности; более тонкое разделение прав остаётся вне scope.
 Affects: `src/cmd/server/main.go`, `src/internal/admin/admin.go`, related tests/config examples.
 Validation: `/metrics` и admin endpoints возвращают auth failure без токена и success с валидным токеном.
+
+### DEC-006 Production runtime safety — resource cleanup + timeouts
+
+Why: сервер без таймаутов уязвим к slow loris; NAT rules, BoltDB и rate limiter map без cleanup вызывают утечки.
+Tradeoff: минимальные изменения — http.Server поля, defer'ы, cleanup goroutine.
+Affects: `src/cmd/server/main.go`, `src/internal/session/bolt.go`.
+Validation: кодовая проверка наличия `ReadTimeout`/`WriteTimeout`/`IdleTimeout`, defer `Teardown`/`Close`, `startCleanup` goroutine.
 
 ### DEC-005 Lint quality gate — 0 pre-existing issues
 
@@ -153,8 +161,8 @@ Validation: `check-verify-ready`, smoke, lint и targeted tests дают observa
 
 - Automated tests: обновить/добавить TLS unit/integration tests для client trust и mTLS semantics; это подтверждает `AC-001`, `AC-002`, `DEC-001`, `DEC-002`.
 - Endpoint/security tests: обновить admin/metrics auth checks и example/secrets guardrails; это подтверждает `AC-003`, `AC-005`, `DEC-003`.
-- Quality/runtime checks: `golangci-lint` (0 issues), targeted `go test`, privileged smoke для TUN/NAT/reconnect, `check-verify-ready`; это подтверждает `AC-004`, `AC-005`, `AC-006`, `DEC-004`, `DEC-005`.
-- Review evidence: `verify.md` должен собрать ссылки на команды, тесты и изменённые файлы для всех пяти `AC-*`.
+- Quality/runtime checks: `golangci-lint` (0 issues), targeted `go test`, privileged smoke для TUN/NAT/reconnect, `check-verify-ready`; это подтверждает `AC-004`, `AC-005`, `AC-006`, `AC-007`, `DEC-004`, `DEC-005`, `DEC-006`.
+- Review evidence: `verify.md` должен собрать ссылки на команды, тесты и изменённые файлы для всех `AC-*`.
 
 ## Соответствие конституции
 

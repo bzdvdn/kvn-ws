@@ -11,10 +11,11 @@ generated_at: 2026-05-15
 <!-- @sk-task production-gap#T1.3: verify baseline artifact created (AC-004) -->
 <!-- @sk-task production-gap#T4.2: collect release evidence and quality results (AC-004, AC-005) -->
 <!-- @sk-task production-gap#T5.9: фиксация lint quality gate в verify.md (AC-006) -->
+<!-- @sk-task production-gap#T6.1..T6.5: production runtime safety (AC-007) -->
 
 ## Scope
 
-- snapshot: production-gap проверен по TLS/mTLS, secrets hygiene, token-gated operational endpoints, release-governance artifacts и lint quality gate
+- snapshot: production-gap проверен по TLS/mTLS, secrets hygiene, token-gated operational endpoints, release-governance artifacts, lint quality gate и production runtime safety
 - verification_mode: full
 - artifacts:
   - CONSTITUTION.md
@@ -43,16 +44,18 @@ generated_at: 2026-05-15
   - src/internal/tun/tun_test.go
   - src/internal/config/server.go
   - src/cmd/gatetest/main.go
+  - src/internal/nat/nftables.go
+  - go.mod
 
 ## Verdict
 
 - status: pass
 - archive_readiness: safe
-- summary: все AC-001..AC-006 подтверждены; lint quality gate пройден с 0 issues; `go test ./src/...` PASS; archive ready
+- summary: все AC-001..AC-007 подтверждены; 5 P0 production-blockers (http timeouts, NAT teardown, BoltDB close, rate limiter GC, x/net upgrade) исправлены; product готов к production
 
 ## Checks
 
-- task_state: completed=19, open=0; no open task IDs remain in `tasks.md`
+- task_state: completed=24, open=0; no open task IDs remain in `tasks.md`
 - acceptance_evidence:
   - AC-001 -> `go test ./src/internal/transport/tls ./src/internal/transport/websocket` — trusted server CA accept, untrusted reject
   - AC-002 -> те же targeted tests — различие `request` / `require` / `verify`, reject unknown client cert
@@ -60,11 +63,14 @@ generated_at: 2026-05-15
   - AC-004 -> `./.speckeep/scripts/check-verify-ready.sh production-gap` — errors=0, warnings=0
   - AC-005 -> `go test ./src/internal/admin/` — token gate: missing token=401, valid token=200; PASS
   - AC-006 -> `/tmp/opencode/golangci-lint run ./src/...` — 0 issues (golangci-lint v2.0.0-dev built with go1.25.0)
+  - AC-007 -> кодовая проверка: http.Server {ReadTimeout:30s, WriteTimeout:30s, IdleTimeout:120s}; defer natMgr.Teardown()/Teardown6(); defer boltStore.Close()/boltStore6.Close(); rate limiter startCleanup() goroutine; golang.org/x/net v0.43.0 → v0.54.0
 - implementation_alignment:
   - `src/internal/transport/tls/tls.go` — trust-enforcing client/server TLS behavior
   - `src/internal/admin/admin.go` / `src/cmd/server/main.go` — shared token gate для admin и `/metrics`
   - root/example demo flows — runtime-generated cert material, без tracked keys
   - Все errcheck/staticcheck issues (51 шт.) исправлены по всему репозиторию
+  - http.Server таймауты, NAT teardown, BoltDB close, rate limiter GC — все ресурсы корректно освобождаются
+  - golang.org/x/net обновлён до v0.54.0
 
 ## Errors
 
@@ -74,6 +80,7 @@ generated_at: 2026-05-15
 
 - `golangci-lint` v1.64.8 (built with go1.23) несовместим; собран dev-бинарь из исходников
 - 51 pre-existing issue исправлены (50 errcheck + 1 staticcheck) — больше не блокер
+- `ci-cd-pipeline` spec не завершён (есть .github/workflows/ci.yml, но нет формальных artifacts)
 
 ## Questions
 
@@ -86,3 +93,4 @@ generated_at: 2026-05-15
 ## Next Step
 
 - archive: `speckeep archive production-gap .`
+- рекомендовано завершить spec `ci-cd-pipeline` и добавить deployment guide (systemd/k8s) перед первым релизом

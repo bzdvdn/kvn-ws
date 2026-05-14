@@ -39,6 +39,7 @@
 - SpecKeep-артефакты и verify-path, необходимые для production release gate.
 - Финальные operational proofs: privileged smoke, lint и иные quality-gates, которые roadmap требует перед первым релизом.
 - Исправление pre-existing lint issues (50 errcheck + 1 staticcheck) во всём репозитории для прохождения lint quality gate.
+- Production runtime safety: http.Server timeouts, resource cleanup (NAT/BoltDB), rate limiter map leak fix, обновление зависимостей.
 
 ## Контекст
 
@@ -55,7 +56,11 @@
 - RQ-005 Репозиторий и example-сценарии ДОЛЖНЫ быть безопасны по умолчанию: tracked production-like private keys отсутствуют, а примеры не требуют закоммиченных секретов для демонстрации или запуска.
 - RQ-006 Репозиторий ДОЛЖЕН содержать SpecKeep-артефакты текущего slug в формате, достаточном для прохождения verify readiness и для фиксации observable proof по release-критериям.
 - RQ-007 Перед признанием production-gap закрытым команда ДОЛЖНА иметь наблюдаемое подтверждение operational hardening: privileged e2e smoke для TUN/NAT/reconnect и результат обязательных quality-gates, включая lint.
-- RQ-008 Весь репозиторий ДОЛЖЕН проходить `golangci-lint run ./src/...` без ошибок перед признанием production-gap закрытым. 
+- RQ-008 Весь репозиторий ДОЛЖЕН проходить `golangci-lint run ./src/...` без ошибок перед признанием production-gap закрытым.
+- RQ-009 http.Server ДОЛЖЕН иметь ReadTimeout/WriteTimeout/IdleTimeout для защиты от slow loris.
+- RQ-010 NAT rules ДОЛЖНЫ удаляться при завершении сервера (Teardown/Teardown6).
+- RQ-011 BoltDB ДОЛЖЕН закрываться при завершении сервера.
+- RQ-012 Rate limiter map ДОЛЖНА иметь GC для предотвращения утечки памяти. 
 
 ## Вне scope
 
@@ -114,6 +119,14 @@
 - **When** команда прогоняет lint через бинарь, собранный под Go 1.25+
 - **Then** lint завершается без ошибок (0 issues)
 - Evidence: вывод `golangci-lint run ./src/...` с exit code 0
+
+### AC-007 Production runtime safety (resource leaks + timeouts)
+
+- Почему это важно: сервер без таймаутов и cleanup уязвим к DoS и утечкам ресурсов.
+- **Given** сервер запущен и завершается (SIGTERM/SIGINT)
+- **When** сервер обрабатывает запросы и затем останавливается
+- **Then** http.Server имеет ReadTimeout/WriteTimeout/IdleTimeout, NAT rules удаляются, BoltDB закрывается, rate limiter map не растёт бесконечно
+- Evidence: кодовая проверка наличия таймаутов, defer Teardown/Close, startCleanup goroutine
 
 ## Допущения
 

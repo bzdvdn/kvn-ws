@@ -110,8 +110,18 @@ func main() {
 		logger.Fatal("create ip pool", zap.Error(err))
 	}
 
+	var boltStore, boltStore6 *session.BoltStore
+	defer func() {
+		if boltStore != nil {
+			_ = boltStore.Close()
+		}
+		if boltStore6 != nil {
+			_ = boltStore6.Close()
+		}
+	}()
+
 	if cfg.BoltDBPath != "" {
-		boltStore, err := session.NewBoltStore(cfg.BoltDBPath)
+		boltStore, err = session.NewBoltStore(cfg.BoltDBPath)
 		if err != nil {
 			logger.Warn("bolt db init, using in-memory pool", zap.Error(err))
 		} else {
@@ -135,7 +145,7 @@ func main() {
 			logger.Warn("create ipv6 pool, running ipv4-only", zap.Error(err))
 		} else {
 			if cfg.BoltDBPath != "" {
-				boltStore6, err := session.NewBoltStore6(cfg.BoltDBPath)
+				boltStore6, err = session.NewBoltStore6(cfg.BoltDBPath)
 				if err != nil {
 					logger.Warn("bolt db6 init", zap.Error(err))
 				} else {
@@ -188,6 +198,12 @@ func main() {
 			logger.Warn("ipv6 nat setup", zap.Error(err))
 		}
 	}
+	defer func() {
+		_ = natMgr.Teardown()
+		if cfg.Network.PoolIPv6.Subnet != "" {
+			_ = natMgr.Teardown6()
+		}
+	}()
 
 	tlsCfg, err := tlspkg.NewServerTLSConfig(cfg.TLS.Cert, cfg.TLS.Key, cfg.TLS.ClientCAFile, cfg.TLS.ClientAuth)
 	if err != nil {
@@ -217,6 +233,8 @@ func main() {
 
 	rl := newRateLimiter(cfg.RateLimiting.AuthBurst, cfg.RateLimiting.AuthPerMinute)
 	prl := newSessionPacketLimiter(cfg.RateLimiting.PacketsPerSec)
+	rl.startCleanup(ctx)
+	prl.startCleanup(ctx)
 
 	// @sk-task security-acl#T3: CIDR ACL middleware
 	tunnelHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -272,7 +290,10 @@ func main() {
 	mux.Handle("/metrics", admin.TokenMiddleware(cfg.Admin.Token)(promhttp.Handler()))
 
 	httpServer := &http.Server{
-		Handler: mux,
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	ready = true
@@ -620,6 +641,27 @@ func (rl *ipRateLimiter) Allow(addr string) bool {
 	return lim.Allow()
 }
 
+func (rl *ipRateLimiter) startCleanup(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				rl.mu.Lock()
+				for k, lim := range rl.limiters {
+					if lim.Tokens() >= float64(rl.burst) {
+						delete(rl.limiters, k)
+					}
+				}
+				rl.mu.Unlock()
+			}
+		}
+	}()
+}
+
 // @sk-task production-hardening#T2.2: per-session packet rate limiter (AC-004)
 type sessionPacketLimiter struct {
 	mu       sync.Mutex
@@ -643,6 +685,27 @@ func (pl *sessionPacketLimiter) Allow(sessionID string) bool {
 		pl.limiters[sessionID] = lim
 	}
 	return lim.Allow()
+}
+
+func (pl *sessionPacketLimiter) startCleanup(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				pl.mu.Lock()
+				for k, lim := range pl.limiters {
+					if lim.Tokens() >= float64(pl.perSec) {
+						delete(pl.limiters, k)
+					}
+				}
+				pl.mu.Unlock()
+			}
+		}
+	}()
 }
 
 var tunnelShutdownTimeout = 5 * time.Second
