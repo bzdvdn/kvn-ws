@@ -1,6 +1,10 @@
 server: wss://example.com/tunnel
 auth:
   token: your-token-here
+tls:
+  verify_mode: verify
+  ca_file: ""
+  server_name: example.com
 mtu: 1400
 ipv6: false
 auto_reconnect: true

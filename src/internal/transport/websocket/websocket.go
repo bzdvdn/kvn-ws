@@ -83,7 +83,7 @@ func (bw *BatchWriter) flushLoop() {
 	for {
 		select {
 		case <-bw.ticker.C:
-			bw.Flush()
+			_ = bw.Flush()
 		case <-bw.stopCh:
 			bw.ticker.Stop()
 			return
@@ -154,7 +154,7 @@ func Dial(serverURL string, tlsConfig *tls.Config, cfg ...WSConfig) (*WSConn, er
 			return conn, err
 		}
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			tcpConn.SetNoDelay(true)
+			_ = tcpConn.SetNoDelay(true)
 		}
 		return conn, nil
 	}
@@ -163,7 +163,7 @@ func Dial(serverURL string, tlsConfig *tls.Config, cfg ...WSConfig) (*WSConn, er
 		return nil, err
 	}
 	if wsCfg.Compression {
-		conn.SetCompressionLevel(4)
+		_ = conn.SetCompressionLevel(4)
 	}
 	return &WSConn{conn: conn, cfg: wsCfg}, nil
 }
@@ -215,10 +215,10 @@ func Accept(w http.ResponseWriter, r *http.Request, originCheckers ...interface{
 		return nil, err
 	}
 	if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
-		tcpConn.SetNoDelay(true)
+		_ = tcpConn.SetNoDelay(true)
 	}
 	if cfg.Compression {
-		conn.SetCompressionLevel(4)
+		_ = conn.SetCompressionLevel(4)
 	}
 	conn.SetPingHandler(func(appData string) error {
 		return conn.WriteMessage(websocket.PongMessage, nil)

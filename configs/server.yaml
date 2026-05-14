@@ -3,6 +3,8 @@ tls:
   cert: cert.pem
   key: key.pem
   min_version: "1.3"
+  client_ca_file: ""
+  client_auth: ""
 network:
   pool_ipv4:
     subnet: 10.10.0.0/24

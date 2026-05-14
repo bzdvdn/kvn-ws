@@ -19,6 +19,10 @@ Thumbs.db
 
 # Logs
 *.log
+cert.pem
+key.pem
+certs/
+examples/certs/
 
 # Python
 __pycache__/
@@ -27,3 +31,4 @@ __pycache__/
 dist/
 coverage/
 tmp/
+.opencode

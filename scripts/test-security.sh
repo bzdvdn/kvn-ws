@@ -1,5 +1,7 @@
 #!/bin/sh
 # @sk-task security-acl: Security & ACL gate test
+# @sk-task production-gap#T3.2: verify shared token gate for operational endpoints (AC-005)
+# @sk-task production-gap#T4.1: exercise operational endpoint proof script (AC-005)
 set -e
 
 echo "========================================"
@@ -83,6 +85,16 @@ echo ""
 echo "--- 12. Admin API — 401 without token ---"
 ADMIN_NOAUTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8443/admin/sessions 2>/dev/null)
 echo "  Status without token: $ADMIN_NOAUTH"
+
+echo ""
+echo "--- 13. Metrics — 401 without token ---"
+METRICS_NOAUTH=$(curl -sk -o /dev/null -w "%{http_code}" https://localhost:1443/metrics 2>/dev/null || echo "failed")
+echo "  Status without token: $METRICS_NOAUTH"
+
+echo ""
+echo "--- 14. Metrics — 200 with token ---"
+METRICS_AUTH=$(curl -sk -o /dev/null -w "%{http_code}" -H 'X-Admin-Token: admin-secret' https://localhost:1443/metrics 2>/dev/null || echo "failed")
+echo "  Status with token: $METRICS_AUTH"
 
 echo ""
 echo "--- Cleaning up server ---"

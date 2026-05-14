@@ -6,6 +6,7 @@ package config
 type ClientConfig struct {
 	Server        string         `mapstructure:"server"`
 	Auth          AuthCfg        `mapstructure:"auth"`
+	TLS           ClientTLSCfg   `mapstructure:"tls"`
 	MTU           int            `mapstructure:"mtu"`
 	IPv6          bool           `mapstructure:"ipv6"`
 	AutoReconnect bool           `mapstructure:"auto_reconnect"`
@@ -18,6 +19,13 @@ type ClientConfig struct {
 	Mode          string         `mapstructure:"mode"`
 	ProxyListen   string         `mapstructure:"proxy_listen"`
 	ProxyAuth     *ProxyAuthCfg  `mapstructure:"proxy_auth"`
+}
+
+// @sk-task production-gap#T1.1: explicit client TLS trust surface (AC-001)
+type ClientTLSCfg struct {
+	CAFile     string `mapstructure:"ca_file"`
+	ServerName string `mapstructure:"server_name"`
+	VerifyMode string `mapstructure:"verify_mode"`
 }
 
 type ProxyAuthCfg struct {
@@ -56,6 +64,10 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	cfg := &ClientConfig{}
 	if err := load(path, "KVN_CLIENT", cfg); err != nil {
 		return nil, err
+	}
+	// @sk-task production-gap#T1.1: default to trusted client verification (AC-001)
+	if cfg.TLS.VerifyMode == "" {
+		cfg.TLS.VerifyMode = "verify"
 	}
 	if cfg.Routing == nil {
 		cfg.Routing = &RoutingCfg{DefaultRoute: "server"}

@@ -41,7 +41,7 @@ func TestAdminListSessions(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("GET", "/admin/sessions", nil)
-	req.Header.Set("X-Admin-Token", "admin-tok")
+	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -78,7 +78,7 @@ func TestAdminDeleteSession(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("DELETE", "/admin/sessions/sess-del", nil)
-	req.Header.Set("X-Admin-Token", "admin-tok")
+	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -113,7 +113,7 @@ func TestAdminDeleteNotFound(t *testing.T) {
 	srv := NewAdminServer(cfg, sm)
 
 	req := httptest.NewRequest("DELETE", "/admin/sessions/nonexistent", nil)
-	req.Header.Set("X-Admin-Token", "admin-tok")
+	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -129,7 +129,7 @@ func TestAdminListEmpty(t *testing.T) {
 	srv := NewAdminServer(cfg, sm)
 
 	req := httptest.NewRequest("GET", "/admin/sessions", nil)
-	req.Header.Set("X-Admin-Token", "admin-tok")
+	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -138,7 +138,7 @@ func TestAdminListEmpty(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	sessions := resp["sessions"].([]interface{})
 	if len(sessions) != 0 {
 		t.Fatalf("got %d sessions, want 0", len(sessions))
@@ -157,7 +157,7 @@ func TestAdminSessionFields(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("GET", "/admin/sessions", nil)
-	req.Header.Set("X-Admin-Token", "admin-tok")
+	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -182,5 +182,38 @@ func TestAdminSessionFields(t *testing.T) {
 	}
 	if _, err := time.Parse(time.RFC3339, s.ConnectedAt); err != nil {
 		t.Errorf("invalid ConnectedAt: %v", err)
+	}
+}
+
+// @sk-test production-gap#T3.2: TestTokenMiddlewareRejectsMissingToken (AC-005)
+// @sk-test production-gap#T4.1: TestTokenMiddlewareRejectsMissingToken (AC-005)
+func TestTokenMiddlewareRejectsMissingToken(t *testing.T) {
+	handler := TokenMiddleware("admin-tok")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+}
+
+// @sk-test production-gap#T3.2: TestTokenMiddlewareAllowsValidToken (AC-005)
+// @sk-test production-gap#T4.1: TestTokenMiddlewareAllowsValidToken (AC-005)
+func TestTokenMiddlewareAllowsValidToken(t *testing.T) {
+	handler := TokenMiddleware("admin-tok")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set(TokenHeader, "admin-tok")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
 }

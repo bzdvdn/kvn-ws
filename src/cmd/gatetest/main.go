@@ -180,7 +180,7 @@ func runLoadTest(cfgPath string) {
 	actualDuration := time.Since(testStart)
 
 	for _, conn := range conns {
-		conn.Close()
+		_ = conn.Close()
 	}
 
 	throughputBps := int64(float64(totalSent*8) / actualDuration.Seconds())

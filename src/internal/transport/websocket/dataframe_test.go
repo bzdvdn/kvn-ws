@@ -25,7 +25,7 @@ func TestDataFrameRoundTrip(t *testing.T) {
 			t.Errorf("server accept: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		raw, err := conn.ReadMessage()
 		if err != nil {
@@ -78,7 +78,7 @@ func TestDataFrameRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	helloFrame, _ := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,

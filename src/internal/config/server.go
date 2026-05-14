@@ -12,20 +12,20 @@ import (
 // @sk-task security-acl#T1: TokenCfg structured config
 // @sk-task performance-and-polish#T1.1: add Compression, Multiplex, MTU fields (AC-004, AC-006, AC-007)
 type ServerConfig struct {
-	Listen       string         `mapstructure:"listen"`
-	TLS          TLSCfg         `mapstructure:"tls"`
-	Network      NetworkCfg     `mapstructure:"network"`
-	Session      SessionCfg     `mapstructure:"session"`
-	Auth         ServerAuth     `mapstructure:"auth"`
-	Logging      LogConfig      `mapstructure:"logging"`
-	RateLimiting RateLimitCfg   `mapstructure:"rate_limiting"`
-	BoltDBPath   string         `mapstructure:"bolt_db_path"`
-	ACL          ACLCfg         `mapstructure:"acl"`
-	Origin       OriginCfg      `mapstructure:"origin"`
-	Admin        AdminCfg       `mapstructure:"admin"`
-	Compression  bool           `mapstructure:"compression"`
-	Multiplex    bool           `mapstructure:"multiplex"`
-	MTU          int            `mapstructure:"mtu"`
+	Listen       string       `mapstructure:"listen"`
+	TLS          TLSCfg       `mapstructure:"tls"`
+	Network      NetworkCfg   `mapstructure:"network"`
+	Session      SessionCfg   `mapstructure:"session"`
+	Auth         ServerAuth   `mapstructure:"auth"`
+	Logging      LogConfig    `mapstructure:"logging"`
+	RateLimiting RateLimitCfg `mapstructure:"rate_limiting"`
+	BoltDBPath   string       `mapstructure:"bolt_db_path"`
+	ACL          ACLCfg       `mapstructure:"acl"`
+	Origin       OriginCfg    `mapstructure:"origin"`
+	Admin        AdminCfg     `mapstructure:"admin"`
+	Compression  bool         `mapstructure:"compression"`
+	Multiplex    bool         `mapstructure:"multiplex"`
+	MTU          int          `mapstructure:"mtu"`
 }
 
 // @sk-task security-acl#T1: TLSCfg extended with mTLS fields
@@ -52,9 +52,9 @@ type PoolCfg struct {
 
 // @sk-task production-hardening#T1.1: rate limit config (AC-004)
 type RateLimitCfg struct {
-	AuthBurst      int `mapstructure:"auth_burst"`
-	AuthPerMinute  int `mapstructure:"auth_per_minute"`
-	PacketsPerSec  int `mapstructure:"packets_per_sec"`
+	AuthBurst     int `mapstructure:"auth_burst"`
+	AuthPerMinute int `mapstructure:"auth_per_minute"`
+	PacketsPerSec int `mapstructure:"packets_per_sec"`
 }
 
 // @sk-task production-hardening#T1.1: session expiry config (AC-005)
@@ -175,13 +175,8 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		return nil, fmt.Errorf("unmarshal config %s: %w", path, err)
 	}
 
-	rawTokens := v.Get("auth.tokens")
-	if rawTokens != nil {
-		if _, ok := rawTokens.([]interface{}); ok {
-			if len(cfg.Auth.Tokens) == 0 {
-				cfg.Auth.Tokens = convertRawTokens(rawTokens)
-			}
-		}
+	if rawTokens, ok := v.Get("auth.tokens").([]interface{}); ok && len(cfg.Auth.Tokens) == 0 {
+		cfg.Auth.Tokens = convertRawTokens(rawTokens)
 	}
 
 	if cfg.RateLimiting.AuthBurst == 0 {
@@ -196,8 +191,33 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	if cfg.Admin.Listen == "" {
 		cfg.Admin.Listen = "localhost:8443"
 	}
+	if err := normalizeTLS(cfg); err != nil {
+		return nil, err
+	}
 	normalizeTokens(cfg)
 	return cfg, nil
+}
+
+// @sk-task production-gap#T1.2: normalize server mTLS semantics (AC-002)
+func normalizeTLS(cfg *ServerConfig) error {
+	if cfg.TLS.ClientAuth == "" {
+		if cfg.TLS.ClientCAFile != "" {
+			cfg.TLS.ClientAuth = "verify"
+		}
+		return nil
+	}
+
+	switch cfg.TLS.ClientAuth {
+	case "request":
+		return nil
+	case "require", "verify":
+		if cfg.TLS.ClientCAFile == "" {
+			return fmt.Errorf("tls.client_ca_file is required when tls.client_auth=%q", cfg.TLS.ClientAuth)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported tls.client_auth %q", cfg.TLS.ClientAuth)
+	}
 }
 
 func normalizeTokens(cfg *ServerConfig) {

@@ -1,5 +1,6 @@
 #!/bin/sh
 # @sk-task routing-split-tunnel#T4.1: gate test script (AC-010)
+# @sk-task production-gap#T3.2: preserve root/example config validity for gated runtime checks (AC-005)
 set -e
 
 echo "========================================"

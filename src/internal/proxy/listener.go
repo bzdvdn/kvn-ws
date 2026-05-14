@@ -82,7 +82,7 @@ func (l *Listener) AcceptLoop() error {
 }
 
 func (l *Listener) handleClient(client net.Conn) {
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	buf := make([]byte, 1)
 	_, err := io.ReadFull(client, buf)
@@ -124,7 +124,7 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
 	if l.cfg.ProxyAuth != nil {
 		authMethod = socksAuthUserPass
 	}
-	client.Write([]byte{socksVersion5, authMethod})
+	_, _ = client.Write([]byte{socksVersion5, authMethod})
 
 	// @sk-task local-proxy-mode#T3.2: RFC 1929 username/password auth (AC-005)
 	if authMethod == socksAuthUserPass {
@@ -162,10 +162,10 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
 		pass := string(buf[offset : offset+plen])
 
 		if ver != 0x01 || uname != l.cfg.ProxyAuth.Username || pass != l.cfg.ProxyAuth.Password {
-			client.Write([]byte{0x01, 0x01})
+			_, _ = client.Write([]byte{0x01, 0x01})
 			return
 		}
-		client.Write([]byte{0x01, 0x00})
+		_, _ = client.Write([]byte{0x01, 0x00})
 	}
 
 	n, err = io.ReadAtLeast(client, buf, 4)
@@ -220,7 +220,7 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
 		return
 	}
 
-	client.Write([]byte{socksVersion5, socksRepSuccess, 0x00, socksAtypIPv4, 0, 0, 0, 0, 0, 0})
+	_, _ = client.Write([]byte{socksVersion5, socksRepSuccess, 0x00, socksAtypIPv4, 0, 0, 0, 0, 0, 0})
 
 	if l.onConn != nil {
 		l.onConn(client, dst)
@@ -246,7 +246,7 @@ func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) {
 		dst = req.RequestURI
 	}
 
-	client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+	_, _ = client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
 	if l.onConn != nil {
 		l.onConn(client, dst)

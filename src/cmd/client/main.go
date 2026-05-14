@@ -64,7 +64,7 @@ func main() {
 	if err := tunDev.Open(); err != nil {
 		logger.Fatal("open tun", zap.Error(err))
 	}
-	defer tunDev.Close()
+	defer func() { _ = tunDev.Close() }()
 
 	reconnectLoop(ctx, tunDev, cfg, logger)
 }
@@ -72,8 +72,16 @@ func main() {
 // @sk-task local-proxy-mode#T1.1: proxy mode entry (AC-003)
 // @sk-task local-proxy-mode#T2.1: SOCKS5 listener in proxy mode (AC-001)
 // @sk-task local-proxy-mode#T2.2: stream manager initialization (AC-001)
+// @sk-task production-gap#T1.1: proxy mode uses explicit client TLS trust settings (AC-001)
 func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger) {
-	tlsCfg := tls.NewClientTLSConfig(true)
+	tlsCfg, err := tls.NewClientTLSConfigFromSettings(tls.ClientTLSSettings{
+		CAFile:     cfg.TLS.CAFile,
+		ServerName: cfg.TLS.ServerName,
+		VerifyMode: cfg.TLS.VerifyMode,
+	})
+	if err != nil {
+		logger.Fatal("proxy tls config", zap.Error(err))
+	}
 
 	wsConn, err := websocket.Dial(cfg.Server, tlsCfg, websocket.WSConfig{
 		Compression: cfg.Compression,
@@ -83,7 +91,7 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 	if err != nil {
 		logger.Fatal("proxy dial", zap.Error(err))
 	}
-	defer wsConn.Close()
+	defer func() { _ = wsConn.Close() }()
 
 	streamMgr := proxy.NewManager(wsConn)
 
@@ -123,12 +131,12 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 			if nip.IsValid() && routeSet.Route(nip) == routing.RouteDirect {
 				logger.Debug("proxy direct", zap.String("dst", dst))
 				go func() {
-					defer client.Close()
+					defer func() { _ = client.Close() }()
 					target, err := net.Dial("tcp", dst)
 					if err != nil {
 						return
 					}
-					defer target.Close()
+					defer func() { _ = target.Close() }()
 					errc := make(chan error, 2)
 					go func() { _, err := io.Copy(target, client); errc <- err }()
 					go func() { _, err := io.Copy(client, target); errc <- err }()
@@ -151,7 +159,7 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 	if err := pl.Start(); err != nil {
 		logger.Fatal("proxy start", zap.Error(err))
 	}
-	defer pl.Close()
+	defer func() { _ = pl.Close() }()
 
 	logger.Info("proxy mode", zap.String("listen", pl.Addr().String()))
 
@@ -189,6 +197,7 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 }
 
 // @sk-task production-hardening#T4.2: reconnect loop with backoff (AC-001)
+// @sk-task production-gap#T1.1: reconnect loop enforces explicit client TLS trust settings (AC-001)
 func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.ClientConfig, logger *zap.Logger) {
 	minBackoff := 1 * time.Second
 	maxBackoff := 30 * time.Second
@@ -201,7 +210,14 @@ func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.Client
 		}
 	}
 
-	tlsCfg := tls.NewClientTLSConfig(true)
+	tlsCfg, err := tls.NewClientTLSConfigFromSettings(tls.ClientTLSSettings{
+		CAFile:     cfg.TLS.CAFile,
+		ServerName: cfg.TLS.ServerName,
+		VerifyMode: cfg.TLS.VerifyMode,
+	})
+	if err != nil {
+		logger.Fatal("client tls config", zap.Error(err))
+	}
 	backoff := minBackoff
 	attempt := 0
 
@@ -240,7 +256,7 @@ func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.Client
 }
 
 func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSConn, cfg *config.ClientConfig, logger *zap.Logger) {
-	defer wsConn.Close()
+	defer func() { _ = wsConn.Close() }()
 
 	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,

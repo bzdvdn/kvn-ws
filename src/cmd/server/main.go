@@ -161,7 +161,7 @@ func main() {
 	if err := tunDev.Open(); err != nil {
 		logger.Fatal("open tun", zap.Error(err))
 	}
-	defer tunDev.Close()
+	defer func() { _ = tunDev.Close() }()
 
 	gatewayIP := netParseIP(cfg.Network.PoolIPv4.Gateway)
 	_, subnet, _ := netParseCIDR(cfg.Network.PoolIPv4.Subnet)
@@ -201,7 +201,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("tls listen", zap.Error(err))
 	}
-	defer tlsListener.Close()
+	defer func() { _ = tlsListener.Close() }()
 
 	// @sk-task security-acl#T4: origin checker
 	originChecker := websocket.NewOriginChecker(cfg.Origin.Whitelist, cfg.Origin.AllowEmpty)
@@ -262,13 +262,14 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		if !ready {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "not ready"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "not ready"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
-	mux.Handle("/metrics", promhttp.Handler())
+	// @sk-task production-gap#T3.1: protect metrics with the shared operational token gate (AC-005)
+	mux.Handle("/metrics", admin.TokenMiddleware(cfg.Admin.Token)(promhttp.Handler()))
 
 	httpServer := &http.Server{
 		Handler: mux,
@@ -342,19 +343,19 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	data, err := wsConn.ReadMessage()
 	if err != nil {
 		logger.Error("read client hello", zap.Error(err))
-		wsConn.Close()
+		_ = wsConn.Close()
 		return
 	}
 	var frame framing.Frame
 	if err := frame.Decode(data); err != nil {
 		logger.Error("decode client hello frame", zap.Error(err))
-		wsConn.Close()
+		_ = wsConn.Close()
 		return
 	}
 	clientHello, err := handshake.DecodeClientHello(&frame)
 	if err != nil {
 		logger.Error("decode client hello", zap.Error(err))
-		wsConn.Close()
+		_ = wsConn.Close()
 		return
 	}
 
@@ -367,9 +368,9 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		)
 		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "invalid token"})
 		authData, _ := authFrame.Encode()
-		wsConn.WriteMessage(authData)
+		_ = wsConn.WriteMessage(authData)
 		framing.ReturnBuffer(authData)
-		wsConn.Close()
+		_ = wsConn.Close()
 		return
 	}
 
@@ -392,9 +393,9 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		}
 		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: errMsg})
 		authData, _ := authFrame.Encode()
-		wsConn.WriteMessage(authData)
+		_ = wsConn.WriteMessage(authData)
 		framing.ReturnBuffer(authData)
-		wsConn.Close()
+		_ = wsConn.Close()
 		return
 	}
 
@@ -410,19 +411,19 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	})
 	if err != nil {
 		logger.Error("encode server hello", zap.Error(err))
-		wsConn.Close()
+		_ = wsConn.Close()
 		return
 	}
 	helloData, err := serverHello.Encode()
 	if err != nil {
 		logger.Error("encode hello frame", zap.Error(err))
-		wsConn.Close()
+		_ = wsConn.Close()
 		return
 	}
 	if err := wsConn.WriteMessage(helloData); err != nil {
 		framing.ReturnBuffer(helloData)
 		logger.Error("send server hello", zap.Error(err))
-		wsConn.Close()
+		_ = wsConn.Close()
 		return
 	}
 	framing.ReturnBuffer(helloData)
@@ -453,7 +454,7 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	collectors.ActiveSessions.Dec()
 
 	sm.Remove(sess.ID)
-	wsConn.Close()
+	_ = wsConn.Close()
 }
 
 // @sk-task local-proxy-mode#T1.2: server-side proxy stream handler (AC-001)
@@ -506,7 +507,7 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 
 			if v, ok := proxyStreams.Load(streamID); ok {
 				tcpConn := v.(net.Conn)
-				tcpConn.Write(data)
+				_, _ = tcpConn.Write(data)
 				f.Release()
 			} else {
 				tcpConn, err := net.Dial("tcp", dst)
@@ -517,13 +518,13 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 				}
 				proxyStreams.Store(streamID, tcpConn)
 				if len(data) > 0 {
-					tcpConn.Write(data)
+					_, _ = tcpConn.Write(data)
 				}
 				f.Release()
 
 				go func(sid uint32, tcp net.Conn, ws *websocket.WSConn) {
 					defer func() {
-						tcp.Close()
+						_ = tcp.Close()
 						proxyStreams.Delete(sid)
 					}()
 					buf := make([]byte, 4096)

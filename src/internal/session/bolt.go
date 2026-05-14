@@ -24,7 +24,7 @@ func NewBoltStore(path string) (*BoltStore, error) {
 		_, err := tx.CreateBucketIfNotExists(s.bucket)
 		return err
 	}); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("create bucket: %w", err)
 	}
 	return s, nil
@@ -45,7 +45,7 @@ func NewBoltStore6(path string) (*BoltStore, error) {
 		_, err := tx.CreateBucketIfNotExists(s.bucket)
 		return err
 	}); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("create bucket: %w", err)
 	}
 	return s, nil

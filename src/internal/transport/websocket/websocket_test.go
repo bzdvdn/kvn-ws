@@ -8,17 +8,134 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	tlscfg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/gorilla/websocket"
 )
+
+type certMaterial struct {
+	serverTLS  tls.Certificate
+	clientTLS  tls.Certificate
+	unknownTLS tls.Certificate
+	caPEM      []byte
+	caFile     string
+}
+
+func writeCertPEM(t *testing.T, path, blockType string, der []byte) {
+	t.Helper()
+	block := pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
+	if err := os.WriteFile(path, block, 0o600); err != nil {
+		t.Fatalf("WriteFile(%s): %v", path, err)
+	}
+}
+
+func generateSignedCert(t *testing.T, parent *x509.Certificate, parentKey *ecdsa.PrivateKey, commonName string, dnsNames []string, extUsages []x509.ExtKeyUsage) ([]byte, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey(%s): %v", commonName, err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  extUsages,
+		DNSNames:     dnsNames,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, &key.PublicKey, parentKey)
+	if err != nil {
+		t.Fatalf("CreateCertificate(%s): %v", commonName, err)
+	}
+	return der, key
+}
+
+func certFromDER(t *testing.T, certDER []byte, key *ecdsa.PrivateKey) tls.Certificate {
+	t.Helper()
+	return tls.Certificate{
+		Certificate: [][]byte{certDER},
+		PrivateKey:  key,
+		Leaf:        mustParseCert(t, certDER),
+	}
+}
+
+func mustParseCert(t *testing.T, der []byte) *x509.Certificate {
+	t.Helper()
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("ParseCertificate: %v", err)
+	}
+	return cert
+}
+
+func newCertMaterial(t *testing.T) certMaterial {
+	t.Helper()
+	dir := t.TempDir()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey(CA): %v", err)
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "kvn-test-ca"},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("CreateCertificate(CA): %v", err)
+	}
+
+	serverDER, serverKey := generateSignedCert(t, caTemplate, caKey, "localhost", []string{"localhost"}, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+	clientDER, clientKey := generateSignedCert(t, caTemplate, caKey, "client", nil, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+
+	unknownCAKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey(unknown CA): %v", err)
+	}
+	unknownCATemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "kvn-unknown-ca"},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	unknownCADER, err := x509.CreateCertificate(rand.Reader, unknownCATemplate, unknownCATemplate, &unknownCAKey.PublicKey, unknownCAKey)
+	if err != nil {
+		t.Fatalf("CreateCertificate(unknown CA): %v", err)
+	}
+	unknownClientDER, unknownClientKey := generateSignedCert(t, unknownCATemplate, unknownCAKey, "unknown-client", nil, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+
+	caFile := filepath.Join(dir, "ca.pem")
+	writeCertPEM(t, caFile, "CERTIFICATE", caDER)
+	_ = unknownCADER
+
+	return certMaterial{
+		serverTLS:  certFromDER(t, serverDER, serverKey),
+		clientTLS:  certFromDER(t, clientDER, clientKey),
+		unknownTLS: certFromDER(t, unknownClientDER, unknownClientKey),
+		caPEM:      pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}),
+		caFile:     caFile,
+	}
+}
 
 // @sk-test core-tunnel-mvp#T5.2: TestWSIntegrationEcho (AC-002)
 func TestWSDialAndEcho(t *testing.T) {
@@ -36,7 +153,7 @@ func TestWSDialAndEcho(t *testing.T) {
 			t.Errorf("server upgrade: %v", err)
 			return
 		}
-		defer serverConn.Close()
+		defer func() { _ = serverConn.Close() }()
 		_, msg, err := serverConn.ReadMessage()
 		if err != nil {
 			t.Errorf("server read: %v", err)
@@ -57,7 +174,7 @@ func TestWSDialAndEcho(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	payload := []byte("hello ws echo")
 	if err := conn.WriteMessage(payload); err != nil {
@@ -119,7 +236,7 @@ func TestWSTLSIntegration(t *testing.T) {
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		conn.Close()
+		_ = conn.Close()
 	}))
 	server.TLS = tlsConfig
 	server.StartTLS()
@@ -136,11 +253,156 @@ func TestWSTLSIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial WSS: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if conn.Underlying() == nil {
 		t.Fatal("underlying conn is nil")
 	}
+}
+
+// @sk-test production-gap#T2.2: TestWSTLSTrustedServerCAAccepted (AC-001)
+// @sk-test production-gap#T4.1: TestWSTLSTrustedServerCAAccepted (AC-001)
+func TestWSTLSTrustedServerCAAccepted(t *testing.T) {
+	material := newCertMaterial(t)
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer func() { _ = conn.Close() }()
+	}))
+	server.TLS = &tls.Config{
+		Certificates: []tls.Certificate{material.serverTLS},
+		MinVersion:   tls.VersionTLS13,
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	dialTLS, err := tlscfg.NewClientTLSConfigFromSettings(tlscfg.ClientTLSSettings{
+		CAFile:     material.caFile,
+		ServerName: "localhost",
+		VerifyMode: "verify",
+	})
+	if err != nil {
+		t.Fatalf("NewClientTLSConfigFromSettings: %v", err)
+	}
+
+	wsURL := "wss" + server.URL[len("https"):] + "/tunnel"
+	conn, err := Dial(wsURL, dialTLS)
+	if err != nil {
+		t.Fatalf("Dial trusted WSS: %v", err)
+	}
+	_ = conn.Close()
+}
+
+// @sk-test production-gap#T2.2: TestWSTLSRejectsUntrustedServerCA (AC-001)
+// @sk-test production-gap#T4.1: TestWSTLSRejectsUntrustedServerCA (AC-001)
+func TestWSTLSRejectsUntrustedServerCA(t *testing.T) {
+	material := newCertMaterial(t)
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+	}))
+	server.TLS = &tls.Config{
+		Certificates: []tls.Certificate{material.serverTLS},
+		MinVersion:   tls.VersionTLS13,
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	dialTLS, err := tlscfg.NewClientTLSConfigFromSettings(tlscfg.ClientTLSSettings{
+		ServerName: "localhost",
+		VerifyMode: "verify",
+	})
+	if err != nil {
+		t.Fatalf("NewClientTLSConfigFromSettings: %v", err)
+	}
+
+	wsURL := "wss" + server.URL[len("https"):] + "/tunnel"
+	if _, err := Dial(wsURL, dialTLS); err == nil {
+		t.Fatal("Dial untrusted WSS = nil error, want certificate failure")
+	}
+}
+
+// @sk-test production-gap#T2.2: TestWSMTLSModesDifferentiateRequestRequireVerify (AC-002)
+// @sk-test production-gap#T4.1: TestWSMTLSModesDifferentiateRequestRequireVerify (AC-002)
+func TestWSMTLSModesDifferentiateRequestRequireVerify(t *testing.T) {
+	material := newCertMaterial(t)
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+	type expectation struct {
+		clientAuth string
+		clientTLS  *tls.Certificate
+		wantOK     bool
+	}
+
+	tests := []expectation{
+		{clientAuth: "request", clientTLS: nil, wantOK: true},
+		{clientAuth: "verify", clientTLS: nil, wantOK: true},
+		{clientAuth: "require", clientTLS: nil, wantOK: false},
+		{clientAuth: "require", clientTLS: &material.clientTLS, wantOK: true},
+		{clientAuth: "require", clientTLS: &material.unknownTLS, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.clientAuth+"-"+boolLabel(tt.clientTLS != nil)+"-"+boolLabel(tt.wantOK), func(t *testing.T) {
+			serverTLS, err := tlscfg.NewServerTLSConfigFromMaterial(material.serverTLS, material.caPEM, tt.clientAuth)
+			if err != nil {
+				t.Fatalf("NewServerTLSConfigFromMaterial: %v", err)
+			}
+
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				_ = conn.Close()
+			}))
+			server.TLS = serverTLS
+			server.StartTLS()
+			defer server.Close()
+
+			dialTLS, err := tlscfg.NewClientTLSConfigFromSettings(tlscfg.ClientTLSSettings{
+				CAFile:     material.caFile,
+				ServerName: "localhost",
+				VerifyMode: "verify",
+			})
+			if err != nil {
+				t.Fatalf("NewClientTLSConfigFromSettings: %v", err)
+			}
+			if tt.clientTLS != nil {
+				dialTLS.Certificates = []tls.Certificate{*tt.clientTLS}
+			}
+
+			wsURL := "wss" + server.URL[len("https"):] + "/tunnel"
+			conn, err := Dial(wsURL, dialTLS)
+			if tt.wantOK && err != nil {
+				t.Fatalf("Dial(%s) unexpected error: %v", tt.clientAuth, err)
+			}
+			if !tt.wantOK && err == nil {
+				_ = conn.Close()
+				t.Fatalf("Dial(%s) = nil error, want handshake failure", tt.clientAuth)
+			}
+			if err == nil {
+				_ = conn.Close()
+			}
+		})
+	}
+}
+
+func boolLabel(v bool) string {
+	if v {
+		return "with-cert"
+	}
+	return "without-cert"
 }
 
 // @sk-test security-acl#AC-005: Origin validation — valid Origin allowed
@@ -215,8 +477,8 @@ func TestOriginCheckerGlobPattern(t *testing.T) {
 		allow  bool
 	}{
 		{"https://sub.example.com", true},
-		{"https://deep.sub.example.com", true},   // path.Match * matches any non-slash chars
-		{"https://example.com", false},            // *.example.com doesn't match example.com
+		{"https://deep.sub.example.com", true}, // path.Match * matches any non-slash chars
+		{"https://example.com", false},         // *.example.com doesn't match example.com
 		{"https://evil.com", false},
 	}
 
@@ -254,7 +516,7 @@ func TestDialTCPNoDelay(t *testing.T) {
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		conn.Close()
+		_ = conn.Close()
 	})
 
 	server := httptest.NewServer(mux)
@@ -266,7 +528,7 @@ func TestDialTCPNoDelay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	tcpConn, ok := conn.Underlying().UnderlyingConn().(*net.TCPConn)
 	if !ok {
@@ -299,13 +561,13 @@ func TestAcceptTCPNoDelay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client dial: %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	serverConn := <-serverCh
 	if serverConn == nil {
 		t.Fatal("server conn is nil")
 	}
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	tcpConn, ok := serverConn.Underlying().UnderlyingConn().(*net.TCPConn)
 	if !ok {
@@ -325,7 +587,7 @@ func TestBatchWriterCoalescing(t *testing.T) {
 			t.Errorf("Accept: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		for {
 			_, msg, err := conn.Underlying().ReadMessage()
 			if err != nil {
@@ -346,7 +608,7 @@ func TestBatchWriterCoalescing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	payloads := [][]byte{
 		[]byte("small payload 1"),
@@ -355,7 +617,7 @@ func TestBatchWriterCoalescing(t *testing.T) {
 	}
 
 	bw := NewBatchWriter(conn, 4096, 50*time.Millisecond)
-	defer bw.Close()
+	defer func() { _ = bw.Close() }()
 
 	for _, p := range payloads {
 		if err := bw.Write(p); err != nil {
@@ -363,7 +625,7 @@ func TestBatchWriterCoalescing(t *testing.T) {
 		}
 	}
 
-	bw.Flush()
+	_ = bw.Flush()
 	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
@@ -384,7 +646,7 @@ func TestWSCompression(t *testing.T) {
 			t.Errorf("Accept: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, msg, err := conn.Underlying().ReadMessage()
 		if err != nil {
 			t.Errorf("read: %v", err)
@@ -405,7 +667,7 @@ func TestWSCompression(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	payload := []byte("compressible data with repeated patterns " + string(make([]byte, 100)))
 	if err := conn.WriteMessage(payload); err != nil {
@@ -432,7 +694,7 @@ func TestWSMultiplexSubprotocol(t *testing.T) {
 			t.Errorf("Accept: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		if conn.Subprotocol() != MultiplexSubprotocol {
 			t.Errorf("subprotocol = %s, want %s", conn.Subprotocol(), MultiplexSubprotocol)
 		}
@@ -448,7 +710,7 @@ func TestWSMultiplexSubprotocol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if conn.Subprotocol() != MultiplexSubprotocol {
 		t.Errorf("subprotocol = %s, want %s", conn.Subprotocol(), MultiplexSubprotocol)
@@ -470,7 +732,7 @@ func TestWSAcceptWithOriginChecker(t *testing.T) {
 			return
 		}
 		upgraded = true
-		conn.Close()
+		_ = conn.Close()
 	})
 
 	server := httptest.NewServer(mux)

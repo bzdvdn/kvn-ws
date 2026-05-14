@@ -26,6 +26,8 @@ type AdminCfg struct {
 	Token   string
 }
 
+const TokenHeader = "X-Admin-Token"
+
 func NewAdminServer(cfg AdminCfg, sm *session.SessionManager) *AdminServer {
 	s := &AdminServer{
 		router: chi.NewRouter(),
@@ -55,14 +57,21 @@ func (s *AdminServer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// @sk-task production-gap#T3.1: shared operational token gate for admin and metrics (AC-005)
+func TokenMiddleware(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if token == "" || r.Header.Get(TokenHeader) != token {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Admin-Token") != s.cfg.Token {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return TokenMiddleware(s.cfg.Token)(next)
 }
 
 type sessionResponse struct {
@@ -86,7 +95,7 @@ func (s *AdminServer) listSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"sessions": resp})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"sessions": resp})
 }
 
 func (s *AdminServer) deleteSession(w http.ResponseWriter, r *http.Request) {
@@ -103,5 +112,5 @@ func (s *AdminServer) deleteSession(w http.ResponseWriter, r *http.Request) {
 	s.sm.Remove(id)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"status":"disconnected","session_id":"%s"}`, id)
+	_, _ = fmt.Fprintf(w, `{"status":"disconnected","session_id":"%s"}`, id)
 }

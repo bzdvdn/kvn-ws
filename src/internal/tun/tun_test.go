@@ -112,7 +112,7 @@ func TestMockTunInjectAndRead(t *testing.T) {
 	if err := m.Open(); err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	m.Inject([]byte("injected-packet"))
 	buf := make([]byte, 1600)
@@ -130,7 +130,7 @@ func TestMockTunWriteAndCollect(t *testing.T) {
 	if err := m.Open(); err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	payload := []byte("test-packet-data")
 	n, err := m.Write(payload)
@@ -152,8 +152,8 @@ func TestMockTunWriteAndCollect(t *testing.T) {
 
 func TestMockTunQueueOrder(t *testing.T) {
 	m := NewMockTunDevice()
-	m.Open()
-	defer m.Close()
+	_ = m.Open()
+	defer func() { _ = m.Close() }()
 
 	m.Inject([]byte("packet1"))
 	m.Inject([]byte("packet2"))
@@ -171,12 +171,12 @@ func TestMockTunQueueOrder(t *testing.T) {
 
 func TestMockTunMultipleWrites(t *testing.T) {
 	m := NewMockTunDevice()
-	m.Open()
-	defer m.Close()
+	_ = m.Open()
+	defer func() { _ = m.Close() }()
 
-	m.Write([]byte("pkt1"))
-	m.Write([]byte("pkt2"))
-	m.Write([]byte("pkt3"))
+	_, _ = m.Write([]byte("pkt1"))
+	_, _ = m.Write([]byte("pkt2"))
+	_, _ = m.Write([]byte("pkt3"))
 
 	pkts := m.WrittenPackets()
 	if len(pkts) != 3 {
@@ -189,8 +189,8 @@ func TestMockTunMultipleWrites(t *testing.T) {
 
 func TestMockTunEmptyRead(t *testing.T) {
 	m := NewMockTunDevice()
-	m.Open()
-	defer m.Close()
+	_ = m.Open()
+	defer func() { _ = m.Close() }()
 
 	buf := make([]byte, 1600)
 	n, err := m.Read(buf)
@@ -204,8 +204,8 @@ func TestMockTunEmptyRead(t *testing.T) {
 
 func TestMockTunSetIP(t *testing.T) {
 	m := NewMockTunDevice()
-	m.Open()
-	defer m.Close()
+	_ = m.Open()
+	defer func() { _ = m.Close() }()
 
 	ip := net.ParseIP("10.0.0.1")
 	mask := &net.IPNet{

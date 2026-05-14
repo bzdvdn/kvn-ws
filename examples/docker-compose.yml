@@ -1,4 +1,5 @@
 # @sk-task docs-and-release#T1.3: standalone docker-compose example (AC-005) -->
+# @sk-task production-gap#T2.3: example compose uses runtime-generated cert volume (AC-003)
 services:
   server:
     build:
@@ -10,8 +11,7 @@ services:
     volumes:
       - /dev/net/tun:/dev/net/tun
       - ./server.yaml:/etc/kvn-ws/server.yaml
-      - ./cert.pem:/etc/kvn-ws/cert.pem
-      - ./key.pem:/etc/kvn-ws/key.pem
+      - ./certs:/etc/kvn-ws/certs:ro
     command: ["--config", "/etc/kvn-ws/server.yaml"]
     restart: unless-stopped
 
@@ -26,6 +26,7 @@ services:
     volumes:
       - /dev/net/tun:/dev/net/tun
       - ./client.yaml:/etc/kvn-ws/client.yaml
+      - ./certs:/etc/kvn-ws/certs:ro
     command: ["--config", "/etc/kvn-ws/client.yaml"]
     restart: unless-stopped
 
@@ -40,5 +41,6 @@ services:
     volumes:
       - /dev/net/tun:/dev/net/tun
       - ./client.yaml:/etc/kvn-ws/client.yaml
+      - ./certs:/etc/kvn-ws/certs:ro
     command: ["--config", "/etc/kvn-ws/client.yaml"]
     restart: unless-stopped

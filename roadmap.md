@@ -140,6 +140,70 @@
 
 ---
 
+## Production Gap — состояние на 2026-05-14
+
+**Текущий вердикт:** базовая сборка и unit/race-проверки проходят, но продукт **не готов к production** из-за незакрытых security и release-governance блокеров.
+
+### Блокер 1 — TLS trust chain и проверка сервера
+
+| Приоритет | Задача | Результат | Зависимости |
+| --- | --- | --- | --- |
+| P0 | Убрать hardcoded `InsecureSkipVerify=true` из client runtime | Клиент валидирует сертификат сервера по CA/SAN | 1.3 |
+| P0 | Добавить в client config явные поля CA / SNI / verify mode | Production-конфиг не требует insecure fallback | 1.3 |
+| P0 | Добавить e2e-тест на отказ при недоверенном сертификате | Есть observable proof TLS verification | задача выше |
+
+**Gate:** клиент успешно подключается только к доверенному сертификату; MITM с self-signed cert без CA trust отвергается.
+
+### Блокер 2 — Исправление mTLS semantics
+
+| Приоритет | Задача | Результат | Зависимости |
+| --- | --- | --- | --- |
+| P0 | Заменить `RequireAnyClientCert` на корректный verify-режим для production | `client_auth=require` реально проверяет client cert по CA | 4.6 |
+| P0 | Развести режимы `request` / `require` / `verify` без двусмысленности | Поведение mTLS явно описано и предсказуемо | задача выше |
+| P1 | Добавить тесты на reject unknown client cert | Есть proof, что mTLS не фиктивный | задача выше |
+
+**Gate:** сервер отклоняет клиентский сертификат, отсутствующий в доверенном `client_ca_file`.
+
+### Блокер 3 — Secrets hygiene и безопасные примеры
+
+| Приоритет | Задача | Результат | Зависимости |
+| --- | --- | --- | --- |
+| P0 | Удалить `key.pem` и другие приватные ключи из git-истории и рабочего tree examples | Репозиторий не содержит production-like secret material | 7.3 |
+| P0 | Перевести examples/compose на runtime-generated certs или documented mount-from-secret | Примеры безопасны по умолчанию | задача выше |
+| P1 | Добавить `.gitignore`/secret-scan guardrails | Повторное коммитирование ключей предотвращается | задача выше |
+
+**Gate:** в `git ls-files` отсутствуют приватные ключи; compose-примеры не зависят от закоммиченных секретов.
+
+### Блокер 4 — Release governance по SpecKeep
+
+| Приоритет | Задача | Результат | Зависимости |
+| --- | --- | --- | --- |
+| P0 | Привести active spec root к ожидаемому `.speckeep` формату | `check-verify-ready.sh` больше не падает на missing `spec.md` / `tasks.md` | process |
+| P0 | Сформировать verify artifact с observable proof по release-критериям | Production release имеет формально подтверждённый gate | задача выше |
+| P1 | Согласовать roadmap/spec/tasks для production hardening slug | Нет рассинхрона между кодом и процессом | задача выше |
+
+**Gate:** `./.speckeep/scripts/check-verify-ready.sh .` проходит без ошибок.
+
+### Блокер 5 — Operational hardening перед первым релизом
+
+| Приоритет | Задача | Результат | Зависимости |
+| --- | --- | --- | --- |
+| P1 | Ограничить exposure `/metrics` и admin API | Операционные endpoints не открыты миру без контроля доступа | 3.7, 4.5 |
+| P1 | Прогнать privileged e2e smoke для TUN + NAT + reconnect | Есть доказательство работы в реальном runtime, а не только unit tests | 1.7, 2.7, 3.1 |
+| P1 | Прогнать `golangci-lint` и зафиксировать результат в verify | Выполнены конституционные quality gates | process |
+
+**Gate:** privileged smoke-test проходит, operational endpoints имеют осознанную модель доступа.
+
+### Рекомендуемый порядок закрытия
+
+1. TLS verification в клиенте.
+2. Корректная mTLS-проверка на сервере.
+3. Удаление секретов из репозитория и безопасные примеры.
+4. Восстановление SpecKeep verify path.
+5. Privileged e2e smoke + lint + финальный verify.
+
+---
+
 ## Таблица приоритетов (как быстрее в production)
 
 | Уровень          | Этапы         | Что даёт                                        |

@@ -25,7 +25,7 @@ type Stream struct {
 
 // @sk-task local-proxy-mode#T2.2: forward local TCP data to WS proxy frames (AC-001)
 func (s *Stream) ForwardToWS(ws *websocket.WSConn) {
-	defer s.Local.Close()
+	defer func() { _ = s.Local.Close() }()
 	buf := make([]byte, 4096)
 	for {
 		n, err := s.Local.Read(buf)
@@ -103,5 +103,5 @@ func (m *Manager) HandleIncomingFrame(f *framing.Frame) {
 	if s == nil {
 		return
 	}
-	s.Local.Write(data)
+	_, _ = s.Local.Write(data)
 }

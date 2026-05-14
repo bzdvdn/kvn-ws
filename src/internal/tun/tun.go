@@ -42,7 +42,7 @@ func (t *tunDevice) Open() error {
 	t.device = dev
 	name, err := dev.Name()
 	if err != nil {
-		dev.Close()
+		_ = dev.Close()
 		return fmt.Errorf("get tun name: %w", err)
 	}
 	t.name = name
