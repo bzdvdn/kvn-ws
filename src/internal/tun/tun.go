@@ -1,5 +1,8 @@
 // @sk-task foundation#T1.3: internal stubs (AC-002)
 // @sk-task docs-and-release#T5.1: fix MTU=0 for TUN creation (AC-008)
+// @sk-task tun-data-path#T2.1: single-buf Read (AC-002)
+// @sk-task tun-data-path#T2.2: Write offset=12 virtioNetHdrLen (AC-001)
+// @sk-task tun-data-path#T6.1: SetIP fix — use ip/mask not subnet/mask (AC-003)
 
 package tun
 
@@ -54,16 +57,8 @@ func (t *tunDevice) Close() error {
 }
 
 func (t *tunDevice) Read(buf []byte) (int, error) {
-	batchSize := t.device.BatchSize()
-	if batchSize < 1 {
-		batchSize = 1
-	}
-	bufs := make([][]byte, batchSize)
-	for i := range bufs {
-		bufs[i] = buf
-	}
-	sizes := make([]int, batchSize)
-	n, err := t.device.Read(bufs, sizes, 0)
+	sizes := make([]int, 1)
+	n, err := t.device.Read([][]byte{buf}, sizes, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -73,8 +68,13 @@ func (t *tunDevice) Read(buf []byte) (int, error) {
 	return sizes[0], nil
 }
 
+const virtioNetHdrLen = 12
+const writeHeadroom = virtioNetHdrLen
+
 func (t *tunDevice) Write(buf []byte) (int, error) {
-	_, err := t.device.Write([][]byte{buf}, 0)
+	padded := make([]byte, writeHeadroom+len(buf))
+	copy(padded[writeHeadroom:], buf)
+	_, err := t.device.Write([][]byte{padded}, writeHeadroom)
 	if err != nil {
 		return 0, err
 	}
@@ -82,7 +82,8 @@ func (t *tunDevice) Write(buf []byte) (int, error) {
 }
 
 func (t *tunDevice) SetIP(ip net.IP, mask *net.IPNet) error {
-	ipCmd := exec.Command("ip", "addr", "add", mask.String(), "dev", t.name)
+	cidr := &net.IPNet{IP: ip, Mask: mask.Mask}
+	ipCmd := exec.Command("ip", "addr", "add", cidr.String(), "dev", t.name)
 	if out, err := ipCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("set ip %s on %s: %w: %s", mask, t.name, err, string(out))
 	}

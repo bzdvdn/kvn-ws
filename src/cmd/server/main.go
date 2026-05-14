@@ -2,6 +2,7 @@
 // @sk-task security-acl#T7: Bandwidth limiter integration
 // @sk-task security-acl#T10: Admin API integration
 // @sk-task docs-and-release#T5.1: fix session ID hex encoding (AC-008)
+// @sk-task tun-data-path#T6.1: SetIP call fixed (AC-003)
 package main
 
 import (

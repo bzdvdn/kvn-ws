@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 go build -o /app/bin/client ./src/cmd/client \
 
 # Runtime stage
 FROM alpine:3.19
-RUN apk add --no-cache iproute2 ca-certificates
+RUN apk add --no-cache iproute2 ca-certificates nftables
 COPY --from=build /app/bin/client /usr/local/bin/client
 COPY --from=build /app/bin/server /usr/local/bin/server
 ENTRYPOINT ["/usr/local/bin/server"]
