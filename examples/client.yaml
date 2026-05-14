@@ -1,4 +1,5 @@
-server: wss://example.com/tunnel
+<!-- @sk-task docs-and-release#T1.3: standalone client example config (AC-005) -->
+server: wss://server:443/tunnel
 auth:
   token: your-token-here
 mtu: 1400

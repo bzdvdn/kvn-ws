@@ -1,12 +1,15 @@
 // @sk-task security-acl#T3: CIDR ACL middleware integration
 // @sk-task security-acl#T7: Bandwidth limiter integration
 // @sk-task security-acl#T10: Admin API integration
+// @sk-task docs-and-release#T5.1: fix session ID hex encoding (AC-008)
 package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -370,7 +373,12 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	}
 
 	tokenName := tokenCfg.Name
-	sess, assignedIP, assignedIPv6, err := sm.Create(clientHello.Token, tokenName, r.RemoteAddr, tokenCfg.MaxSessions, clientHello.IPv6)
+	var sidBuf [16]byte
+	if _, rerr := rand.Read(sidBuf[:]); rerr != nil {
+		copy(sidBuf[:], []byte(clientHello.Token))
+	}
+	sessionID := hex.EncodeToString(sidBuf[:])
+	sess, assignedIP, assignedIPv6, err := sm.Create(sessionID, tokenName, r.RemoteAddr, tokenCfg.MaxSessions, clientHello.IPv6)
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "max sessions exceeded") {

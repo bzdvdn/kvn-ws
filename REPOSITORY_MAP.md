@@ -38,6 +38,14 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `scripts/build.sh` — native binary build to `bin/`
 - `scripts/test-gate.sh` — gate test script
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
+- `examples/docker-compose.yml` — standalone docker-compose example
+- `examples/client.yaml` — standalone client config example
+- `examples/server.yaml` — standalone server config example
+- `examples/run.sh` — TLS gen + docker compose up script
+- `README.md` — root readme with badges, quickstart, doc links
+- `CHANGELOG.md` — version history (Keep a Changelog)
+- `docs/en/` — English documentation
+- `docs/ru/` — Russian documentation (full translation)
 
 ## Where To Edit
 - Core tunnel logic — `src/internal/tun/`, `src/internal/transport/*`, `src/internal/protocol/*`
@@ -45,6 +53,9 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Session/auth — `src/internal/session/`, `src/internal/protocol/auth/`, `src/internal/logger/`
 - Config changes — `src/internal/config/`
 - Logging/metrics — `src/internal/logger/`, `src/internal/metrics/`
+- Documentation — `docs/en/`, `docs/ru/`
+- Examples — `examples/`
+- Release — `CHANGELOG.md`, `README.md`
 
 ## Excluded
 - `.speckeep/**` — excluded from indexing

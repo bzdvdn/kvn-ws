@@ -1,4 +1,5 @@
 // @sk-task foundation#T1.3: internal stubs (AC-002)
+// @sk-task docs-and-release#T5.1: fix MTU=0 for TUN creation (AC-008)
 
 package tun
 
@@ -31,7 +32,7 @@ func NewTunDevice() TunDevice {
 }
 
 func (t *tunDevice) Open() error {
-	dev, err := tun.CreateTUN("kvn", 0)
+	dev, err := tun.CreateTUN("kvn", 1400)
 	if err != nil {
 		return fmt.Errorf("create tun: %w", err)
 	}
