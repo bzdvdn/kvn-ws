@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
+	"go.uber.org/zap"
 )
 
 func newTestSM(t *testing.T) *session.SessionManager {
@@ -18,11 +19,11 @@ func newTestSM(t *testing.T) *session.SessionManager {
 		Gateway:    "10.10.0.1",
 		RangeStart: "10.10.0.10",
 		RangeEnd:   "10.10.0.20",
-	})
+	}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewIPPool: %v", err)
 	}
-	return session.NewSessionManager(pool)
+	return session.NewSessionManager(pool, zap.NewNop())
 }
 
 // @sk-test security-acl#AC-007: Admin API — list sessions (GET /admin/sessions)

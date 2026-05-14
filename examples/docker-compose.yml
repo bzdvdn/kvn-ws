@@ -7,7 +7,9 @@ services:
       dockerfile: Dockerfile
     ports:
       - "443:443"
-    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
     volumes:
       - /dev/net/tun:/dev/net/tun
       - ./server.yaml:/etc/kvn-ws/server.yaml
@@ -21,7 +23,9 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - server
-    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
     entrypoint: ["/usr/local/bin/client"]
     volumes:
       - /dev/net/tun:/dev/net/tun
@@ -36,7 +40,9 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - server
-    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
     entrypoint: ["/usr/local/bin/client"]
     volumes:
       - /dev/net/tun:/dev/net/tun

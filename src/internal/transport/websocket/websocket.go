@@ -7,7 +7,6 @@ package websocket
 import (
 	"bytes"
 	"crypto/tls"
-	"log"
 	"net"
 	"net/http"
 	"path"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 const MultiplexSubprotocol = "kvn-ws-mux"
@@ -27,12 +27,16 @@ type WSConfig struct {
 }
 
 // @sk-task core-tunnel-mvp#T2.1: WebSocket connection wrapper (AC-002)
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type WSConn struct {
-	conn *websocket.Conn
-	cfg  WSConfig
+	conn   *websocket.Conn
+	cfg    WSConfig
+	logger *zap.Logger
 }
 
 // @sk-task performance-and-polish#T2.3: BatchWriter for coalescing writes (AC-003)
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+// @sk-task production-readiness-hardening#T2.3: idempotent Close via sync.Once (AC-003)
 type BatchWriter struct {
 	conn      *WSConn
 	buf       bytes.Buffer
@@ -40,14 +44,18 @@ type BatchWriter struct {
 	threshold int
 	ticker    *time.Ticker
 	stopCh    chan struct{}
+	logger    *zap.Logger
+	closeOnce sync.Once
 }
 
-func NewBatchWriter(conn *WSConn, threshold int, flushInterval time.Duration) *BatchWriter {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func NewBatchWriter(conn *WSConn, threshold int, flushInterval time.Duration, logger *zap.Logger) *BatchWriter {
 	bw := &BatchWriter{
 		conn:      conn,
 		threshold: threshold,
 		ticker:    time.NewTicker(flushInterval),
 		stopCh:    make(chan struct{}),
+		logger:    logger,
 	}
 	go bw.flushLoop()
 	return bw
@@ -91,9 +99,24 @@ func (bw *BatchWriter) flushLoop() {
 	}
 }
 
+// @sk-task production-readiness-hardening#T2.3: idempotent Close via sync.Once (AC-003)
 func (bw *BatchWriter) Close() error {
-	close(bw.stopCh)
-	return bw.Flush()
+	var err error
+	bw.closeOnce.Do(func() {
+		close(bw.stopCh)
+		err = bw.Flush()
+	})
+	return err
+}
+
+// @sk-task production-readiness-hardening#T2.1: deadline helpers for WSConn (AC-001)
+func (c *WSConn) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+
+// @sk-task production-readiness-hardening#T2.1: deadline helpers for WSConn (AC-001)
+func (c *WSConn) SetWriteDeadline(t time.Time) error {
+	return c.conn.SetWriteDeadline(t)
 }
 
 func (c *WSConn) ReadMessage() ([]byte, error) {
@@ -118,6 +141,7 @@ func (c *WSConn) Subprotocol() string {
 }
 
 // @sk-task production-hardening#T4.1: set keepalive with ping/pong (AC-002)
+// @sk-task production-readiness-hardening#T2.6: log.Printf → zap (AC-006)
 func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 	c.conn.SetPongHandler(func(string) error {
 		return c.conn.SetReadDeadline(time.Now().Add(timeout))
@@ -127,7 +151,7 @@ func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 		defer ticker.Stop()
 		for range ticker.C {
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("[ws] ping error: %v", err)
+				c.logger.Warn("ping error", zap.Error(err))
 				return
 			}
 		}
@@ -135,7 +159,8 @@ func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 }
 
 // @sk-task performance-and-polish#T2.2: TCP_NODELAY via NetDial (AC-002)
-func Dial(serverURL string, tlsConfig *tls.Config, cfg ...WSConfig) (*WSConn, error) {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WSConfig) (*WSConn, error) {
 	var wsCfg WSConfig
 	if len(cfg) > 0 {
 		wsCfg = cfg[0]
@@ -165,7 +190,7 @@ func Dial(serverURL string, tlsConfig *tls.Config, cfg ...WSConfig) (*WSConn, er
 	if wsCfg.Compression {
 		_ = conn.SetCompressionLevel(4)
 	}
-	return &WSConn{conn: conn, cfg: wsCfg}, nil
+	return &WSConn{conn: conn, cfg: wsCfg, logger: logger}, nil
 }
 
 // @sk-task security-acl#T4: NewOriginChecker creates origin check function from whitelist
@@ -189,7 +214,8 @@ func NewOriginChecker(whitelist []string, allowEmpty bool) func(r *http.Request)
 }
 
 // @sk-task performance-and-polish#T2.2: TCP_NODELAY after Upgrade (AC-002)
-func Accept(w http.ResponseWriter, r *http.Request, originCheckers ...interface{}) (*WSConn, error) {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCheckers ...interface{}) (*WSConn, error) {
 	var cfg WSConfig
 	var checkOrigin func(r *http.Request) bool
 	checkOrigin = func(r *http.Request) bool { return true }
@@ -223,7 +249,7 @@ func Accept(w http.ResponseWriter, r *http.Request, originCheckers ...interface{
 	conn.SetPingHandler(func(appData string) error {
 		return conn.WriteMessage(websocket.PongMessage, nil)
 	})
-	return &WSConn{conn: conn, cfg: cfg}, nil
+	return &WSConn{conn: conn, cfg: cfg, logger: logger}, nil
 }
 
 func ResetUpgrader() {}

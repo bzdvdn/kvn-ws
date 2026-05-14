@@ -2,8 +2,9 @@ package routing
 
 import (
 	"encoding/binary"
-	"log"
 	"net/netip"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -12,21 +13,25 @@ const (
 )
 
 // @sk-task routing-split-tunnel#T2.4: tun router (AC-001)
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type TunRouter struct {
 	ruleSet    *RuleSet
 	tunRead    func([]byte) (int, error)
 	tunWrite   func([]byte) (int, error)
 	tunnelSend func([]byte) error
 	dnsOverride bool
+	logger     *zap.Logger
 }
 
 // @sk-task routing-split-tunnel#T2.4: new tun router (AC-001)
-func NewTunRouter(rs *RuleSet, tunRead, tunWrite func([]byte) (int, error), tunnelSend func([]byte) error) *TunRouter {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func NewTunRouter(rs *RuleSet, tunRead, tunWrite func([]byte) (int, error), tunnelSend func([]byte) error, logger *zap.Logger) *TunRouter {
 	return &TunRouter{
 		ruleSet:    rs,
 		tunRead:    tunRead,
 		tunWrite:   tunWrite,
 		tunnelSend: tunnelSend,
+		logger:     logger,
 	}
 }
 
@@ -38,27 +43,28 @@ func (r *TunRouter) SetDNSOverride(enabled bool) {
 // @sk-task routing-split-tunnel#T2.4: route one packet (AC-001)
 // @sk-task routing-split-tunnel#T3.3: dns override route (AC-008)
 // @sk-task ipv6-dual-stack#T3.1: dual-stack routing dispatch (AC-005)
+// @sk-task production-readiness-hardening#T2.6: log.Printf → zap (AC-006)
 func (r *TunRouter) RoutePacket(packet []byte) error {
 	if len(packet) < 1 {
 		return r.sendDirect(packet)
 	}
 	ipVersion := packet[0] >> 4
 	if r.dnsOverride && ipVersion == 4 && isDNSQuery(packet) {
-		log.Printf("[routing] dns override: routing through tunnel")
+		r.logger.Debug("dns override: routing through tunnel")
 		return r.sendTunnel(packet)
 	}
 	switch ipVersion {
 	case 4:
 		dstIP, err := parseDstIP(packet)
 		if err != nil {
-			log.Printf("[routing] parse dst ip: %v", err)
+			r.logger.Debug("parse dst ip failed", zap.String("detail", err.Error()))
 			return r.sendDirect(packet)
 		}
 		return r.routeByRule(dstIP, packet)
 	case 6:
 		dstIP, err := parseDstIP6(packet)
 		if err != nil {
-			log.Printf("[routing] parse dst ip6: %v", err)
+			r.logger.Debug("parse dst ip6 failed", zap.String("detail", err.Error()))
 			return r.sendDirect(packet)
 		}
 		return r.routeByRule(dstIP, packet)

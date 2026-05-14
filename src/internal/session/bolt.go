@@ -2,24 +2,27 @@ package session
 
 import (
 	"fmt"
-	"log"
 	"net"
 
 	"go.etcd.io/bbolt"
+	"go.uber.org/zap"
 )
 
 // @sk-task production-hardening#T3.1: bolt db store (AC-006)
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type BoltStore struct {
 	db     *bbolt.DB
 	bucket []byte
+	logger *zap.Logger
 }
 
-func NewBoltStore(path string) (*BoltStore, error) {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func NewBoltStore(path string, logger *zap.Logger) (*BoltStore, error) {
 	db, err := bbolt.Open(path, 0600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open bolt db %s: %w", path, err)
 	}
-	s := &BoltStore{db: db, bucket: []byte("allocations")}
+	s := &BoltStore{db: db, bucket: []byte("allocations"), logger: logger}
 	if err := s.db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(s.bucket)
 		return err
@@ -35,12 +38,13 @@ func (s *BoltStore) Close() error {
 }
 
 // @sk-task ipv6-dual-stack#T1.2: bolt db store for IPv6 allocations (AC-002)
-func NewBoltStore6(path string) (*BoltStore, error) {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func NewBoltStore6(path string, logger *zap.Logger) (*BoltStore, error) {
 	db, err := bbolt.Open(path, 0600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open bolt db %s: %w", path, err)
 	}
-	s := &BoltStore{db: db, bucket: []byte("allocations_v6")}
+	s := &BoltStore{db: db, bucket: []byte("allocations_v6"), logger: logger}
 	if err := s.db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(s.bucket)
 		return err
@@ -78,7 +82,7 @@ func (s *BoltStore) LoadAllocations() (map[string]net.IP, error) {
 		return b.ForEach(func(k, v []byte) error {
 			ip := net.ParseIP(string(v))
 			if ip == nil {
-				log.Printf("[bolt] invalid IP %q for key %q", string(v), string(k))
+				s.logger.Warn("invalid IP in bolt store", zap.String("ip", string(v)), zap.String("key", string(k)))
 				return nil
 			}
 			result[string(k)] = ip

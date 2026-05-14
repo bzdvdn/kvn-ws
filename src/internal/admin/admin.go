@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
@@ -38,6 +39,18 @@ func NewAdminServer(cfg AdminCfg, sm *session.SessionManager) *AdminServer {
 	s.router.Use(s.authMiddleware)
 	s.router.Get("/admin/sessions", s.listSessions)
 	s.router.Delete("/admin/sessions/{id}", s.deleteSession)
+
+	// @sk-task production-readiness-hardening#T3.5: pprof profiles (AC-011)
+	s.router.Get("/debug/pprof/", pprof.Index)
+	s.router.Get("/debug/pprof/cmdline", pprof.Cmdline)
+	s.router.Get("/debug/pprof/profile", pprof.Profile)
+	s.router.Get("/debug/pprof/symbol", pprof.Symbol)
+	s.router.Get("/debug/pprof/trace", pprof.Trace)
+	s.router.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	s.router.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	s.router.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
+	s.router.Handle("/debug/pprof/block", pprof.Handler("block"))
+	s.router.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
 
 	return s
 }

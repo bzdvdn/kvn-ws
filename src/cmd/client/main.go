@@ -83,7 +83,7 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 		logger.Fatal("proxy tls config", zap.Error(err))
 	}
 
-	wsConn, err := websocket.Dial(cfg.Server, tlsCfg, websocket.WSConfig{
+	wsConn, err := websocket.Dial(cfg.Server, tlsCfg, logger, websocket.WSConfig{
 		Compression: cfg.Compression,
 		Multiplex:   cfg.Multiplex,
 		MTU:         cfg.MTU,
@@ -98,7 +98,7 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 	// @sk-task local-proxy-mode#T3.3: CIDR/domain exclusion in proxy mode (AC-007)
 	var routeSet *routing.RuleSet
 	if cfg.Routing != nil {
-		rs, err := routing.NewRuleSet(cfg.Routing)
+		rs, err := routing.NewRuleSet(cfg.Routing, logger)
 		if err != nil {
 			logger.Warn("routing init, using default", zap.Error(err))
 		} else {
@@ -237,7 +237,7 @@ func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.Client
 			Multiplex:   cfg.Multiplex,
 			MTU:         cfg.MTU,
 		}
-		wsConn, err := websocket.Dial(cfg.Server, tlsCfg, wsCfg)
+		wsConn, err := websocket.Dial(cfg.Server, tlsCfg, logger, wsCfg)
 		if err != nil {
 			logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
 			applyKillSwitch(cfg, logger)
@@ -438,6 +438,10 @@ func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 		if err != nil {
 			return err
 		}
+		if err := conn.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
+			framing.ReturnBuffer(data)
+			return fmt.Errorf("ws write deadline: %w", err)
+		}
 		if err := conn.WriteMessage(data); err != nil {
 			framing.ReturnBuffer(data)
 			return fmt.Errorf("ws write: %w", err)
@@ -452,6 +456,9 @@ func wsToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+			return fmt.Errorf("ws read deadline: %w", err)
 		}
 		data, err := conn.ReadMessage()
 		if err != nil {

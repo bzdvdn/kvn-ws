@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 	"time"
@@ -64,5 +65,17 @@ func TestResolverDefaultTTL(t *testing.T) {
 	r := NewDefaultResolver(c)
 	if r.ttl != DefaultTTL {
 		t.Errorf("expected default TTL %v, got %v", DefaultTTL, r.ttl)
+	}
+}
+
+// @sk-test production-readiness-hardening#T4.2: TestDNSResolveTimeout (AC-008)
+func TestDNSResolveTimeout(t *testing.T) {
+	r := NewDefaultResolver(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+
+	_, err := r.Lookup(ctx, "example.com")
+	if err == nil {
+		t.Error("expected timeout error for expired context")
 	}
 }

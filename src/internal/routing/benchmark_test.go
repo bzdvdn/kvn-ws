@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"go.uber.org/zap"
 )
 
 // @sk-test routing-split-tunnel#T4.1: BenchmarkRoute (AC-010)
@@ -15,7 +16,7 @@ func BenchmarkRoute(b *testing.B) {
 		IncludeIPs:    []string{"10.10.10.10", "10.10.10.11"},
 		ExcludeRanges: []string{"10.0.0.0/16"},
 	}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, zap.NewNop())
 	if err != nil {
 		b.Fatal(err)
 	}

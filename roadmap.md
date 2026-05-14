@@ -142,7 +142,37 @@
 
 ## Production Gap — состояние на 2026-05-14
 
-**Текущий вердикт:** базовая сборка и unit/race-проверки проходят, но продукт **не готов к production** из-за незакрытых security и release-governance блокеров.
+**Текущий вердикт (2026-05-15):** базовая сборка, unit/race-проверки проходят, критические утечки ресурсов устранены. Продукт готов к **ограниченному production** (≤500 сессий, uptime >72ч).
+
+---
+
+## Технический долг — Post-Hardening (Sprint 3.5, 2–3 дня)
+
+**Задачи, оставшиеся после `production-readiness-hardening`, не блокирующие MVP, но рекомендуемые перед v1.0-stable.**
+
+| # | Приоритет | Задача | Результат | Зависимости |
+| --- | --- | --- | --- | --- |
+| 1 | P1 | `sm.Stop()` — sync.Once для защиты от panic при двойном вызове | `close(sm.stopCh)` безопасен при повторном вызове | production-readiness-hardening |
+| 2 | P1 | Session expiry → cancel WS goroutines: per-session context.CancelFunc | При idle/ttl expiry WS горутины завершаются немедленно, а не через 30s deadline | session expiry |
+| 3 | P1 | Origin checker: заменить `path.Match` на корректный glob/pattern matcher | `*.example.com` не отвергается из-за `/` в URL | 4.4 |
+| 4 | P1 | Информационная безопасность: общие сообщения об ошибках вместо "invalid token"/"max sessions exceeded" | Error response не раскрывает внутреннее состояние | auth |
+| 5 | P2 | `SetWriteLimit` для WebSocket — ограничить буфер записи | Защита от OOM при медленных читателях | 1.2 |
+| 6 | P2 | Worker pool / semaphore для proxy goroutines | 1000 сессий × 100 proxy streams не создаёт 100k горутин | local-proxy-mode |
+| 7 | P2 | Rate limiting для `/metrics` endpoint | Prometheus endpoint не может быть использован для DoS | metrics |
+| 8 | P3 | `TokenBandwidthManager.Allow` — устранить race condition lock-unlock-lock | Rate limiter точен при конкурентном доступе | 4.2 |
+| 9 | P3 | Proxy goroutine context-awareness | TCP read горутина завершается по ctx.Done(), а не только по CloseAll() | local-proxy-mode |
+| 10 | P3 | Prometheus latency histograms (p50/p95/p99) | Метрики пригодны для алертинга по задержкам | 3.7 |
+| 11 | P3 | Runtime log level change через SIGHUP или admin API | Уровень логов меняется без перезапуска | logging |
+| 12 | P3 | `sessionProxyStreams` вынести в отдельный пакет `proxy/streams.go` | Переиспользуемый, тестируемый тип | local-proxy-mode |
+
+### Рекомендуемый порядок
+
+1. sync.Once для sm.Stop() + per-session cancel — закрывают последствия таймаутов.
+2. Origin checker bugfix — potential security issue.
+3. Общие ошибки auth — защита от перебора.
+4. Остальные P2/P3 — по мере необходимости перед v1.0-stable.
+
+---
 
 ### Блокер 1 — TLS trust chain и проверка сервера
 

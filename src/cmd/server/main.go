@@ -105,7 +105,7 @@ func main() {
 		Gateway:    cfg.Network.PoolIPv4.Gateway,
 		RangeStart: cfg.Network.PoolIPv4.RangeStart,
 		RangeEnd:   cfg.Network.PoolIPv4.RangeEnd,
-	})
+	}, logger)
 	if err != nil {
 		logger.Fatal("create ip pool", zap.Error(err))
 	}
@@ -121,7 +121,7 @@ func main() {
 	}()
 
 	if cfg.BoltDBPath != "" {
-		boltStore, err = session.NewBoltStore(cfg.BoltDBPath)
+		boltStore, err = session.NewBoltStore(cfg.BoltDBPath, logger)
 		if err != nil {
 			logger.Warn("bolt db init, using in-memory pool", zap.Error(err))
 		} else {
@@ -133,19 +133,19 @@ func main() {
 		}
 	}
 
-	sm := session.NewSessionManager(pool)
+	sm := session.NewSessionManager(pool, logger)
 
 	// @sk-task ipv6-dual-stack#T2.3: init IPv6 pool and bolt store (AC-004)
 	if cfg.Network.PoolIPv6.Subnet != "" {
 		pool6, err := session.NewIPPool6(session.PoolCfg{
 			Subnet:  cfg.Network.PoolIPv6.Subnet,
 			Gateway: cfg.Network.PoolIPv6.Gateway,
-		})
+		}, logger)
 		if err != nil {
 			logger.Warn("create ipv6 pool, running ipv4-only", zap.Error(err))
 		} else {
 			if cfg.BoltDBPath != "" {
-				boltStore6, err = session.NewBoltStore6(cfg.BoltDBPath)
+				boltStore6, err = session.NewBoltStore6(cfg.BoltDBPath, logger)
 				if err != nil {
 					logger.Warn("bolt db6 init", zap.Error(err))
 				} else {
@@ -162,7 +162,9 @@ func main() {
 		logger.Info("no ipv6 pool configured, running ipv4-only")
 	}
 
+	// @sk-task production-readiness-hardening#T2.4: defer sm.Stop for reclaimLoop cleanup (AC-004)
 	sm.Start(300*time.Second, 24*time.Hour, 10*time.Second)
+	defer sm.Stop()
 
 	collectors := metrics.NewCollectors()
 	ready := false
@@ -276,6 +278,7 @@ func main() {
 
 	mux.Handle("/tunnel", cidrMiddleware(tunnelHandler))
 
+	// @sk-task production-readiness-hardening#T3.6: health check with dependency verification (AC-012)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if !ready {
@@ -283,17 +286,25 @@ func main() {
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "not ready"})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		health := map[string]string{"status": "ok"}
+		if boltStore != nil {
+			health["bolt"] = "ok"
+		} else {
+			health["bolt"] = "disabled"
+		}
+		_ = json.NewEncoder(w).Encode(health)
 	})
 
 	// @sk-task production-gap#T3.1: protect metrics with the shared operational token gate (AC-005)
 	mux.Handle("/metrics", admin.TokenMiddleware(cfg.Admin.Token)(promhttp.Handler()))
 
+	// @sk-task production-readiness-hardening#T2.2: ReadHeaderTimeout prevents slow-loris (AC-002)
 	httpServer := &http.Server{
-		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Handler:           mux,
+		ReadHeaderTimeout: 20 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	ready = true
@@ -355,7 +366,7 @@ func main() {
 }
 
 func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []config.TokenCfg, prl *sessionPacketLimiter, bwMgr *session.TokenBandwidthManager, originChecker func(r *http.Request) bool, wsCfg websocket.WSConfig, collectors *metrics.Collectors, logger *zap.Logger) {
-	wsConn, err := websocket.Accept(w, r, originChecker, wsCfg)
+	wsConn, err := websocket.Accept(w, r, logger, originChecker, wsCfg)
 	if err != nil {
 		logger.Error("ws upgrade", zap.Error(err))
 		return
@@ -456,9 +467,12 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	)
 	collectors.ActiveSessions.Inc()
 
+	// @sk-task production-readiness-hardening#T2.5: per-session proxy streams (AC-005)
+	sessionStreams := &sessionProxyStreams{m: make(map[uint32]net.Conn)}
+
 	eg, ctx := errgroup.WithContext(context.Background())
 	eg.Go(func() error {
-		return serverWSToTun(ctx, tunDev, wsConn, sess.ID, prl, collectors, logger)
+		return serverWSToTun(ctx, tunDev, wsConn, sess.ID, prl, collectors, logger, sessionStreams)
 	})
 	eg.Go(func() error {
 		return serverTunToWS(ctx, tunDev, wsConn, sess.ID, tokenName, bwMgr, collectors, logger)
@@ -474,14 +488,48 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	}
 	collectors.ActiveSessions.Dec()
 
+	sessionStreams.CloseAll()
 	sm.Remove(sess.ID)
 	_ = wsConn.Close()
 }
 
-// @sk-task local-proxy-mode#T1.2: server-side proxy stream handler (AC-001)
-var proxyStreams sync.Map
+const wsTunnelTimeout = 30 * time.Second
 
-func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger) error {
+// @sk-task production-readiness-hardening#T2.5: per-session proxy streams (AC-005)
+type sessionProxyStreams struct {
+	mu   sync.Mutex
+	m    map[uint32]net.Conn
+}
+
+func (s *sessionProxyStreams) Load(key uint32) (net.Conn, bool) {
+	s.mu.Lock()
+	v, ok := s.m[key]
+	s.mu.Unlock()
+	return v, ok
+}
+
+func (s *sessionProxyStreams) Store(key uint32, val net.Conn) {
+	s.mu.Lock()
+	s.m[key] = val
+	s.mu.Unlock()
+}
+
+func (s *sessionProxyStreams) Delete(key uint32) {
+	s.mu.Lock()
+	delete(s.m, key)
+	s.mu.Unlock()
+}
+
+func (s *sessionProxyStreams) CloseAll() {
+	s.mu.Lock()
+	for _, conn := range s.m {
+		_ = conn.Close()
+	}
+	s.m = make(map[uint32]net.Conn)
+	s.mu.Unlock()
+}
+
+func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger, proxyStreams *sessionProxyStreams) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -494,6 +542,9 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 				zap.String("reason", "packet rate exceeded"),
 			)
 			continue
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
+			return err
 		}
 		data, err := conn.ReadMessage()
 		if err != nil {
@@ -527,11 +578,10 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 			data := payload[6+dstLen:]
 
 			if v, ok := proxyStreams.Load(streamID); ok {
-				tcpConn := v.(net.Conn)
-				_, _ = tcpConn.Write(data)
+				_, _ = v.Write(data)
 				f.Release()
 			} else {
-				tcpConn, err := net.Dial("tcp", dst)
+				tcpConn, err := net.DialTimeout("tcp", dst, 10*time.Second)
 				if err != nil {
 					logger.Warn("proxy dial failed", zap.String("dst", dst), zap.Error(err))
 					f.Release()
@@ -543,10 +593,10 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 				}
 				f.Release()
 
-				go func(sid uint32, tcp net.Conn, ws *websocket.WSConn) {
+				go func(sid uint32, tcp net.Conn, ws *websocket.WSConn, streams *sessionProxyStreams) {
 					defer func() {
 						_ = tcp.Close()
-						proxyStreams.Delete(sid)
+						streams.Delete(sid)
 					}()
 					buf := make([]byte, 4096)
 					for {
@@ -573,7 +623,7 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 						}
 						framing.ReturnBuffer(encoded)
 					}
-				}(streamID, tcpConn, conn)
+				}(streamID, tcpConn, conn, proxyStreams)
 			}
 		} else {
 			f.Release()
@@ -581,6 +631,7 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 	}
 }
 
+// @sk-task production-readiness-hardening#T2.1: write deadline before each WriteMessage (AC-001)
 func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID, tokenName string, bwMgr *session.TokenBandwidthManager, collectors *metrics.Collectors, logger *zap.Logger) error {
 	buf := make([]byte, 1500)
 	for {
@@ -604,6 +655,10 @@ func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 		}
 		data, err := f.Encode()
 		if err != nil {
+			return err
+		}
+		if err := conn.SetWriteDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
+			framing.ReturnBuffer(data)
 			return err
 		}
 		if err := conn.WriteMessage(data); err != nil {

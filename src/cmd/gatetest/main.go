@@ -17,6 +17,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 )
 
 type mockResolver struct{}
@@ -52,7 +53,7 @@ func runRoutingTest() {
 		IncludeDomains: []string{"corp.example.com"},
 	}
 
-	rs, err := routing.NewRuleSetWithResolver(cfg, &mockResolver{})
+	rs, err := routing.NewRuleSetWithResolver(cfg, &mockResolver{}, zap.NewNop())
 	if err != nil {
 		fmt.Printf("FAIL: NewRuleSet: %v\n", err)
 		return
@@ -133,9 +134,9 @@ func runLoadTest(cfgPath string) {
 	conns := make([]*websocket.WSConn, 0, sessionCount)
 
 	for i := 0; i < sessionCount; i++ {
-		conn, err := websocket.Dial(targetHost, tlsCfg, wsCfg)
+		conn, err := websocket.Dial(targetHost, tlsCfg, zap.NewNop(), wsCfg)
 		if err != nil {
-			log.Printf("session %d: dial failed: %v", i, err)
+			fmt.Printf("session %d: dial failed: %v\n", i, err)
 			continue
 		}
 		conns = append(conns, conn)

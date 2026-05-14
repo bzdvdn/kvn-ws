@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 type mockDomainResolver struct {
@@ -17,7 +19,7 @@ func (m *mockDomainResolver) Lookup(ctx context.Context, domain string) ([]netip
 // @sk-test routing-split-tunnel#T3.2: TestDomainMatcherMatch (AC-005)
 func TestDomainMatcherMatch(t *testing.T) {
 	resolver := &mockDomainResolver{ips: []netip.Addr{netip.MustParseAddr("10.10.10.10")}}
-	m := NewDomainMatcher([]string{"internal.corp.ru"}, resolver)
+	m := NewDomainMatcher([]string{"internal.corp.ru"}, resolver, zap.NewNop())
 
 	if !m.Match(netip.MustParseAddr("10.10.10.10")) {
 		t.Error("expected match for resolved IP")
@@ -35,7 +37,7 @@ func TestDomainMatcherMultipleIPs(t *testing.T) {
 			netip.MustParseAddr("10.10.10.11"),
 		},
 	}
-	m := NewDomainMatcher([]string{"multi.corp.ru"}, resolver)
+	m := NewDomainMatcher([]string{"multi.corp.ru"}, resolver, zap.NewNop())
 
 	if !m.Match(netip.MustParseAddr("10.10.10.10")) {
 		t.Error("expected match for first resolved IP")

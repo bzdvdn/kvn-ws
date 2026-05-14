@@ -22,7 +22,10 @@ import (
 
 	tlscfg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
+
+var nopLogger = zap.NewNop()
 
 type certMaterial struct {
 	serverTLS  tls.Certificate
@@ -170,7 +173,7 @@ func TestWSDialAndEcho(t *testing.T) {
 
 	wsURL := "ws" + server.URL[len("http"):] + "/echo"
 
-	conn, err := Dial(wsURL, nil)
+	conn, err := Dial(wsURL, nil, nopLogger)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -249,7 +252,7 @@ func TestWSTLSIntegration(t *testing.T) {
 		InsecureSkipVerify: true,
 	}
 
-	conn, err := Dial(wsURL, dialTLS)
+	conn, err := Dial(wsURL, dialTLS, nopLogger)
 	if err != nil {
 		t.Fatalf("Dial WSS: %v", err)
 	}
@@ -291,7 +294,7 @@ func TestWSTLSTrustedServerCAAccepted(t *testing.T) {
 	}
 
 	wsURL := "wss" + server.URL[len("https"):] + "/tunnel"
-	conn, err := Dial(wsURL, dialTLS)
+	conn, err := Dial(wsURL, dialTLS, nopLogger)
 	if err != nil {
 		t.Fatalf("Dial trusted WSS: %v", err)
 	}
@@ -327,7 +330,7 @@ func TestWSTLSRejectsUntrustedServerCA(t *testing.T) {
 	}
 
 	wsURL := "wss" + server.URL[len("https"):] + "/tunnel"
-	if _, err := Dial(wsURL, dialTLS); err == nil {
+	if _, err := Dial(wsURL, dialTLS, nopLogger); err == nil {
 		t.Fatal("Dial untrusted WSS = nil error, want certificate failure")
 	}
 }
@@ -383,7 +386,7 @@ func TestWSMTLSModesDifferentiateRequestRequireVerify(t *testing.T) {
 			}
 
 			wsURL := "wss" + server.URL[len("https"):] + "/tunnel"
-			conn, err := Dial(wsURL, dialTLS)
+			conn, err := Dial(wsURL, dialTLS, nopLogger)
 			if tt.wantOK && err != nil {
 				t.Fatalf("Dial(%s) unexpected error: %v", tt.clientAuth, err)
 			}
@@ -524,7 +527,7 @@ func TestDialTCPNoDelay(t *testing.T) {
 
 	wsURL := "ws" + server.URL[len("http"):] + "/ws"
 
-	conn, err := Dial(wsURL, nil)
+	conn, err := Dial(wsURL, nil, nopLogger)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -542,7 +545,7 @@ func TestAcceptTCPNoDelay(t *testing.T) {
 	serverCh := make(chan *WSConn, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := Accept(w, r)
+		conn, err := Accept(w, r, nopLogger)
 		if err != nil {
 			t.Errorf("Accept: %v", err)
 			serverCh <- nil
@@ -582,7 +585,7 @@ func TestBatchWriterCoalescing(t *testing.T) {
 	var receivedData [][]byte
 	var mu sync.Mutex
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := Accept(w, r)
+		conn, err := Accept(w, r, nopLogger)
 		if err != nil {
 			t.Errorf("Accept: %v", err)
 			return
@@ -604,7 +607,7 @@ func TestBatchWriterCoalescing(t *testing.T) {
 
 	wsURL := "ws" + server.URL[len("http"):] + "/ws"
 
-	conn, err := Dial(wsURL, nil)
+	conn, err := Dial(wsURL, nil, nopLogger)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -616,7 +619,7 @@ func TestBatchWriterCoalescing(t *testing.T) {
 		[]byte("small payload 3"),
 	}
 
-	bw := NewBatchWriter(conn, 4096, 50*time.Millisecond)
+	bw := NewBatchWriter(conn, 4096, 50*time.Millisecond, zap.NewNop())
 	defer func() { _ = bw.Close() }()
 
 	for _, p := range payloads {
@@ -641,7 +644,7 @@ func TestWSCompression(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		cfg := WSConfig{Compression: true}
-		conn, err := Accept(w, r, cfg)
+		conn, err := Accept(w, r, nopLogger, cfg)
 		if err != nil {
 			t.Errorf("Accept: %v", err)
 			return
@@ -663,7 +666,7 @@ func TestWSCompression(t *testing.T) {
 	wsURL := "ws" + server.URL[len("http"):] + "/ws"
 
 	wsCfg := WSConfig{Compression: true}
-	conn, err := Dial(wsURL, nil, wsCfg)
+	conn, err := Dial(wsURL, nil, nopLogger, wsCfg)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -689,7 +692,7 @@ func TestWSMultiplexSubprotocol(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		srvCfg := WSConfig{Multiplex: true}
-		conn, err := Accept(w, r, srvCfg)
+		conn, err := Accept(w, r, nopLogger, srvCfg)
 		if err != nil {
 			t.Errorf("Accept: %v", err)
 			return
@@ -706,7 +709,7 @@ func TestWSMultiplexSubprotocol(t *testing.T) {
 	wsURL := "ws" + server.URL[len("http"):] + "/ws"
 
 	wsCfg := WSConfig{Multiplex: true}
-	conn, err := Dial(wsURL, nil, wsCfg)
+	conn, err := Dial(wsURL, nil, nopLogger, wsCfg)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -724,7 +727,7 @@ func TestWSAcceptWithOriginChecker(t *testing.T) {
 	var upgraded bool
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := Accept(w, r, checker)
+		conn, err := Accept(w, r, nopLogger, checker)
 		if err != nil {
 			if strings.Contains(err.Error(), "origin") {
 				http.Error(w, "origin not allowed", http.StatusForbidden)
@@ -746,4 +749,75 @@ func TestWSAcceptWithOriginChecker(t *testing.T) {
 	// So we test that origin checker itself works (covered above)
 	_ = req
 	_ = upgraded
+}
+
+// @sk-test production-readiness-hardening#T4.1: TestBatchWriterCloseIdempotent (AC-003)
+func TestBatchWriterCloseIdempotent(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r, nopLogger)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+		<-r.Context().Done()
+		_ = conn.Close()
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+	conn, err := Dial(wsURL, nil, nopLogger)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	bw := NewBatchWriter(conn, 1024, 100*time.Millisecond, nopLogger)
+
+	if err := bw.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := bw.Close(); err != nil {
+		t.Fatalf("second Close must be idempotent, got: %v", err)
+	}
+}
+
+// @sk-test production-readiness-hardening#T4.1: TestWebSocketDeadlines (AC-001)
+func TestWebSocketDeadlines(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r, nopLogger)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+		<-r.Context().Done()
+		_ = conn.Close()
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+	conn, err := Dial(wsURL, nil, nopLogger)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if err := conn.SetReadDeadline(time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("SetWriteDeadline: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(-time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline past: %v", err)
+	}
+	if _, err := conn.ReadMessage(); err == nil {
+		t.Error("expected timeout error from past read deadline")
+	}
 }

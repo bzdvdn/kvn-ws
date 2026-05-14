@@ -4,12 +4,13 @@ package session
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"math/rand/v2"
 	"net"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type PoolCfg struct {
@@ -20,6 +21,7 @@ type PoolCfg struct {
 }
 
 // @sk-task core-tunnel-mvp#T1.3: session store + IP pool (AC-009)
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type IPPool struct {
 	mu        sync.Mutex
 	subnet    *net.IPNet
@@ -29,6 +31,7 @@ type IPPool struct {
 	allocated map[string]net.IP
 	usedIPs   map[string]bool
 	boltStore *BoltStore
+	logger    *zap.Logger
 }
 
 // @sk-task production-hardening#T3.1: set bolt store for pool persistence (AC-006)
@@ -57,7 +60,8 @@ func (p *IPPool) LoadFromBolt() error {
 	return nil
 }
 
-func NewIPPool(cfg PoolCfg) (*IPPool, error) {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func NewIPPool(cfg PoolCfg, logger *zap.Logger) (*IPPool, error) {
 	_, subnet, err := net.ParseCIDR(cfg.Subnet)
 	if err != nil {
 		return nil, fmt.Errorf("parse subnet %s: %w", cfg.Subnet, err)
@@ -90,11 +94,13 @@ func NewIPPool(cfg PoolCfg) (*IPPool, error) {
 		end:       endIP,
 		allocated: make(map[string]net.IP),
 		usedIPs:   make(map[string]bool),
+		logger:    logger,
 	}, nil
 }
 
 // @sk-task ipv6-dual-stack#T1.2: IPv6 pool constructor with random offset (AC-001, AC-002)
-func NewIPPool6(cfg PoolCfg) (*IPPool, error) {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func NewIPPool6(cfg PoolCfg, logger *zap.Logger) (*IPPool, error) {
 	_, subnet, err := net.ParseCIDR(cfg.Subnet)
 	if err != nil {
 		return nil, fmt.Errorf("parse v6 subnet %s: %w", cfg.Subnet, err)
@@ -123,6 +129,7 @@ func NewIPPool6(cfg PoolCfg) (*IPPool, error) {
 		end:       end,
 		allocated: make(map[string]net.IP),
 		usedIPs:   make(map[string]bool),
+		logger:    logger,
 	}, nil
 }
 
@@ -175,7 +182,7 @@ func (p *IPPool) saveBolt() {
 		return
 	}
 	if err := p.boltStore.SaveAllocations(p.allocated); err != nil {
-		log.Printf("[pool] bolt save: %v", err)
+		p.logger.Warn("bolt save failed", zap.Error(err))
 	}
 }
 
@@ -202,6 +209,7 @@ type Session struct {
 // @sk-task production-hardening#T2.1: session manager with expiry (AC-005)
 // @sk-task security-acl#T5: max_sessions per token
 // @sk-task ipv6-dual-stack#T2.1: add pool6 and AssignedIPv6 for dual-stack (AC-004)
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type SessionManager struct {
 	mu          sync.Mutex
 	pool        *IPPool
@@ -211,6 +219,7 @@ type SessionManager struct {
 	idleTimeout time.Duration
 	sessionTTL  time.Duration
 	stopCh      chan struct{}
+	logger      *zap.Logger
 }
 
 // @sk-task ipv6-dual-stack#T2.3: set IPv6 pool for dual-stack allocation (AC-004)
@@ -220,12 +229,14 @@ func (sm *SessionManager) SetPool6(pool6 *IPPool) {
 	sm.pool6 = pool6
 }
 
-func NewSessionManager(pool *IPPool) *SessionManager {
+// @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+func NewSessionManager(pool *IPPool, logger *zap.Logger) *SessionManager {
 	return &SessionManager{
 		pool:       pool,
 		sessions:   make(map[string]*Session),
 		sessionCnt: make(map[string]int),
 		stopCh:     make(chan struct{}),
+		logger:     logger,
 	}
 }
 

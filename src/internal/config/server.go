@@ -103,6 +103,7 @@ type AdminCfg struct {
 }
 
 // @sk-task security-acl#T12: backward-compat token parsing from viper raw value
+// @sk-task production-readiness-hardening#T3.1: all type assertions use ok (already safe) (AC-007)
 func convertRawTokens(raw interface{}) []TokenCfg {
 	switch v := raw.(type) {
 	case []interface{}:

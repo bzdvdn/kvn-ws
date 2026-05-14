@@ -20,7 +20,7 @@ func TestDataFrameRoundTrip(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := Accept(w, r)
+		conn, err := Accept(w, r, nopLogger)
 		if err != nil {
 			t.Errorf("server accept: %v", err)
 			return
@@ -74,7 +74,7 @@ func TestDataFrameRoundTrip(t *testing.T) {
 
 	wsURL := "ws" + srv.URL[len("http"):] + "/tunnel"
 
-	conn, err := Dial(wsURL, nil)
+	conn, err := Dial(wsURL, nil, nopLogger)
 	if err != nil {
 		t.Fatalf("client dial: %v", err)
 	}

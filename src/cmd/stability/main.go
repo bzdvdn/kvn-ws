@@ -12,6 +12,7 @@ import (
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -29,7 +30,7 @@ func main() {
 		IncludeIPs:    []string{"10.10.10.10"},
 	}
 
-	rs, err := routing.NewRuleSet(cfg)
+	rs, err := routing.NewRuleSet(cfg, zap.NewNop())
 	if err != nil {
 		log.Fatalf("NewRuleSet: %v", err)
 	}

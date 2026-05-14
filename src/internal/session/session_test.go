@@ -4,6 +4,8 @@ package session
 import (
 	"net"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 func testPool(t *testing.T) *IPPool {
@@ -13,7 +15,7 @@ func testPool(t *testing.T) *IPPool {
 		Gateway:    "10.10.0.1",
 		RangeStart: "10.10.0.10",
 		RangeEnd:   "10.10.0.20",
-	})
+	}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewIPPool: %v", err)
 	}
@@ -106,7 +108,7 @@ func TestIPPoolSkipsGateway(t *testing.T) {
 		Gateway:    "10.10.0.1",
 		RangeStart: "10.10.0.1",
 		RangeEnd:   "10.10.0.5",
-	})
+	}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewIPPool: %v", err)
 	}
@@ -126,7 +128,7 @@ func TestIPPoolExhaustion(t *testing.T) {
 		Gateway:    "10.10.0.1",
 		RangeStart: "10.10.0.1",
 		RangeEnd:   "10.10.0.3",
-	})
+	}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewIPPool: %v", err)
 	}
@@ -151,7 +153,7 @@ func TestIPv6PoolAllocate(t *testing.T) {
 	pool, err := NewIPPool6(PoolCfg{
 		Subnet:  "fd00::/112",
 		Gateway: "fd00::1",
-	})
+	}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewIPPool6: %v", err)
 	}
@@ -178,7 +180,7 @@ func TestIPv6PoolAllocate(t *testing.T) {
 // @sk-test security-acl#T5: max_sessions limit enforcement (AC-004)
 func TestSessionManagerMaxSessions(t *testing.T) {
 	pool := testPool(t)
-	sm := NewSessionManager(pool)
+	sm := NewSessionManager(pool, zap.NewNop())
 
 	_, _, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 2, false)
 	if err != nil {
@@ -203,7 +205,7 @@ func TestSessionManagerMaxSessions(t *testing.T) {
 // @sk-test security-acl#T5: max_sessions=0 means unlimited (AC-004)
 func TestSessionManagerMaxSessionsZero(t *testing.T) {
 	pool := testPool(t)
-	sm := NewSessionManager(pool)
+	sm := NewSessionManager(pool, zap.NewNop())
 
 	_, _, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 0, false)
 	if err != nil {
@@ -221,7 +223,7 @@ func TestSessionManagerMaxSessionsZero(t *testing.T) {
 
 func TestSessionManagerCreateGetRemove(t *testing.T) {
 	pool := testPool(t)
-	sm := NewSessionManager(pool)
+	sm := NewSessionManager(pool, zap.NewNop())
 
 	sess, ip, _, err := sm.Create("session-1", "test-token", "10.0.0.1:1234", 0, false)
 	if err != nil {

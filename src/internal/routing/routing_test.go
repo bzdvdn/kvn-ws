@@ -5,12 +5,15 @@ import (
 	"testing"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"go.uber.org/zap"
 )
+
+var nopLogger = zap.NewNop()
 
 // @sk-test routing-split-tunnel#T2.5: TestDefaultRouteServer (AC-001)
 func TestDefaultRouteServer(t *testing.T) {
 	cfg := &config.RoutingCfg{DefaultRoute: "server"}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +26,7 @@ func TestDefaultRouteServer(t *testing.T) {
 // @sk-test routing-split-tunnel#T2.5: TestDefaultRouteDirect (AC-001)
 func TestDefaultRouteDirect(t *testing.T) {
 	cfg := &config.RoutingCfg{DefaultRoute: "direct"}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +42,7 @@ func TestCIDRInclude(t *testing.T) {
 		DefaultRoute:  "direct",
 		IncludeRanges: []string{"10.0.0.0/8"},
 	}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +62,7 @@ func TestCIDRExclude(t *testing.T) {
 		DefaultRoute:  "server",
 		ExcludeRanges: []string{"10.0.0.0/8"},
 	}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +82,7 @@ func TestExactIPInclude(t *testing.T) {
 		DefaultRoute: "direct",
 		IncludeIPs:   []string{"192.168.1.100"},
 	}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +103,7 @@ func TestOrderedExcludeWins(t *testing.T) {
 		ExcludeIPs:    []string{"10.10.10.10"},
 		IncludeRanges: []string{"10.0.0.0/8"},
 	}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +120,7 @@ func TestOrderedExcludeWins(t *testing.T) {
 // @sk-test routing-split-tunnel#T2.5: TestEmptyRules (AC-001)
 func TestEmptyRules(t *testing.T) {
 	cfg := &config.RoutingCfg{DefaultRoute: "server", ExcludeRanges: []string{}, IncludeRanges: []string{}}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +136,7 @@ func TestZeroPrefix(t *testing.T) {
 		DefaultRoute:  "direct",
 		IncludeRanges: []string{"0.0.0.0/0"},
 	}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +152,7 @@ func TestInvalidCIDR(t *testing.T) {
 		DefaultRoute:  "server",
 		IncludeRanges: []string{"invalid-cidr"},
 	}
-	_, err := NewRuleSet(cfg)
+	_, err := NewRuleSet(cfg, nopLogger)
 	if err == nil {
 		t.Fatal("expected error for invalid CIDR")
 	}
@@ -161,7 +164,7 @@ func TestInvalidIP(t *testing.T) {
 		DefaultRoute: "server",
 		IncludeIPs:   []string{"not-an-ip"},
 	}
-	_, err := NewRuleSet(cfg)
+	_, err := NewRuleSet(cfg, nopLogger)
 	if err == nil {
 		t.Fatal("expected error for invalid IP")
 	}
@@ -169,7 +172,7 @@ func TestInvalidIP(t *testing.T) {
 
 // @sk-test routing-split-tunnel#T4.2: TestNilConfig (AC-006)
 func TestNilConfig(t *testing.T) {
-	_, err := NewRuleSet(nil)
+	_, err := NewRuleSet(nil, nopLogger)
 	if err == nil {
 		t.Fatal("expected error for nil config")
 	}
@@ -182,7 +185,7 @@ func TestBothExcludeAndInclude(t *testing.T) {
 		ExcludeRanges: []string{"10.0.0.0/8"},
 		IncludeRanges: []string{"10.0.0.0/8"},
 	}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +256,7 @@ func TestParseDstIP6Truncated(t *testing.T) {
 // @sk-test ipv6-dual-stack#T4.1: TestRoutePacketIPv6 (AC-005)
 func TestRoutePacketIPv6(t *testing.T) {
 	cfg := &config.RoutingCfg{DefaultRoute: "server"}
-	rs, err := NewRuleSet(cfg)
+	rs, err := NewRuleSet(cfg, nopLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +265,7 @@ func TestRoutePacketIPv6(t *testing.T) {
 	tunWrite := func([]byte) (int, error) { return 0, nil }
 	tunnelSend := func([]byte) error { return nil }
 
-	router := NewTunRouter(rs, tunRead, tunWrite, tunnelSend)
+	router := NewTunRouter(rs, tunRead, tunWrite, tunnelSend, nopLogger)
 
 	// IPv6 packet to 2001:db8::1
 	pkt := make([]byte, 40)
