@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"strings"
 	"net/netip"
 	"os/exec"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/control"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
@@ -51,6 +53,18 @@ func main() {
 	logger.Info("starting client", zap.String("server", cfg.Server))
 	defer logger.Info("client stopped")
 
+	// @sk-task app-crypto#T5: parse client crypto key (AC-006)
+	var masterKey []byte
+	if cfg.Crypto.Enabled {
+		masterKey, err = crypto.ParseMasterKey(cfg.Crypto.Key)
+		if err != nil {
+			logger.Fatal("crypto key", zap.Error(err))
+		}
+		logger.Info("app-layer encryption enabled")
+	} else {
+		logger.Info("app-layer encryption disabled")
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
@@ -66,7 +80,7 @@ func main() {
 	}
 	defer func() { _ = tunDev.Close() }()
 
-	reconnectLoop(ctx, tunDev, cfg, logger)
+	reconnectLoop(ctx, tunDev, cfg, logger, masterKey)
 }
 
 // @sk-task local-proxy-mode#T1.1: proxy mode entry (AC-003)
@@ -159,27 +173,30 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 	if err := pl.Start(); err != nil {
 		logger.Fatal("proxy start", zap.Error(err))
 	}
-	defer func() { _ = pl.Close() }()
 
 	logger.Info("proxy mode", zap.String("listen", pl.Addr().String()))
 
-	go func() {
+	eg, gctx := errgroup.WithContext(ctx)
+
+	// @sk-task production-gap#T3.1: accept loop tracked by errgroup (AC-003)
+	eg.Go(func() error {
 		if err := pl.AcceptLoop(); err != nil {
-			logger.Warn("proxy accept loop ended", zap.Error(err))
+			return err
 		}
-	}()
+		return nil
+	})
 
 	// Read incoming Proxy frames from WS and route to local streams
-	go func() {
+	eg.Go(func() error {
 		for {
 			select {
-			case <-ctx.Done():
-				return
+			case <-gctx.Done():
+				return gctx.Err()
 			default:
 			}
 			data, err := wsConn.ReadMessage()
 			if err != nil {
-				return
+				return err
 			}
 			var f framing.Frame
 			if err := f.Decode(data); err != nil {
@@ -190,15 +207,23 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 			}
 			f.Release()
 		}
-	}()
+	})
 
+	// Shutdown: close listener to unblock AcceptLoop
 	<-ctx.Done()
+	logger.Info("proxy mode stopping")
+	_ = pl.Close()
+	_ = wsConn.Close()
+
+	if err := eg.Wait(); err != nil {
+		logger.Debug("proxy mode stopped", zap.Error(err))
+	}
 	logger.Info("proxy mode stopped")
 }
 
 // @sk-task production-hardening#T4.2: reconnect loop with backoff (AC-001)
 // @sk-task production-gap#T1.1: reconnect loop enforces explicit client TLS trust settings (AC-001)
-func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.ClientConfig, logger *zap.Logger) {
+func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.ClientConfig, logger *zap.Logger, masterKey []byte) {
 	minBackoff := 1 * time.Second
 	maxBackoff := 30 * time.Second
 	if cfg.Reconnect != nil {
@@ -251,11 +276,11 @@ func reconnectLoop(ctx context.Context, tunDev tun.TunDevice, cfg *config.Client
 		removeKillSwitch(cfg, logger)
 		backoff = minBackoff
 
-		runSession(ctx, tunDev, wsConn, cfg, logger)
+		runSession(ctx, tunDev, wsConn, cfg, logger, masterKey)
 	}
 }
 
-func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSConn, cfg *config.ClientConfig, logger *zap.Logger) {
+func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSConn, cfg *config.ClientConfig, logger *zap.Logger, masterKey []byte) {
 	defer func() { _ = wsConn.Close() }()
 
 	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
@@ -290,6 +315,9 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 		logger.Error("decode response frame", zap.Error(err))
 		return
 	}
+
+	// @sk-task app-crypto#T5: extract crypto salt and derive session key (AC-006)
+	var sessionCipher *crypto.SessionCipher
 
 	switch respFrame.Type {
 	case framing.FrameTypeAuth:
@@ -330,17 +358,69 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 				logger.Warn("set tun mtu", zap.Int("mtu", cfg.MTU), zap.Error(err))
 			}
 		}
+		// @sk-task app-crypto#T5: derive session key from server salt (AC-006)
+		if len(masterKey) > 0 && len(serverHello.CryptoSalt) > 0 {
+			sessionCipher, err = crypto.NewSessionCipher(masterKey, serverHello.CryptoSalt, serverHello.SessionID)
+			if err != nil {
+				logger.Error("session cipher init", zap.Error(err))
+				return
+			}
+			logger.Info("app-layer encryption active")
+		} else if len(masterKey) > 0 && len(serverHello.CryptoSalt) == 0 {
+			logger.Warn("server did not send crypto salt, connection will be unencrypted")
+		}
 	default:
 		logger.Error("unexpected response type", zap.Int("type", int(respFrame.Type)))
 		return
 	}
 
+	// @sk-task routing-split-tunnel#T3.2: TunRouter integration for TUN split-tunnel (AC-001)
+	var tunRouter *routing.TunRouter
+	if cfg.Routing != nil && cfg.Mode != "proxy" {
+		rs, err := routing.NewRuleSet(cfg.Routing, logger)
+		if err != nil {
+			logger.Warn("tun router init, forwarding all traffic through tunnel", zap.Error(err))
+		} else {
+			tunnelSend := func(packet []byte) error {
+				payload := packet
+				if sessionCipher != nil {
+					encrypted, encErr := sessionCipher.Encrypt(payload)
+					if encErr != nil {
+						return encErr
+					}
+					payload = encrypted
+				}
+				f := framing.Frame{
+					Type:    framing.FrameTypeData,
+					Flags:   framing.FrameFlagNone,
+					Payload: payload,
+				}
+				data, encErr := f.Encode()
+				if encErr != nil {
+					return encErr
+				}
+				defer framing.ReturnBuffer(data)
+				if encErr = wsConn.SetWriteDeadline(time.Now().Add(30 * time.Second)); encErr != nil {
+					return encErr
+				}
+				return wsConn.WriteMessage(data)
+			}
+			tunWrite := func(pkt []byte) (int, error) { return tunDev.Write(pkt) }
+			tunRouter = routing.NewTunRouter(rs, tunDev.Read, tunWrite, tunnelSend, logger)
+			logger.Info("split-tunnel routing enabled",
+				zap.String("default", cfg.Routing.DefaultRoute),
+				zap.Int("include_ranges", len(cfg.Routing.IncludeRanges)),
+				zap.Int("exclude_ranges", len(cfg.Routing.ExcludeRanges)),
+			)
+		}
+	}
+
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
-		return tunToWS(ctx, tunDev, wsConn, logger)
+		return tunToWS(ctx, tunDev, wsConn, logger, sessionCipher, tunRouter)
 	})
 	eg.Go(func() error {
-		return wsToTun(ctx, tunDev, wsConn, logger)
+		return wsToTun(ctx, tunDev, wsConn, logger, sessionCipher)
 	})
 
 	if err := eg.Wait(); err != nil {
@@ -354,29 +434,28 @@ func applyKillSwitch(cfg *config.ClientConfig, logger *zap.Logger) {
 	if cfg.KillSwitch == nil || !cfg.KillSwitch.Enabled {
 		return
 	}
-	cmds := [][]string{
-		{"add", "table", "ip", "kvn-kill"},
-		{"add", "chain", "ip", "kvn-kill", "prerouting", "{ type filter hook prerouting priority 0; }"},
-		{"add", "rule", "ip", "kvn-kill", "prerouting", "reject"},
+	// @sk-task production-gap#T3.1: atomic nft apply via -f (AC-003)
+	rules := `table ip kvn-kill {
+	chain prerouting {
+		type filter hook prerouting priority 0; policy accept;
+		reject
 	}
-	for _, args := range cmds {
-		if err := exec.Command("nft", args...).Run(); err != nil {
-			logger.Warn("kill-switch: nft command failed", zap.Strings("args", args), zap.Error(err))
-			return
-		}
-	}
+}
+`
 	if cfg.IPv6 {
-		cmds6 := [][]string{
-			{"add", "table", "ip6", "kvn-kill"},
-			{"add", "chain", "ip6", "kvn-kill", "prerouting", "{ type filter hook prerouting priority 0; }"},
-			{"add", "rule", "ip6", "kvn-kill", "prerouting", "reject"},
-		}
-		for _, args := range cmds6 {
-			if err := exec.Command("nft", args...).Run(); err != nil {
-				logger.Warn("kill-switch: ipv6 nft command failed", zap.Strings("args", args), zap.Error(err))
-				return
-			}
-		}
+		rules += `table ip6 kvn-kill {
+	chain prerouting {
+		type filter hook prerouting priority 0; policy accept;
+		reject
+	}
+}
+`
+	}
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(rules)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		logger.Warn("kill-switch: nft atomic apply failed", zap.ByteString("output", out), zap.Error(err))
+		return
 	}
 	logger.Info("kill-switch enabled: all traffic blocked")
 }
@@ -417,7 +496,7 @@ func sleepWithContext(ctx context.Context, d time.Duration) {
 	}
 }
 
-func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, logger *zap.Logger) error {
+func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, logger *zap.Logger, sessionCipher *crypto.SessionCipher, router *routing.TunRouter) error {
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -429,10 +508,27 @@ func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 		if err != nil {
 			return fmt.Errorf("tun read: %w", err)
 		}
+		// @sk-task routing-split-tunnel#T3.2: route packet through TunRouter if configured (AC-001)
+		if router != nil {
+			if rerr := router.RoutePacket(buf[:n]); rerr != nil {
+				logger.Debug("route packet", zap.Error(rerr))
+			}
+			continue
+		}
+		payload := buf[:n]
+		// @sk-task app-crypto#T5: encrypt outgoing Data frames (AC-006)
+		if sessionCipher != nil {
+			encrypted, err := sessionCipher.Encrypt(payload)
+			if err != nil {
+				logger.Warn("encrypt failed, dropping packet", zap.Error(err))
+				continue
+			}
+			payload = encrypted
+		}
 		f := framing.Frame{
 			Type:    framing.FrameTypeData,
 			Flags:   framing.FrameFlagNone,
-			Payload: buf[:n],
+			Payload: payload,
 		}
 		data, err := f.Encode()
 		if err != nil {
@@ -450,7 +546,7 @@ func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 	}
 }
 
-func wsToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, logger *zap.Logger) error {
+func wsToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, logger *zap.Logger, sessionCipher *crypto.SessionCipher) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -468,12 +564,27 @@ func wsToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 		if err := f.Decode(data); err != nil {
 			return err
 		}
+		// @sk-task app-crypto#T5: decrypt incoming Data frames (AC-006)
+		if f.Type == framing.FrameTypeData && sessionCipher != nil {
+			decrypted, err := sessionCipher.Decrypt(f.Payload)
+			if err != nil {
+				logger.Warn("decrypt failed, dropping packet", zap.Error(err))
+				f.Release()
+				continue
+			}
+			f.Release()
+			f.Payload = decrypted
+		}
 		if f.Type == framing.FrameTypeData {
 			if _, err := dev.Write(f.Payload); err != nil {
 				f.Release()
 				return fmt.Errorf("tun write: %w", err)
 			}
 			f.Release()
+		} else if f.Type == framing.FrameTypeClose {
+			f.Release()
+			logger.Debug("close frame received from server")
+			return nil
 		}
 	}
 }

@@ -1,0 +1,367 @@
+openapi: "3.0.3"
+info:
+  title: kvn-ws Admin API
+  description: |
+    Administrative API for the kvn-ws VPN tunnel server.
+    Provides session management, health checks, metrics, and profiling endpoints.
+  version: "1.0.0"
+  contact:
+    name: kvn-ws project
+
+servers:
+  - url: https://localhost:8443
+    description: Local admin API (loopback only in production)
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns server health status including dependency checks (TUN, NAT, BoltDB).
+      tags: [Operations]
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Server is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotReadyResponse"
+
+  /livez:
+    get:
+      summary: Liveness probe
+      description: Returns alive status for Kubernetes liveness probe.
+      tags: [Operations]
+      responses:
+        "200":
+          description: Server is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessResponse"
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: Returns readiness status for Kubernetes readiness probe.
+      tags: [Operations]
+      responses:
+        "200":
+          description: Server is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: Server is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotReadyResponse"
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: |
+        Prometheus metrics endpoint with token authentication.
+        Returns metrics in Prometheus text format.
+      tags: [Monitoring]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: Metrics in Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/sessions:
+    get:
+      summary: List active sessions
+      description: Returns a list of all active VPN sessions.
+      tags: [Admin]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: List of active sessions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionListResponse"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/sessions/{id}:
+    delete:
+      summary: Disconnect a session
+      description: Forcefully disconnects a VPN session by ID.
+      tags: [Admin]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+          description: Session ID (32 hex characters)
+      responses:
+        "200":
+          description: Session disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteSessionResponse"
+        "400":
+          description: Missing session ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /debug/pprof/:
+    get:
+      summary: pprof index
+      description: Go pprof profiling index page.
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: pprof index HTML
+  /debug/pprof/cmdline:
+    get:
+      summary: Command line
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: Command line output
+  /debug/pprof/profile:
+    get:
+      summary: CPU profile
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+        - name: seconds
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: CPU profile binary
+  /debug/pprof/trace:
+    get:
+      summary: Execution trace
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+        - name: seconds
+          in: query
+          schema:
+            type: integer
+            default: 5
+      responses:
+        "200":
+          description: Trace binary
+  /debug/pprof/goroutine:
+    get:
+      summary: Goroutine profile
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: Goroutine profile
+  /debug/pprof/heap:
+    get:
+      summary: Heap profile
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: Heap profile
+  /debug/pprof/threadcreate:
+    get:
+      summary: Thread creation profile
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: Thread creation profile
+  /debug/pprof/block:
+    get:
+      summary: Block profile
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: Block profile
+  /debug/pprof/mutex:
+    get:
+      summary: Mutex profile
+      tags: [Profiling]
+      parameters:
+        - $ref: "#/components/parameters/AdminToken"
+      responses:
+        "200":
+          description: Mutex profile
+
+components:
+  parameters:
+    AdminToken:
+      name: X-Admin-Token
+      in: header
+      required: true
+      schema:
+        type: string
+        example: "your-admin-token"
+      description: Admin API authentication token
+
+  schemas:
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Session ID (32 hex characters)
+          example: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+        token_name:
+          type: string
+          description: Name of the authentication token
+          example: "default"
+        remote_addr:
+          type: string
+          description: Client remote address
+          example: "203.0.113.42:54321"
+        assigned_ip:
+          type: string
+          description: Assigned IPv4 address
+          example: "10.10.0.10"
+        connected_at:
+          type: string
+          format: date-time
+          description: Session connection timestamp (RFC 3339)
+          example: "2026-05-15T10:30:00Z"
+
+    SessionListResponse:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+
+    DeleteSessionResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "disconnected"
+        session_id:
+          type: string
+          example: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "ok"
+        uptime_s:
+          type: number
+          description: Server uptime in seconds
+          example: 3600.5
+        tun:
+          type: string
+          example: "ok"
+        nat:
+          type: string
+          example: "ok"
+        bolt:
+          type: string
+          example: "ok"
+        active_sessions:
+          type: integer
+          example: 5
+
+    LivenessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "alive"
+        uptime_s:
+          type: number
+          description: Server uptime in seconds
+          example: 3600.5
+
+    ReadyResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "ok"
+        uptime_s:
+          type: number
+          example: 3600.5
+        tun:
+          type: string
+          example: "ok"
+        nat:
+          type: string
+          example: "ok"
+        bolt:
+          type: string
+          example: "ok"
+        active_sessions:
+          type: integer
+          example: 5
+
+    NotReadyResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "not ready"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "unauthorized"

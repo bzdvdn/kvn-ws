@@ -63,7 +63,7 @@ flowchart TB
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT прокси для локального трафика |
 | WebSocket Dialer | `src/internal/transport/websocket/` | Клиентское WebSocket-подключение |
 | DNS Resolver | `src/internal/dns/` | DNS-резолвер с TTL-кэшем |
-| Crypto | `src/internal/crypto/` | Шифрование на уровне приложения |
+| Crypto | `src/internal/crypto/` | Шифрование на уровне приложения (AES-256-GCM, per-session key) |
 
 ### Общие
 
@@ -109,7 +109,8 @@ src/
 ├── cmd/
 │   ├── client/main.go       # Точка входа клиента
 │   ├── server/main.go       # Точка входа сервера
-│   └── gatetest/main.go     # Утилита gate-тестирования
+│   ├── gatetest/main.go     # Утилита gate-тестирования
+│   └── stability/main.go    # Утилита stability/soak-тестирования
 ├── internal/
 │   ├── config/              # YAML конфиг (viper)
 │   ├── crypto/              # Шифрование приложения

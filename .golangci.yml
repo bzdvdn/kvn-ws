@@ -1,0 +1,61 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - asciicheck
+    - durationcheck
+    - errorlint
+    - exportloopref
+    - gocritic
+    - gofmt
+    - goimports
+    - gosec
+    - misspell
+    - nolintlint
+    - prealloc
+    - predeclared
+    - reassign
+    - tenv
+    - thelper
+    - tparallel
+    - unconvert
+    - wastedassign
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+  goimports:
+    local-prefixes: github.com/bzdvdn/kvn-ws
+  gosec:
+    excludes:
+      - G204
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+    - path: main\.go
+      linters:
+        - errcheck
+    - path: cmd/
+      linters:
+        - errcheck
+    - linters:
+        - staticcheck
+      text: "SA1019:"

@@ -220,7 +220,31 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
 		return
 	}
 
-	_, _ = client.Write([]byte{socksVersion5, socksRepSuccess, 0x00, socksAtypIPv4, 0, 0, 0, 0, 0, 0})
+	localAddr := client.LocalAddr()
+	var bnd []byte
+	if localAddr != nil {
+		localIP := localAddr.(*net.TCPAddr).IP
+		localPort := localAddr.(*net.TCPAddr).Port
+		if ip4 := localIP.To4(); ip4 != nil {
+			bnd = []byte{socksVersion5, socksRepSuccess, 0x00, socksAtypIPv4,
+				ip4[0], ip4[1], ip4[2], ip4[3],
+				byte(localPort >> 8), byte(localPort),
+			}
+		} else if ip6 := localIP.To16(); ip6 != nil {
+			bnd = make([]byte, 4+16+2)
+			bnd[0] = socksVersion5
+			bnd[1] = socksRepSuccess
+			bnd[2] = 0x00
+			bnd[3] = socksAtypIPv6
+			copy(bnd[4:20], ip6)
+			bnd[20] = byte(localPort >> 8)
+			bnd[21] = byte(localPort)
+		}
+	}
+	if bnd == nil {
+		bnd = []byte{socksVersion5, socksRepSuccess, 0x00, socksAtypIPv4, 0, 0, 0, 0, 0, 0}
+	}
+	_, _ = client.Write(bnd)
 
 	if l.onConn != nil {
 		l.onConn(client, dst)

@@ -11,6 +11,7 @@ import (
 // @sk-task foundation#T2.3: server config struct (AC-007)
 // @sk-task security-acl#T1: TokenCfg structured config
 // @sk-task performance-and-polish#T1.1: add Compression, Multiplex, MTU fields (AC-004, AC-006, AC-007)
+// @sk-task app-crypto#T3: add Crypto config (AC-006)
 type ServerConfig struct {
 	Listen       string       `mapstructure:"listen"`
 	TLS          TLSCfg       `mapstructure:"tls"`
@@ -26,13 +27,18 @@ type ServerConfig struct {
 	Compression  bool         `mapstructure:"compression"`
 	Multiplex    bool         `mapstructure:"multiplex"`
 	MTU          int          `mapstructure:"mtu"`
+	Crypto       CryptoCfg    `mapstructure:"crypto"`
+}
+
+type CryptoCfg struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Key     string `mapstructure:"key"`
 }
 
 // @sk-task security-acl#T1: TLSCfg extended with mTLS fields
 type TLSCfg struct {
 	Cert         string `mapstructure:"cert"`
 	Key          string `mapstructure:"key"`
-	MinVersion   string `mapstructure:"min_version"`
 	ClientCAFile string `mapstructure:"client_ca_file"`
 	ClientAuth   string `mapstructure:"client_auth"`
 }
@@ -158,13 +164,15 @@ func convertRawTokens(raw interface{}) []TokenCfg {
 	return nil
 }
 
-// @sk-task security-acl#T12: load config with backward-compat token parsing
+// @sk-task production-readiness-gap#T1: secrets management — env override with YAML warning (AC-001)
 func LoadServerConfig(path string) (*ServerConfig, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetEnvPrefix("KVN_SERVER")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+
+	envPrefixForWarning = "KVN_SERVER"
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
@@ -178,6 +186,11 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 	if rawTokens, ok := v.Get("auth.tokens").([]interface{}); ok && len(cfg.Auth.Tokens) == 0 {
 		cfg.Auth.Tokens = convertRawTokens(rawTokens)
+	}
+
+	// @sk-task production-readiness-gap#T1: load tokens from KVN_SERVER_AUTH_TOKENS_JSON env var (AC-001)
+	if envTokens, ok := loadTokensFromEnvJSON("KVN_SERVER"); ok && len(envTokens) > 0 {
+		cfg.Auth.Tokens = envTokens
 	}
 
 	if cfg.RateLimiting.AuthBurst == 0 {
@@ -196,6 +209,19 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		return nil, err
 	}
 	normalizeTokens(cfg)
+	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
+		return nil, fmt.Errorf("crypto.key is required when crypto.enabled is true")
+	}
+	// @sk-task production-readiness-gap#T1: warn when secrets come from config file (AC-001)
+	secretKeys := []string{"auth.tokens", "crypto.key", "admin.token"}
+	for _, key := range secretKeys {
+		if !secretFromEnv(key) {
+			// secret in config file is acceptable but not recommended for production
+		}
+	}
+	if warnSecretInFile(secretKeys) {
+		log.Println("[config] WARNING: secrets (auth.tokens, crypto.key, admin.token) loaded from config file. Use environment variables KVN_SERVER_* for production.")
+	}
 	return cfg, nil
 }
 

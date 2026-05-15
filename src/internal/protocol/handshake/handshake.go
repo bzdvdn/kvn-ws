@@ -31,16 +31,20 @@ type ClientHello struct {
 
 // @sk-task ipv6-dual-stack#T2.1: add AssignedIPv6 to handshake (AC-004)
 // @sk-task performance-and-polish#T3.1: add MTU field (AC-004)
+// @sk-task app-crypto#T2: add CryptoSalt field (AC-006)
 type ServerHello struct {
 	SessionID    string
 	AssignedIP   net.IP
 	AssignedIPv6 net.IP
 	MTU          int
+	CryptoSalt   []byte
 }
 
 type AuthError struct {
 	Reason string
 }
+
+const CryptoTag byte = 0x09
 
 // @sk-task performance-and-polish#T3.1: encode MTU in ClientHello (AC-004)
 func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
@@ -99,6 +103,7 @@ func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 
 // @sk-task ipv6-dual-stack#T2.1: length-prefixed ServerHello encoding (AC-004)
 // @sk-task performance-and-polish#T3.1: encode MTU in ServerHello (AC-004)
+// @sk-task app-crypto#T2: encode CryptoSalt (AC-006)
 func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 	sidBytes, err := hex.DecodeString(hello.SessionID)
 	if err != nil {
@@ -120,8 +125,14 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 	if count == 2 {
 		total += 1 + 1 + 16
 	}
-	if hello.MTU > 0 {
+	hasMTU := hello.MTU > 0 || len(hello.CryptoSalt) > 0
+	if hasMTU {
 		total += 2
+	}
+	var cryptoLen int
+	if len(hello.CryptoSalt) > 0 {
+		cryptoLen = 2 + len(hello.CryptoSalt)
+		total += cryptoLen
 	}
 	payload := make([]byte, total)
 	pos := 0
@@ -143,8 +154,14 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 		copy(payload[pos:], v6bytes)
 		pos += 16
 	}
-	if hello.MTU > 0 {
+	if hasMTU {
 		binary.BigEndian.PutUint16(payload[pos:], uint16(hello.MTU))
+		pos += 2
+	}
+	if cryptoLen > 0 {
+		payload[pos] = CryptoTag
+		payload[pos+1] = byte(len(hello.CryptoSalt))
+		copy(payload[pos+2:], hello.CryptoSalt)
 	}
 	return &framing.Frame{
 		Type:    framing.FrameTypeHello,
@@ -155,6 +172,7 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 
 // @sk-task ipv6-dual-stack#T2.1: length-prefixed ServerHello decoding (AC-004)
 // @sk-task performance-and-polish#T3.1: decode MTU from ServerHello (AC-004)
+// @sk-task app-crypto#T2: decode CryptoSalt (AC-006)
 func DecodeServerHello(frame *framing.Frame) (*ServerHello, error) {
 	if frame.Type != framing.FrameTypeHello {
 		return nil, fmt.Errorf("unexpected frame type %d", frame.Type)
@@ -195,6 +213,25 @@ func DecodeServerHello(frame *framing.Frame) (*ServerHello, error) {
 	}
 	if pos+2 <= len(data) {
 		hello.MTU = int(binary.BigEndian.Uint16(data[pos:]))
+		pos += 2
+	}
+	for pos < len(data) {
+		if pos+2 > len(data) {
+			break
+		}
+		tag := data[pos]
+		length := int(data[pos+1])
+		pos += 2
+		if pos+length > len(data) {
+			break
+		}
+		switch tag {
+		case CryptoTag:
+			salt := make([]byte, length)
+			copy(salt, data[pos:pos+length])
+			hello.CryptoSalt = salt
+		}
+		pos += length
 	}
 	return hello, nil
 }

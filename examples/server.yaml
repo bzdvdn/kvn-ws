@@ -26,6 +26,9 @@ auth:
       max_sessions: 0
 origin:
   allow_empty: true
+crypto:
+  enabled: false
+  key: ""
 logging:
   level: info
 admin:

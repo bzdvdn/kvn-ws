@@ -3,12 +3,16 @@ package config
 // @sk-task foundation#T2.3: config loader with viper (AC-006, AC-007)
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 
 	"github.com/spf13/viper"
 )
+
+var envPrefixForWarning string
 
 type LogConfig struct {
 	Level string `mapstructure:"level"`
@@ -41,6 +45,8 @@ func load(path string, prefix string, cfg interface{}) error {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
+	envPrefixForWarning = prefix
+
 	if err := v.ReadInConfig(); err != nil {
 		return fmt.Errorf("read config %s: %w", path, err)
 	}
@@ -48,4 +54,43 @@ func load(path string, prefix string, cfg interface{}) error {
 		return fmt.Errorf("unmarshal config %s: %w", path, err)
 	}
 	return nil
+}
+
+// @sk-task production-readiness-gap#T1: check if secret key is set via environment (AC-001)
+func secretFromEnv(key string) bool {
+	envKey := envPrefixForWarning + "_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+	return os.Getenv(envKey) != ""
+}
+
+// @sk-task production-readiness-gap#T1: warn when secrets are in config file (AC-001)
+func warnSecretInFile(keys []string) bool {
+	anyInFile := false
+	for _, key := range keys {
+		if !secretFromEnv(key) {
+			anyInFile = true
+		}
+	}
+	return anyInFile
+}
+
+// @sk-task production-readiness-gap#T1: load tokens from env JSON var (AC-001)
+func loadTokensFromEnvJSON(prefix string) ([]TokenCfg, bool) {
+	envKey := prefix + "_AUTH_TOKENS_JSON"
+	raw := os.Getenv(envKey)
+	if raw == "" {
+		return nil, false
+	}
+	var tokens []TokenCfg
+	if err := json.Unmarshal([]byte(raw), &tokens); err != nil {
+		return nil, false
+	}
+	for i := range tokens {
+		if tokens[i].Name == "" {
+			tokens[i].Name = fmt.Sprintf("token-%d", i)
+		}
+		if tokens[i].Secret == "" {
+			tokens[i].Secret = tokens[i].Name
+		}
+	}
+	return tokens, true
 }

@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Keepalive (PING/PONG) и контроль сессий
 - nftables MASQUERADE для server-side NAT
 - Prometheus-метрики (active_sessions, throughput, errors)
-- Прикладное шифрование (app-layer encryption)
+- App-layer encryption (AES-256-GCM) для Data-фреймов, per-session key derivation через HMAC-SHA256
 - SOCKS5 + HTTP CONNECT proxy listener
 - Docker multi-stage build
 - docker-compose оркестрация

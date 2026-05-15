@@ -10,6 +10,9 @@ ipv6: false
 auto_reconnect: true
 log:
   level: info
+crypto:
+  enabled: false
+  key: ""
 routing:
   default_route: server
   include_ranges: []

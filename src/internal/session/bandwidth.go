@@ -23,13 +23,18 @@ func NewTokenBandwidthManager(tokenCfgs map[string]int) *TokenBandwidthManager {
 }
 
 func (m *TokenBandwidthManager) Allow(tokenName string, bytes int) bool {
+	_, ok := m.Reserve(tokenName, bytes)
+	return ok
+}
+
+func (m *TokenBandwidthManager) Reserve(tokenName string, bytes int) (time.Duration, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	lim, ok := m.limiters[tokenName]
 	if !ok {
 		bps, exists := m.tokenCfg[tokenName]
 		if !exists || bps <= 0 {
-			return true
+			return 0, true
 		}
 		burst := bps
 		if burst < 1 {
@@ -38,5 +43,9 @@ func (m *TokenBandwidthManager) Allow(tokenName string, bytes int) bool {
 		lim = rate.NewLimiter(rate.Limit(bps), burst)
 		m.limiters[tokenName] = lim
 	}
-	return lim.AllowN(time.Now(), bytes)
+	r := lim.ReserveN(time.Now(), bytes)
+	if !r.OK() {
+		return 0, false
+	}
+	return r.Delay(), true
 }

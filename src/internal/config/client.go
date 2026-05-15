@@ -1,8 +1,11 @@
 package config
 
+import "log"
+
 // @sk-task foundation#T2.3: client config struct (AC-006)
 // @sk-task performance-and-polish#T1.1: add Compression, Multiplex fields (AC-006, AC-007)
 // @sk-task local-proxy-mode#T1.1: add Mode, ProxyListen, ProxyAuth fields (AC-003, AC-004)
+// @sk-task app-crypto#T3: add Crypto config (AC-006)
 type ClientConfig struct {
 	Server        string         `mapstructure:"server"`
 	Auth          AuthCfg        `mapstructure:"auth"`
@@ -19,6 +22,7 @@ type ClientConfig struct {
 	Mode          string         `mapstructure:"mode"`
 	ProxyListen   string         `mapstructure:"proxy_listen"`
 	ProxyAuth     *ProxyAuthCfg  `mapstructure:"proxy_auth"`
+	Crypto        CryptoCfg      `mapstructure:"crypto"`
 }
 
 // @sk-task production-gap#T1.1: explicit client TLS trust surface (AC-001)
@@ -60,6 +64,7 @@ type AuthCfg struct {
 }
 
 // @sk-task routing-split-tunnel#T2.1: load config with routing defaults (AC-009)
+// @sk-task production-readiness-gap#T1: secrets management — warn when secrets in YAML (AC-001)
 func LoadClientConfig(path string) (*ClientConfig, error) {
 	cfg := &ClientConfig{}
 	if err := load(path, "KVN_CLIENT", cfg); err != nil {
@@ -73,6 +78,18 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		cfg.Routing = &RoutingCfg{DefaultRoute: "server"}
 	} else if cfg.Routing.DefaultRoute == "" {
 		cfg.Routing.DefaultRoute = "server"
+	}
+	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
+		cfg.Crypto.Enabled = false
+	}
+
+	// @sk-task production-readiness-gap#T1: warn when secrets come from config file (AC-001)
+	secretKeys := []string{"auth.token", "crypto.key"}
+	if cfg.ProxyAuth != nil {
+		secretKeys = append(secretKeys, "proxy_auth.username", "proxy_auth.password")
+	}
+	if warnSecretInFile(secretKeys) {
+		log.Println("[config] WARNING: secrets (auth.token, crypto.key) loaded from config file. Use environment variables KVN_CLIENT_* for production.")
 	}
 	return cfg, nil
 }

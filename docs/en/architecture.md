@@ -63,7 +63,7 @@ flowchart TB
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT proxy for local traffic |
 | WebSocket Dialer | `src/internal/transport/websocket/` | WebSocket client connection |
 | DNS Resolver | `src/internal/dns/` | DNS resolution with TTL caching |
-| Crypto | `src/internal/crypto/` | App-layer encryption/decryption |
+| Crypto | `src/internal/crypto/` | App-layer encryption (AES-256-GCM, per-session key) |
 
 ### Shared
 
@@ -109,7 +109,8 @@ src/
 ├── cmd/
 │   ├── client/main.go       # Client entrypoint
 │   ├── server/main.go       # Server entrypoint
-│   └── gatetest/main.go     # Gate test tool
+│   ├── gatetest/main.go     # Gate test tool
+│   └── stability/main.go    # Stability/soak test tool
 ├── internal/
 │   ├── config/              # YAML config (viper)
 │   ├── crypto/              # App-layer encryption

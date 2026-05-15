@@ -271,3 +271,96 @@ func TestDecodeServerHelloTruncated(t *testing.T) {
 		t.Error("expected error for truncated payload")
 	}
 }
+
+// @sk-test app-crypto#T2: TestServerHelloCryptoSalt (AC-006)
+func TestServerHelloCryptoSalt(t *testing.T) {
+	salt := make([]byte, 32)
+	for i := range salt {
+		salt[i] = byte(i)
+	}
+	original := &ServerHello{
+		SessionID:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIP: net.ParseIP("10.10.0.5").To4(),
+		MTU:        1400,
+		CryptoSalt: salt,
+	}
+
+	frame, err := EncodeServerHello(original)
+	if err != nil {
+		t.Fatalf("EncodeServerHello: %v", err)
+	}
+
+	decoded, err := DecodeServerHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeServerHello: %v", err)
+	}
+
+	if decoded.SessionID != original.SessionID {
+		t.Errorf("SessionID = %s, want %s", decoded.SessionID, original.SessionID)
+	}
+	if !decoded.AssignedIP.Equal(original.AssignedIP) {
+		t.Errorf("AssignedIP = %s, want %s", decoded.AssignedIP, original.AssignedIP)
+	}
+	if decoded.MTU != 1400 {
+		t.Errorf("MTU = %d, want 1400", decoded.MTU)
+	}
+	if len(decoded.CryptoSalt) != 32 {
+		t.Fatalf("CryptoSalt length = %d, want 32", len(decoded.CryptoSalt))
+	}
+	for i, b := range decoded.CryptoSalt {
+		if b != byte(i) {
+			t.Errorf("CryptoSalt[%d] = %d, want %d", i, b, i)
+		}
+	}
+}
+
+// @sk-test app-crypto#T2: TestServerHelloCryptoSaltWithoutMTU (AC-006)
+func TestServerHelloCryptoSaltWithoutMTU(t *testing.T) {
+	salt := make([]byte, 32)
+	copy(salt, []byte("this-is-a-32-byte-salt-for-test!!"))
+	original := &ServerHello{
+		SessionID:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIP: net.ParseIP("10.10.0.5").To4(),
+		CryptoSalt: salt,
+	}
+
+	frame, err := EncodeServerHello(original)
+	if err != nil {
+		t.Fatalf("EncodeServerHello: %v", err)
+	}
+
+	decoded, err := DecodeServerHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeServerHello: %v", err)
+	}
+
+	// MTU field is written as 0 (explicitly, to anchor crypto TLV), decoder reads 0
+	if decoded.MTU != 0 {
+		t.Errorf("MTU = %d, want 0 (explicitly written for TLV alignment)", decoded.MTU)
+	}
+	if len(decoded.CryptoSalt) != 32 {
+		t.Fatalf("CryptoSalt length = %d, want 32", len(decoded.CryptoSalt))
+	}
+}
+
+// @sk-test app-crypto#T2: TestServerHelloBackwardCompatNoSalt (AC-006)
+func TestServerHelloBackwardCompatNoSalt(t *testing.T) {
+	original := &ServerHello{
+		SessionID:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIP: net.ParseIP("10.10.0.5").To4(),
+	}
+
+	frame, err := EncodeServerHello(original)
+	if err != nil {
+		t.Fatalf("EncodeServerHello: %v", err)
+	}
+
+	decoded, err := DecodeServerHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeServerHello: %v", err)
+	}
+
+	if len(decoded.CryptoSalt) != 0 {
+		t.Errorf("CryptoSalt = %v, want empty", decoded.CryptoSalt)
+	}
+}

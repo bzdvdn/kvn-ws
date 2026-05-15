@@ -27,6 +27,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/acl"
 	"github.com/bzdvdn/kvn-ws/src/internal/admin"
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/metrics"
@@ -74,12 +75,21 @@ func main() {
 	sighupCh := make(chan os.Signal, 1)
 	signal.Notify(sighupCh, syscall.SIGHUP)
 	cfgPathVal := *cfgPath
+	var reloadMu sync.Mutex
 	go func() {
-		for range sighupCh {
+		for {
+			select {
+			case <-ctx.Done():
+				signal.Stop(sighupCh)
+				return
+			case <-sighupCh:
+			}
+			reloadMu.Lock()
 			logger.Info("sighup received, reloading config")
 			newCfg, err := config.LoadServerConfig(cfgPathVal)
 			if err != nil {
 				logger.Warn("config reload failed, keeping old config", zap.Error(err))
+				reloadMu.Unlock()
 				continue
 			}
 			cfgPtr.Store(newCfg)
@@ -94,6 +104,7 @@ func main() {
 				zap.Int("tokens", len(newCfg.Auth.Tokens)),
 				zap.String("log_level", logLevel.Level().String()),
 			)
+			reloadMu.Unlock()
 		}
 	}()
 
@@ -172,11 +183,26 @@ func main() {
 	}
 
 	// @sk-task production-readiness-hardening#T2.4: defer sm.Stop for reclaimLoop cleanup (AC-004)
-	sm.Start(300*time.Second, 24*time.Hour, 10*time.Second)
+	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSec) * time.Second
+	if idleTimeout <= 0 {
+		idleTimeout = 300 * time.Second
+	}
+	sessionTTL := 24 * time.Hour
+	reclaimInterval := 10 * time.Second
+	if cfg.Session.Expiry != nil {
+		if cfg.Session.Expiry.SessionTTLSec > 0 {
+			sessionTTL = time.Duration(cfg.Session.Expiry.SessionTTLSec) * time.Second
+		}
+		if cfg.Session.Expiry.ReclaimInterval > 0 {
+			reclaimInterval = time.Duration(cfg.Session.Expiry.ReclaimInterval) * time.Second
+		}
+	}
+	sm.Start(idleTimeout, sessionTTL, reclaimInterval)
 	defer sm.Stop()
 
 	collectors := metrics.NewCollectors()
 	ready := false
+	startTime := time.Now()
 
 	tunDev := tun.NewTunDevice()
 	if err := tunDev.Open(); err != nil {
@@ -240,6 +266,18 @@ func main() {
 	}
 	bwMgr := session.NewTokenBandwidthManager(bwCfg)
 
+	// @sk-task app-crypto#T4: parse master key (AC-006)
+	var masterKey []byte
+	if cfg.Crypto.Enabled {
+		masterKey, err = crypto.ParseMasterKey(cfg.Crypto.Key)
+		if err != nil {
+			logger.Fatal("crypto key", zap.Error(err))
+		}
+		logger.Info("app-layer encryption enabled")
+	} else {
+		logger.Info("app-layer encryption disabled")
+	}
+
 	mux := http.NewServeMux()
 
 	rl := newRateLimiter(cfg.RateLimiting.AuthBurst, cfg.RateLimiting.AuthPerMinute)
@@ -263,7 +301,7 @@ func main() {
 			MTU:         cfg.MTU,
 		}
 		// @sk-task performance-and-polish#T1.1: pass Compression, Multiplex, MTU to Accept (AC-004, AC-006, AC-007)
-		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, bwMgr, originChecker, wsCfg, collectors, logger)
+		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, bwMgr, originChecker, wsCfg, collectors, logger, masterKey)
 	})
 
 	cidrMiddleware := func(next http.Handler) http.Handler {
@@ -288,6 +326,38 @@ func main() {
 	mux.Handle("/tunnel", cidrMiddleware(tunnelHandler))
 
 	// @sk-task production-readiness-hardening#T3.6: health check with dependency verification (AC-012)
+	// @sk-task production-readiness-gap#T2: liveness + readiness probes (AC-001)
+	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "alive",
+			"uptime_s": time.Since(startTime).Seconds(),
+		})
+	})
+
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !ready {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "not ready"})
+			return
+		}
+		sessions := sm.List()
+		health := map[string]interface{}{
+			"status":        "ok",
+			"uptime_s":      time.Since(startTime).Seconds(),
+			"tun":           "ok",
+			"nat":           "ok",
+			"active_sessions": len(sessions),
+		}
+		if boltStore != nil {
+			health["bolt"] = "ok"
+		} else {
+			health["bolt"] = "disabled"
+		}
+		_ = json.NewEncoder(w).Encode(health)
+	})
+
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if !ready {
@@ -295,7 +365,14 @@ func main() {
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "not ready"})
 			return
 		}
-		health := map[string]string{"status": "ok"}
+		sessions := sm.List()
+		health := map[string]interface{}{
+			"status":          "ok",
+			"uptime_s":        time.Since(startTime).Seconds(),
+			"tun":             "ok",
+			"nat":             "ok",
+			"active_sessions": len(sessions),
+		}
 		if boltStore != nil {
 			health["bolt"] = "ok"
 		} else {
@@ -384,7 +461,7 @@ func main() {
 	logger.Info("shutting down")
 }
 
-func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []config.TokenCfg, prl *sessionPacketLimiter, bwMgr *session.TokenBandwidthManager, originChecker func(r *http.Request) bool, wsCfg websocket.WSConfig, collectors *metrics.Collectors, logger *zap.Logger) {
+func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []config.TokenCfg, prl *sessionPacketLimiter, bwMgr *session.TokenBandwidthManager, originChecker func(r *http.Request) bool, wsCfg websocket.WSConfig, collectors *metrics.Collectors, logger *zap.Logger, masterKey []byte) {
 	wsConn, err := websocket.Accept(w, r, logger, originChecker, wsCfg)
 	if err != nil {
 		logger.Error("ws upgrade", zap.Error(err))
@@ -451,6 +528,18 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		return
 	}
 
+	// @sk-task app-crypto#T4: generate salt and derive session key (AC-006)
+	var sessionCipher *crypto.SessionCipher
+	var cryptoSalt []byte
+	if len(masterKey) > 0 {
+		cryptoSalt, err = crypto.GenerateSalt()
+		if err != nil {
+			logger.Error("generate crypto salt", zap.Error(err))
+			_ = wsConn.Close()
+			return
+		}
+	}
+
 	mtu := wsCfg.MTU
 	if mtu <= 0 {
 		mtu = handshake.DefaultMTU
@@ -460,6 +549,7 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		AssignedIP:   assignedIP,
 		AssignedIPv6: assignedIPv6,
 		MTU:          mtu,
+		CryptoSalt:   cryptoSalt,
 	})
 	if err != nil {
 		logger.Error("encode server hello", zap.Error(err))
@@ -487,6 +577,16 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	)
 	collectors.ActiveSessions.Inc()
 
+	// @sk-task app-crypto#T4: derive session key (AC-006)
+	if len(cryptoSalt) > 0 {
+		sessionCipher, err = crypto.NewSessionCipher(masterKey, cryptoSalt, sess.ID)
+		if err != nil {
+			logger.Error("session cipher init", zap.Error(err))
+			_ = wsConn.Close()
+			return
+		}
+	}
+
 	// @sk-task production-readiness-hardening#T2.5: per-session proxy streams (AC-005)
 	// @sk-task post-hardening#T1.2: per-session cancel context (AC-002)
 	// @sk-task post-hardening#T3.4: use proxy.SessionStreams (AC-012)
@@ -497,10 +597,10 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 
 	eg, ctx := errgroup.WithContext(sessionCtx)
 	eg.Go(func() error {
-		return serverWSToTun(ctx, tunDev, wsConn, sess.ID, prl, collectors, logger, sessionStreams)
+		return serverWSToTun(ctx, tunDev, wsConn, sm, sess.ID, prl, collectors, logger, sessionStreams, sessionCipher)
 	})
 	eg.Go(func() error {
-		return serverTunToWS(ctx, tunDev, wsConn, sess.ID, tokenName, bwMgr, collectors, logger)
+		return serverTunToWS(ctx, tunDev, wsConn, sm, sess.ID, tokenName, bwMgr, collectors, logger, sessionCipher)
 	})
 
 	if err := eg.Wait(); err != nil {
@@ -528,13 +628,14 @@ func init() {
 	proxySem = make(chan struct{}, defaultProxyConcurrency)
 }
 
-func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger, proxyStreams *proxy.SessionStreams) error {
+func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sm *session.SessionManager, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger, proxyStreams *proxy.SessionStreams, sessionCipher *crypto.SessionCipher) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
+		sm.UpdateActivity(sessionID)
 		if prl != nil && !prl.Allow(sessionID) {
 			pkglog.Audit(logger, zapcore.WarnLevel, "packet rate limited",
 				zap.String("session_id", sessionID),
@@ -553,6 +654,17 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 		if err := f.Decode(data); err != nil {
 			return err
 		}
+		// @sk-task app-crypto#T4: decrypt incoming Data frames (AC-006)
+		if f.Type == framing.FrameTypeData && sessionCipher != nil {
+			decrypted, err := sessionCipher.Decrypt(f.Payload)
+			if err != nil {
+				logger.Warn("decrypt failed, dropping packet", zap.Error(err))
+				f.Release()
+				continue
+			}
+			f.Release()
+			f.Payload = decrypted
+		}
 		if f.Type == framing.FrameTypeData {
 			n, err := dev.Write(f.Payload)
 			f.Release()
@@ -560,6 +672,10 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 				return err
 			}
 			collectors.AddThroughput("rx", float64(n))
+		} else if f.Type == framing.FrameTypeClose {
+			f.Release()
+			logger.Debug("session close frame received", zap.String("session_id", sessionID))
+			return nil
 		} else if f.Type == framing.FrameTypeProxy {
 			// @sk-task local-proxy-mode#T1.2: proxy frame handler (AC-001)
 			payload := f.Payload
@@ -651,7 +767,8 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 }
 
 // @sk-task production-readiness-hardening#T2.1: write deadline before each WriteMessage (AC-001)
-func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID, tokenName string, bwMgr *session.TokenBandwidthManager, collectors *metrics.Collectors, logger *zap.Logger) error {
+// @sk-task app-crypto#T4: encrypt outgoing Data frames (AC-006)
+func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sm *session.SessionManager, sessionID, tokenName string, bwMgr *session.TokenBandwidthManager, collectors *metrics.Collectors, logger *zap.Logger, sessionCipher *crypto.SessionCipher) error {
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -663,14 +780,30 @@ func serverTunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 		if err != nil {
 			return err
 		}
-		if bwMgr != nil && !bwMgr.Allow(tokenName, n) {
-			time.Sleep(10 * time.Millisecond)
-			continue
+		sm.UpdateActivity(sessionID)
+		if bwMgr != nil {
+			delay, ok := bwMgr.Reserve(tokenName, n)
+			if !ok {
+				continue
+			}
+			if delay > 0 {
+				time.Sleep(delay)
+			}
+		}
+		payload := buf[:n]
+		// @sk-task app-crypto#T4: encrypt outgoing Data frames (AC-006)
+		if sessionCipher != nil {
+			encrypted, err := sessionCipher.Encrypt(payload)
+			if err != nil {
+				logger.Error("encrypt failed, dropping packet", zap.Error(err))
+				continue
+			}
+			payload = encrypted
 		}
 		f := framing.Frame{
 			Type:    framing.FrameTypeData,
 			Flags:   framing.FrameFlagNone,
-			Payload: buf[:n],
+			Payload: payload,
 		}
 		data, err := f.Encode()
 		if err != nil {
