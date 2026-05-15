@@ -223,8 +223,13 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
 	localAddr := client.LocalAddr()
 	var bnd []byte
 	if localAddr != nil {
-		localIP := localAddr.(*net.TCPAddr).IP
-		localPort := localAddr.(*net.TCPAddr).Port
+		tcpAddr, ok := localAddr.(*net.TCPAddr)
+		if !ok {
+			_ = client.Close()
+			return
+		}
+		localIP := tcpAddr.IP
+		localPort := tcpAddr.Port
 		if ip4 := localIP.To4(); ip4 != nil {
 			bnd = []byte{socksVersion5, socksRepSuccess, 0x00, socksAtypIPv4,
 				ip4[0], ip4[1], ip4[2], ip4[3],

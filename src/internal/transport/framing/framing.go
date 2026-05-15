@@ -17,7 +17,11 @@ var bufferPool = sync.Pool{
 }
 
 func getBuffer(size int) []byte {
-	bufPtr := bufferPool.Get().(*[]byte)
+	bufPtr, ok := bufferPool.Get().(*[]byte)
+	if !ok {
+		buf := make([]byte, size)
+		return buf
+	}
 	buf := *bufPtr
 	if cap(buf) < size {
 		buf = make([]byte, size)

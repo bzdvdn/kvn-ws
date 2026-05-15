@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -440,7 +441,7 @@ func main() {
 			logger.Info("admin api enabled", zap.String("listen", addr))
 
 			eg.Go(func() error {
-				if err := adminSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				if err := adminSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					return fmt.Errorf("admin api: %w", err)
 				}
 				return nil
@@ -665,18 +666,19 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 			f.Release()
 			f.Payload = decrypted
 		}
-		if f.Type == framing.FrameTypeData {
+		switch f.Type {
+		case framing.FrameTypeData:
 			n, err := dev.Write(f.Payload)
 			f.Release()
 			if err != nil {
 				return err
 			}
 			collectors.AddThroughput("rx", float64(n))
-		} else if f.Type == framing.FrameTypeClose {
+		case framing.FrameTypeClose:
 			f.Release()
 			logger.Debug("session close frame received", zap.String("session_id", sessionID))
 			return nil
-		} else if f.Type == framing.FrameTypeProxy {
+		case framing.FrameTypeProxy:
 			// @sk-task local-proxy-mode#T1.2: proxy frame handler (AC-001)
 			payload := f.Payload
 			if len(payload) < 6 {
@@ -760,7 +762,7 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 					}
 				}(streamID, tcpConn, conn, proxyStreams, ctx)
 			}
-		} else {
+		default:
 			f.Release()
 		}
 	}

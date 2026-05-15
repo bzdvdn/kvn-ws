@@ -192,21 +192,23 @@ func runLoadTest(cfgPath string) {
 	fmt.Printf("  Throughput: %d bps\n", throughputBps)
 
 	pass := true
-	if throughputThreshold > 0 && throughputBps >= throughputThreshold {
+	switch {
+	case throughputThreshold > 0 && throughputBps >= throughputThreshold:
 		fmt.Printf("  [PASS] Throughput %d >= %d bps\n", throughputBps, throughputThreshold)
-	} else if throughputThreshold > 0 {
+	case throughputThreshold > 0:
 		fmt.Printf("  [FAIL] Throughput %d < %d bps\n", throughputBps, throughputThreshold)
 		pass = false
-	} else {
+	default:
 		fmt.Printf("  [INFO] No throughput threshold configured\n")
 	}
 
-	if latencyThreshold > 0 && int(connElapsed.Milliseconds()) <= latencyThreshold {
+	switch {
+	case latencyThreshold > 0 && int(connElapsed.Milliseconds()) <= latencyThreshold:
 		fmt.Printf("  [PASS] Connection latency %d ms <= %d ms\n", connElapsed.Milliseconds(), latencyThreshold)
-	} else if latencyThreshold > 0 {
+	case latencyThreshold > 0:
 		fmt.Printf("  [FAIL] Connection latency %d ms > %d ms\n", connElapsed.Milliseconds(), latencyThreshold)
 		pass = false
-	} else {
+	default:
 		fmt.Printf("  [INFO] No latency threshold configured\n")
 	}
 

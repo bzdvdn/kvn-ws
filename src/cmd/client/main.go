@@ -45,7 +45,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	logger, _, err := logger.New(cfg.Log.Level) //nolint: forbidigo
+	logger, _, err := logger.New(cfg.Log.Level) //nolint: forbidigo // main package uses log.Fatalf on init failure
 	if err != nil {
 		log.Fatalf("logger: %v", err)
 	}
@@ -400,8 +400,8 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 					return encErr
 				}
 				defer framing.ReturnBuffer(data)
-				if encErr = wsConn.SetWriteDeadline(time.Now().Add(30 * time.Second)); encErr != nil {
-					return encErr
+				if err := wsConn.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
+					return err
 				}
 				return wsConn.WriteMessage(data)
 			}
@@ -476,15 +476,15 @@ func removeKillSwitch(cfg *config.ClientConfig, logger *zap.Logger) {
 	}
 }
 
-func nextBackoff(current, min, max time.Duration) time.Duration {
+func nextBackoff(current, minBackoff, maxBackoff time.Duration) time.Duration {
 	next := current * 2
 	jitter := time.Duration(rand.Int63n(int64(time.Second))) - time.Second/2 // #nosec G404 — reconnect jitter, doesn't need crypto/rand
 	next += jitter
-	if next < min {
-		return min
+	if next < minBackoff {
+		return minBackoff
 	}
-	if next > max {
-		return max
+	if next > maxBackoff {
+		return maxBackoff
 	}
 	return next
 }
