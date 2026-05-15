@@ -68,6 +68,31 @@ func TestResolverDefaultTTL(t *testing.T) {
 	}
 }
 
+// @sk-test prod-issue#T1.1: concurrent Get/Set race test (AC-001)
+func TestCacheConcurrentRace(t *testing.T) {
+	c := NewCache()
+	ips := []netip.Addr{netip.MustParseAddr("10.10.10.10")}
+	c.Set("example.com", ips, 50*time.Millisecond)
+
+	done := make(chan struct{}, 2)
+	go func() {
+		for i := 0; i < 100; i++ {
+			c.Get("example.com")
+			c.Set("example.com", ips, 50*time.Millisecond)
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		for i := 0; i < 100; i++ {
+			c.Get("example.com")
+			c.Set("other.com", ips, 50*time.Millisecond)
+		}
+		done <- struct{}{}
+	}()
+	<-done
+	<-done
+}
+
 // @sk-test production-readiness-hardening#T4.2: TestDNSResolveTimeout (AC-008)
 func TestDNSResolveTimeout(t *testing.T) {
 	r := NewDefaultResolver(nil)

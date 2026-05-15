@@ -490,7 +490,8 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	// @sk-task production-readiness-hardening#T2.5: per-session proxy streams (AC-005)
 	// @sk-task post-hardening#T1.2: per-session cancel context (AC-002)
 	// @sk-task post-hardening#T3.4: use proxy.SessionStreams (AC-012)
-	sessionCtx, sessionCancel := context.WithCancel(context.Background())
+	// @sk-task prod-issue#T1.4: inherit parent request context instead of Background() (AC-004)
+	sessionCtx, sessionCancel := context.WithCancel(r.Context())
 	sm.SetCancel(sess.ID, sessionCancel)
 	sessionStreams := &proxy.SessionStreams{M: make(map[uint32]net.Conn)}
 

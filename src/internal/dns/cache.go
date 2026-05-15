@@ -7,6 +7,7 @@ import (
 )
 
 // @sk-task routing-split-tunnel#T1.1: dns cache struct (AC-004)
+// @sk-task prod-issue#T1.1: fix data race — RLock→Lock for expired entries (AC-001)
 type Cache struct {
 	mu      sync.RWMutex
 	entries map[string]cacheEntry
@@ -21,17 +22,22 @@ func NewCache() *Cache {
 	return &Cache{entries: make(map[string]cacheEntry)}
 }
 
+// @sk-task prod-issue#T1.1: fix data race — release RLock before delete (AC-001)
 func (c *Cache) Get(domain string) ([]netip.Addr, bool) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	e, ok := c.entries[domain]
 	if !ok {
+		c.mu.RUnlock()
 		return nil, false
 	}
 	if time.Now().After(e.deadline) {
+		c.mu.RUnlock()
+		c.mu.Lock()
 		delete(c.entries, domain)
+		c.mu.Unlock()
 		return nil, false
 	}
+	c.mu.RUnlock()
 	return e.ips, true
 }
 
