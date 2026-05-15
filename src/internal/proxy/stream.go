@@ -69,7 +69,7 @@ func (s *Stream) ForwardToWS(ws *websocket.WSConn) {
 		}
 		payload := make([]byte, 4+2+len(s.Dst)+n)
 		binary.BigEndian.PutUint32(payload[0:4], s.ID)
-		binary.BigEndian.PutUint16(payload[4:6], uint16(len(s.Dst)))
+		binary.BigEndian.PutUint16(payload[4:6], uint16(len(s.Dst))) // #nosec G115 — bounded by protocol
 		copy(payload[6:], s.Dst)
 		copy(payload[6+len(s.Dst):], buf[:n])
 

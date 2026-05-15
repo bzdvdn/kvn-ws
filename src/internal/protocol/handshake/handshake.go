@@ -61,10 +61,10 @@ func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 	payload := make([]byte, 2+2+len(tokenBytes)+mtuSize)
 	payload[0] = hello.ProtoVersion
 	payload[1] = flags
-	binary.BigEndian.PutUint16(payload[2:4], uint16(len(tokenBytes)))
+	binary.BigEndian.PutUint16(payload[2:4], uint16(len(tokenBytes))) // #nosec G115 — bounded by config
 	copy(payload[4:], tokenBytes)
 	if mtuSize > 0 {
-		binary.BigEndian.PutUint16(payload[4+len(tokenBytes):], uint16(hello.MTU))
+		binary.BigEndian.PutUint16(payload[4+len(tokenBytes):], uint16(hello.MTU)) // #nosec G115 — bounded by config
 	}
 	return &framing.Frame{
 		Type:    framing.FrameTypeHello,
@@ -155,12 +155,12 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 		pos += 16
 	}
 	if hasMTU {
-		binary.BigEndian.PutUint16(payload[pos:], uint16(hello.MTU))
+		binary.BigEndian.PutUint16(payload[pos:], uint16(hello.MTU)) // #nosec G115 — bounded by config
 		pos += 2
 	}
 	if cryptoLen > 0 {
 		payload[pos] = CryptoTag
-		payload[pos+1] = byte(len(hello.CryptoSalt))
+		payload[pos+1] = byte(len(hello.CryptoSalt)) // #nosec G115 — fixed salt length (32 bytes)
 		copy(payload[pos+2:], hello.CryptoSalt)
 	}
 	return &framing.Frame{

@@ -478,7 +478,7 @@ func removeKillSwitch(cfg *config.ClientConfig, logger *zap.Logger) {
 
 func nextBackoff(current, min, max time.Duration) time.Duration {
 	next := current * 2
-	jitter := time.Duration(rand.Int63n(int64(time.Second))) - time.Second/2
+	jitter := time.Duration(rand.Int63n(int64(time.Second))) - time.Second/2 // #nosec G404 — reconnect jitter, doesn't need crypto/rand
 	next += jitter
 	if next < min {
 		return min

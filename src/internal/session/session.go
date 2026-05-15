@@ -116,7 +116,7 @@ func NewIPPool6(cfg PoolCfg, logger *zap.Logger) (*IPPool, error) {
 	hostBits := bits - ones
 	maxHosts := int(math.Pow(2, float64(hostBits)))
 	if maxHosts > 2 {
-		offset := rand.IntN(maxHosts-2) + 1
+		offset := rand.IntN(maxHosts-2) + 1 // #nosec G404 — non-critical IPv6 pool offset, doesn't need crypto/rand
 		for i := 15; offset > 0 && i >= 0; i-- {
 			start[i] += byte(offset & 0xff)
 			offset >>= 8

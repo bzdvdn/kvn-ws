@@ -65,7 +65,7 @@ func (m *NFTManager) checkNft() error {
 }
 
 func (m *NFTManager) runNft(args ...string) error {
-	cmd := exec.Command("nft", args...)
+	cmd := exec.Command("nft", args...) // #nosec G204 — whitelisted nft binary for NAT
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("nft %s: %s: %w", strings.Join(args, " "), strings.TrimSpace(string(out)), err)

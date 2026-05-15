@@ -83,11 +83,11 @@ func (t *tunDevice) Write(buf []byte) (int, error) {
 
 func (t *tunDevice) SetIP(ip net.IP, mask *net.IPNet) error {
 	cidr := &net.IPNet{IP: ip, Mask: mask.Mask}
-	ipCmd := exec.Command("ip", "addr", "add", cidr.String(), "dev", t.name)
+	ipCmd := exec.Command("ip", "addr", "add", cidr.String(), "dev", t.name) // #nosec G204 — whitelisted ip binary for TUN
 	if out, err := ipCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("set ip %s on %s: %w: %s", mask, t.name, err, string(out))
 	}
-	link := exec.Command("ip", "link", "set", "dev", t.name, "up")
+	link := exec.Command("ip", "link", "set", "dev", t.name, "up") // #nosec G204 — whitelisted ip binary for TUN
 	if out, err := link.CombinedOutput(); err != nil {
 		return fmt.Errorf("link up %s: %w: %s", t.name, err, string(out))
 	}
@@ -95,7 +95,7 @@ func (t *tunDevice) SetIP(ip net.IP, mask *net.IPNet) error {
 }
 
 func (t *tunDevice) SetMTU(mtu int) error {
-	cmd := exec.Command("ip", "link", "set", "dev", t.name, "mtu", strconv.Itoa(mtu))
+	cmd := exec.Command("ip", "link", "set", "dev", t.name, "mtu", strconv.Itoa(mtu)) // #nosec G204 — whitelisted ip binary for TUN
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("set mtu %d on %s: %w: %s", mtu, t.name, err, string(out))
 	}

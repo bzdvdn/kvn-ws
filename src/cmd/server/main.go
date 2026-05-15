@@ -745,7 +745,7 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 							Payload: make([]byte, 4+2+len(dst)+n),
 						}
 						binary.BigEndian.PutUint32(frame.Payload[0:4], sid)
-						binary.BigEndian.PutUint16(frame.Payload[4:6], uint16(len(dst)))
+						binary.BigEndian.PutUint16(frame.Payload[4:6], uint16(len(dst))) // #nosec G115 — bounded by protocol
 						copy(frame.Payload[6:], dst)
 						copy(frame.Payload[6+len(dst):], buf[:n])
 						encoded, err := frame.Encode()

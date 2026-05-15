@@ -127,7 +127,7 @@ func runLoadTest(cfgPath string) {
 		fmt.Printf("Auth token: %s\n", token[:min(len(token), 8)]+"...")
 	}
 
-	tlsCfg := &tls.Config{InsecureSkipVerify: true}
+	tlsCfg := &tls.Config{InsecureSkipVerify: true} // #nosec G402 — test tool, not production
 	wsCfg := websocket.WSConfig{MTU: mtu}
 
 	connStart := time.Now()

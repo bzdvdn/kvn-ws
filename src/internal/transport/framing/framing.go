@@ -70,7 +70,7 @@ func (f *Frame) Encode() ([]byte, error) {
 	if len(f.Payload) > FrameMaxPayloadSize {
 		return nil, fmt.Errorf("%w: %d", ErrPayloadTooLarge, len(f.Payload))
 	}
-	f.Length = uint16(len(f.Payload))
+	f.Length = uint16(len(f.Payload)) // #nosec G115 — bounded by FrameMaxPayloadSize check above
 	totalLen := FrameHeaderSize + len(f.Payload)
 	buf := getBuffer(totalLen)
 	buf[0] = f.Type

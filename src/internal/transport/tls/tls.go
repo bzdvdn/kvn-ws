@@ -34,7 +34,7 @@ func newServerTLSConfig(cert tls.Certificate, clientCAFile string, clientCAPEM [
 	}
 	switch {
 	case clientCAFile != "":
-		caCert, err := os.ReadFile(clientCAFile)
+		caCert, err := os.ReadFile(clientCAFile) // #nosec G304 — path from trusted config
 		if err != nil {
 			return nil, fmt.Errorf("read client CA %s: %w", clientCAFile, err)
 		}
@@ -82,7 +82,7 @@ type ClientTLSSettings struct {
 func NewClientTLSConfig(skipVerify bool) *tls.Config {
 	return &tls.Config{
 		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: skipVerify,
+		InsecureSkipVerify: skipVerify, // #nosec G402 — user configurable via verify_mode
 	}
 }
 

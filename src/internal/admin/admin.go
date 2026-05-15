@@ -5,7 +5,6 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"time"
@@ -57,8 +56,9 @@ func NewAdminServer(cfg AdminCfg, sm *session.SessionManager) *AdminServer {
 
 func (s *AdminServer) ListenAndServe() error {
 	s.srv = &http.Server{
-		Addr:    s.cfg.Listen,
-		Handler: s.router,
+		Addr:              s.cfg.Listen,
+		Handler:           s.router,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return s.srv.ListenAndServe()
 }
@@ -125,5 +125,5 @@ func (s *AdminServer) deleteSession(w http.ResponseWriter, r *http.Request) {
 	s.sm.Remove(id)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, `{"status":"disconnected","session_id":"%s"}`, id)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "disconnected", "session_id": id})
 }

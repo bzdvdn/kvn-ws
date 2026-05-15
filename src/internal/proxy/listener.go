@@ -228,7 +228,7 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
 		if ip4 := localIP.To4(); ip4 != nil {
 			bnd = []byte{socksVersion5, socksRepSuccess, 0x00, socksAtypIPv4,
 				ip4[0], ip4[1], ip4[2], ip4[3],
-				byte(localPort >> 8), byte(localPort),
+				byte(localPort>>8&0xff), byte(localPort&0xff),
 			}
 		} else if ip6 := localIP.To16(); ip6 != nil {
 			bnd = make([]byte, 4+16+2)
@@ -237,8 +237,8 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
 			bnd[2] = 0x00
 			bnd[3] = socksAtypIPv6
 			copy(bnd[4:20], ip6)
-			bnd[20] = byte(localPort >> 8)
-			bnd[21] = byte(localPort)
+			bnd[20] = byte(localPort>>8&0xff)
+			bnd[21] = byte(localPort&0xff)
 		}
 	}
 	if bnd == nil {
