@@ -257,8 +257,8 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	}
 
 	upgrader := websocket.Upgrader{
-		CheckOrigin:        checkOrigin,
-		EnableCompression:  cfg.Compression,
+		CheckOrigin:       checkOrigin,
+		EnableCompression: cfg.Compression,
 	}
 	if cfg.Multiplex {
 		upgrader.Subprotocols = []string{MultiplexSubprotocol}

@@ -85,7 +85,7 @@ func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 	hello := &ClientHello{
 		ProtoVersion: data[0],
 		IPv6:         (data[1] & FlagIPv6) != 0,
-		MTU:         DefaultMTU,
+		MTU:          DefaultMTU,
 	}
 	tokenLen := binary.BigEndian.Uint16(data[2:4])
 	if int(tokenLen) > len(data)-4 {
@@ -183,7 +183,7 @@ func DecodeServerHello(frame *framing.Frame) (*ServerHello, error) {
 	}
 	hello := &ServerHello{
 		SessionID: hex.EncodeToString(data[:SessionIDLen]),
-		MTU:      DefaultMTU,
+		MTU:       DefaultMTU,
 	}
 	pos := SessionIDLen
 	count := data[pos]

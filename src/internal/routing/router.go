@@ -8,19 +8,19 @@ import (
 )
 
 const (
-	ipHeaderDstOffset  = 16
+	ipHeaderDstOffset   = 16
 	ipv6HeaderDstOffset = 24
 )
 
 // @sk-task routing-split-tunnel#T2.4: tun router (AC-001)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type TunRouter struct {
-	ruleSet    *RuleSet
-	tunRead    func([]byte) (int, error)
-	tunWrite   func([]byte) (int, error)
-	tunnelSend func([]byte) error
+	ruleSet     *RuleSet
+	tunRead     func([]byte) (int, error)
+	tunWrite    func([]byte) (int, error)
+	tunnelSend  func([]byte) error
 	dnsOverride bool
-	logger     *zap.Logger
+	logger      *zap.Logger
 }
 
 // @sk-task routing-split-tunnel#T2.4: new tun router (AC-001)

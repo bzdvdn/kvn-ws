@@ -26,7 +26,7 @@ network:
     range_start: "10.88.0.10"
     range_end: "10.88.0.200"
 `
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -58,7 +58,7 @@ server: "wss://example.com:8443/tunnel"
 auth:
   token: "test-token"
 `
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

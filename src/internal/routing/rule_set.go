@@ -11,10 +11,10 @@ import (
 // @sk-task routing-split-tunnel#T2.2: ruleset struct (AC-006)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type RuleSet struct {
-	rules           []Rule
-	defaultAction   RouteAction
-	domainResolver  DomainResolver
-	logger          *zap.Logger
+	rules          []Rule
+	defaultAction  RouteAction
+	domainResolver DomainResolver
+	logger         *zap.Logger
 }
 
 // @sk-task routing-split-tunnel#T2.2: new ruleset from config (AC-006)

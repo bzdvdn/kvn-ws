@@ -74,8 +74,8 @@ func TestFrameEncodeSegmentedSmallPayload(t *testing.T) {
 // @sk-test core-tunnel-mvp#T5.1: TestFrameRoundTrip (AC-004)
 func TestFrameRoundTrip(t *testing.T) {
 	tests := []struct {
-		name    string
-		frame   Frame
+		name  string
+		frame Frame
 	}{
 		{
 			name: "data frame",
@@ -279,5 +279,3 @@ func BenchmarkEncodeOld(b *testing.B) {
 		_ = buf
 	}
 }
-
-

@@ -18,7 +18,7 @@ type BoltStore struct {
 
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 func NewBoltStore(path string, logger *zap.Logger) (*BoltStore, error) {
-	db, err := bbolt.Open(path, 0600, nil)
+	db, err := bbolt.Open(path, 0o600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open bolt db %s: %w", path, err)
 	}
@@ -40,7 +40,7 @@ func (s *BoltStore) Close() error {
 // @sk-task ipv6-dual-stack#T1.2: bolt db store for IPv6 allocations (AC-002)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 func NewBoltStore6(path string, logger *zap.Logger) (*BoltStore, error) {
-	db, err := bbolt.Open(path, 0600, nil)
+	db, err := bbolt.Open(path, 0o600, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open bolt db %s: %w", path, err)
 	}

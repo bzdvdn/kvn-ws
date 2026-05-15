@@ -30,11 +30,11 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
-	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/metrics"
 	"github.com/bzdvdn/kvn-ws/src/internal/nat"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/auth"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
+	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
@@ -345,10 +345,10 @@ func main() {
 		}
 		sessions := sm.List()
 		health := map[string]interface{}{
-			"status":        "ok",
-			"uptime_s":      time.Since(startTime).Seconds(),
-			"tun":           "ok",
-			"nat":           "ok",
+			"status":          "ok",
+			"uptime_s":        time.Since(startTime).Seconds(),
+			"tun":             "ok",
+			"nat":             "ok",
 			"active_sessions": len(sessions),
 		}
 		if boltStore != nil {

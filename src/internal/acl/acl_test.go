@@ -79,12 +79,12 @@ func BenchmarkCIDRMatcher(b *testing.B) {
 		b.Fatal(err)
 	}
 	ips := []net.IP{
-		net.ParseIP("10.0.0.1"),      // denied (10.0.0.0/16 deny)
-		net.ParseIP("10.10.10.10"),    // denied (10.0.0.0/8 allow -> 10.0.0.0/16 deny wins)
-		net.ParseIP("172.16.0.1"),     // allowed
-		net.ParseIP("192.168.1.1"),    // allowed
-		net.ParseIP("8.8.8.8"),        // denied (not in allow list)
-		net.ParseIP("1.1.1.1"),        // denied
+		net.ParseIP("10.0.0.1"),    // denied (10.0.0.0/16 deny)
+		net.ParseIP("10.10.10.10"), // denied (10.0.0.0/8 allow -> 10.0.0.0/16 deny wins)
+		net.ParseIP("172.16.0.1"),  // allowed
+		net.ParseIP("192.168.1.1"), // allowed
+		net.ParseIP("8.8.8.8"),     // denied (not in allow list)
+		net.ParseIP("1.1.1.1"),     // denied
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

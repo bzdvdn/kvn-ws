@@ -200,12 +200,20 @@ func TestBothExcludeAndInclude(t *testing.T) {
 func TestIsDNSQuery(t *testing.T) {
 	// Build a minimal IPv4 UDP packet to port 53
 	pkt := make([]byte, 28)
-	pkt[0] = 0x45                               // ver=4, ihl=5
-	pkt[9] = 17                                  // UDP
-	pkt[12] = 10; pkt[13] = 0; pkt[14] = 0; pkt[15] = 1 // src IP
-	pkt[16] = 8; pkt[17] = 8; pkt[18] = 8; pkt[19] = 8 // dst IP
-	pkt[20] = 0; pkt[21] = 53                           // src port (not used)
-	pkt[22] = 0; pkt[23] = 53                           // dst port = 53
+	pkt[0] = 0x45 // ver=4, ihl=5
+	pkt[9] = 17   // UDP
+	pkt[12] = 10
+	pkt[13] = 0
+	pkt[14] = 0
+	pkt[15] = 1 // src IP
+	pkt[16] = 8
+	pkt[17] = 8
+	pkt[18] = 8
+	pkt[19] = 8 // dst IP
+	pkt[20] = 0
+	pkt[21] = 53 // src port (not used)
+	pkt[22] = 0
+	pkt[23] = 53 // dst port = 53
 
 	if !isDNSQuery(pkt) {
 		t.Error("expected DNS query detection")
@@ -217,9 +225,13 @@ func TestIsNotDNSQuery(t *testing.T) {
 	// TCP packet to port 53 should not be detected as DNS query (UDP only)
 	pkt := make([]byte, 28)
 	pkt[0] = 0x45
-	pkt[9] = 6                                   // TCP
-	pkt[16] = 8; pkt[17] = 8; pkt[18] = 8; pkt[19] = 8
-	pkt[22] = 0; pkt[23] = 53
+	pkt[9] = 6 // TCP
+	pkt[16] = 8
+	pkt[17] = 8
+	pkt[18] = 8
+	pkt[19] = 8
+	pkt[22] = 0
+	pkt[23] = 53
 
 	if isDNSQuery(pkt) {
 		t.Error("expected no DNS query for TCP")
@@ -270,8 +282,10 @@ func TestRoutePacketIPv6(t *testing.T) {
 	// IPv6 packet to 2001:db8::1
 	pkt := make([]byte, 40)
 	pkt[0] = 0x60
-	pkt[24] = 0x20; pkt[25] = 0x01
-	pkt[26] = 0x0d; pkt[27] = 0xb8
+	pkt[24] = 0x20
+	pkt[25] = 0x01
+	pkt[26] = 0x0d
+	pkt[27] = 0xb8
 	pkt[39] = 0x01
 
 	err = router.RoutePacket(pkt)

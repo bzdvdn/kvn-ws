@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	KeyLen     = 32
-	SaltLen    = 32
-	NonceLen   = 12
+	KeyLen      = 32
+	SaltLen     = 32
+	NonceLen    = 12
 	TagOverhead = 16
 
 	MinPacketOverhead = NonceLen + TagOverhead
@@ -26,7 +26,7 @@ type SessionCipher struct {
 	aead cipher.AEAD
 }
 
-func NewSessionCipher(masterKey []byte, salt []byte, sessionID string) (*SessionCipher, error) {
+func NewSessionCipher(masterKey, salt []byte, sessionID string) (*SessionCipher, error) {
 	if len(masterKey) != KeyLen {
 		return nil, fmt.Errorf("crypto: master key must be %d bytes", KeyLen)
 	}
