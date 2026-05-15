@@ -4,6 +4,7 @@ package session
 import (
 	"net"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -250,4 +251,14 @@ func TestSessionManagerCreateGetRemove(t *testing.T) {
 	if got != nil {
 		t.Error("Get after Remove returned non-nil")
 	}
+}
+
+// @sk-test post-hardening#T4.1: TestSessionManagerStopIdempotent (AC-001)
+func TestSessionManagerStopIdempotent(t *testing.T) {
+	pool := testPool(t)
+	sm := NewSessionManager(pool, zap.NewNop())
+
+	sm.Start(0, 0, time.Hour)
+	sm.Stop() // first call
+	sm.Stop() // second call — must not panic
 }

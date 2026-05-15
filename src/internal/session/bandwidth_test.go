@@ -26,3 +26,20 @@ func TestBandwidthLimiterUnknownToken(t *testing.T) {
 		t.Error("expected unknown token to be allowed (no bw cfg)")
 	}
 }
+
+// @sk-test post-hardening#T4.3: TestBandwidthManagerRace (AC-008)
+func TestBandwidthManagerRace(t *testing.T) {
+	mgr := NewTokenBandwidthManager(map[string]int{"limited": 100000})
+	done := make(chan struct{})
+	for i := 0; i < 10; i++ {
+		go func() {
+			for j := 0; j < 100; j++ {
+				mgr.Allow("limited", 1000)
+			}
+			done <- struct{}{}
+		}()
+	}
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+}

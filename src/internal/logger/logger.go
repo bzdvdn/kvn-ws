@@ -17,14 +17,16 @@ func Audit(logger *zap.Logger, level zapcore.Level, msg string, fields ...zap.Fi
 }
 
 // @sk-task foundation#T3.1: zap logger with JSON output (AC-008)
-func New(level string) (*zap.Logger, error) {
+// @sk-task post-hardening#T3.5: expose AtomicLevel for runtime changes (AC-011)
+func New(level string) (*zap.Logger, zap.AtomicLevel, error) {
 	var lvl zapcore.Level
 	if err := lvl.UnmarshalText([]byte(level)); err != nil {
-		return nil, err
+		return nil, zap.AtomicLevel{}, err
 	}
 
+	atomicLevel := zap.NewAtomicLevelAt(lvl)
 	cfg := zap.Config{
-		Level:            zap.NewAtomicLevelAt(lvl),
+		Level:            atomicLevel,
 		Encoding:         "json",
 		OutputPaths:      []string{"stdout"},
 		ErrorOutputPaths: []string{"stderr"},
@@ -43,5 +45,9 @@ func New(level string) (*zap.Logger, error) {
 		},
 	}
 
-	return cfg.Build()
+	logger, err := cfg.Build()
+	if err != nil {
+		return nil, zap.AtomicLevel{}, err
+	}
+	return logger, atomicLevel, nil
 }

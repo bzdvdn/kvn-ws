@@ -3,6 +3,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -220,6 +221,8 @@ type SessionManager struct {
 	sessionTTL  time.Duration
 	stopCh      chan struct{}
 	logger      *zap.Logger
+	stopOnce    sync.Once
+	cancelFuncs map[string]context.CancelFunc
 }
 
 // @sk-task ipv6-dual-stack#T2.3: set IPv6 pool for dual-stack allocation (AC-004)
@@ -230,13 +233,15 @@ func (sm *SessionManager) SetPool6(pool6 *IPPool) {
 }
 
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+// @sk-task post-hardening#T1.1: sync.Once Stop + cancel map (AC-001, AC-002)
 func NewSessionManager(pool *IPPool, logger *zap.Logger) *SessionManager {
 	return &SessionManager{
-		pool:       pool,
-		sessions:   make(map[string]*Session),
-		sessionCnt: make(map[string]int),
-		stopCh:     make(chan struct{}),
-		logger:     logger,
+		pool:        pool,
+		sessions:    make(map[string]*Session),
+		sessionCnt:  make(map[string]int),
+		stopCh:      make(chan struct{}),
+		logger:      logger,
+		cancelFuncs: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -250,8 +255,11 @@ func (sm *SessionManager) Start(idleTimeout, sessionTTL, interval time.Duration)
 	go sm.reclaimLoop(interval)
 }
 
+// @sk-task post-hardening#T1.1: sync.Once idempotent Stop (AC-001)
 func (sm *SessionManager) Stop() {
-	close(sm.stopCh)
+	sm.stopOnce.Do(func() {
+		close(sm.stopCh)
+	})
 }
 
 func (sm *SessionManager) reclaimLoop(interval time.Duration) {
@@ -269,12 +277,14 @@ func (sm *SessionManager) reclaimLoop(interval time.Duration) {
 }
 
 // @sk-task production-hardening#T2.1: expire idle sessions (AC-005)
+// @sk-task post-hardening#T1.2: cancel per-session on expiry (AC-002)
 func (sm *SessionManager) expireIdle() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	now := time.Now()
 	for id, s := range sm.sessions {
 		if sm.idleTimeout > 0 && now.Sub(s.LastActivity) > sm.idleTimeout {
+			sm.cancelSession(id)
 			delete(sm.sessions, id)
 			sm.pool.Release(id)
 		}
@@ -282,15 +292,25 @@ func (sm *SessionManager) expireIdle() {
 }
 
 // @sk-task production-hardening#T2.1: expire ttl sessions (AC-005)
+// @sk-task post-hardening#T1.2: cancel per-session on expiry (AC-002)
 func (sm *SessionManager) expireTTL() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	now := time.Now()
 	for id, s := range sm.sessions {
 		if sm.sessionTTL > 0 && now.Sub(s.ConnectedAt) > sm.sessionTTL {
+			sm.cancelSession(id)
 			delete(sm.sessions, id)
 			sm.pool.Release(id)
 		}
+	}
+}
+
+// @sk-task post-hardening#T1.2: cancel per-session context (AC-002)
+func (sm *SessionManager) cancelSession(id string) {
+	if cancel, ok := sm.cancelFuncs[id]; ok {
+		cancel()
+		delete(sm.cancelFuncs, id)
 	}
 }
 
@@ -336,6 +356,7 @@ func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSes
 }
 
 // @sk-task security-acl#T5: Remove decrements session count
+// @sk-task post-hardening#T1.2: cancel per-session on Remove (AC-002)
 func (sm *SessionManager) Remove(sessionID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -348,6 +369,14 @@ func (sm *SessionManager) Remove(sessionID string) {
 	}
 	delete(sm.sessions, sessionID)
 	sm.pool.Release(sessionID)
+	sm.cancelSession(sessionID)
+}
+
+// @sk-task post-hardening#T1.2: set per-session cancel (AC-002)
+func (sm *SessionManager) SetCancel(sessionID string, cancel context.CancelFunc) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.cancelFuncs[sessionID] = cancel
 }
 
 func (sm *SessionManager) Get(sessionID string) *Session {

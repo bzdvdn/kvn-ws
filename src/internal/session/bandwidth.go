@@ -1,4 +1,5 @@
 // @sk-task security-acl#T6: Per-token bandwidth limiter
+// @sk-task post-hardening#T3.1: keep lock during AllowN (AC-008)
 package session
 
 import (
@@ -23,11 +24,11 @@ func NewTokenBandwidthManager(tokenCfgs map[string]int) *TokenBandwidthManager {
 
 func (m *TokenBandwidthManager) Allow(tokenName string, bytes int) bool {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	lim, ok := m.limiters[tokenName]
 	if !ok {
 		bps, exists := m.tokenCfg[tokenName]
 		if !exists || bps <= 0 {
-			m.mu.Unlock()
 			return true
 		}
 		burst := bps
@@ -37,6 +38,5 @@ func (m *TokenBandwidthManager) Allow(tokenName string, bytes int) bool {
 		lim = rate.NewLimiter(rate.Limit(bps), burst)
 		m.limiters[tokenName] = lim
 	}
-	m.mu.Unlock()
 	return lim.AllowN(time.Now(), bytes)
 }

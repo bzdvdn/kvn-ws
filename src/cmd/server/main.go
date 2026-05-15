@@ -28,6 +28,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/admin"
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
+	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/metrics"
 	"github.com/bzdvdn/kvn-ws/src/internal/nat"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/auth"
@@ -57,7 +58,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	logger, err := pkglog.New(cfg.Logging.Level)
+	logger, logLevel, err := pkglog.New(cfg.Logging.Level)
 	if err != nil {
 		log.Fatalf("logger: %v", err)
 	}
@@ -82,8 +83,16 @@ func main() {
 				continue
 			}
 			cfgPtr.Store(newCfg)
+			// @sk-task post-hardening#T3.5: update log level on SIGHUP (AC-011)
+			if newCfg.Logging.Level != "" {
+				var lvl zapcore.Level
+				if err := lvl.UnmarshalText([]byte(newCfg.Logging.Level)); err == nil {
+					logLevel.SetLevel(lvl)
+				}
+			}
 			logger.Info("config reloaded",
 				zap.Int("tokens", len(newCfg.Auth.Tokens)),
+				zap.String("log_level", logLevel.Level().String()),
 			)
 		}
 	}()
@@ -296,7 +305,17 @@ func main() {
 	})
 
 	// @sk-task production-gap#T3.1: protect metrics with the shared operational token gate (AC-005)
-	mux.Handle("/metrics", admin.TokenMiddleware(cfg.Admin.Token)(promhttp.Handler()))
+	// @sk-task post-hardening#T2.3: rate limit /metrics (AC-007)
+	mrl := newRateLimiter(100, 100)
+	mrl.startCleanup(ctx)
+	metricsHandler := admin.TokenMiddleware(cfg.Admin.Token)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !mrl.Allow(r.RemoteAddr) {
+			http.Error(w, "429 too many requests", http.StatusTooManyRequests)
+			return
+		}
+		promhttp.Handler().ServeHTTP(w, r)
+	}))
+	mux.Handle("/metrics", metricsHandler)
 
 	// @sk-task production-readiness-hardening#T2.2: ReadHeaderTimeout prevents slow-loris (AC-002)
 	httpServer := &http.Server{
@@ -398,7 +417,8 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 			zap.String("reason", "invalid token"),
 			zap.String("remote_addr", r.RemoteAddr),
 		)
-		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "invalid token"})
+		// @sk-task post-hardening#T1.4: generic auth error (AC-004)
+		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "authentication failed"})
 		authData, _ := authFrame.Encode()
 		_ = wsConn.WriteMessage(authData)
 		framing.ReturnBuffer(authData)
@@ -423,7 +443,7 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		} else {
 			logger.Error("session create", zap.Error(err))
 		}
-		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: errMsg})
+		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "authentication failed"})
 		authData, _ := authFrame.Encode()
 		_ = wsConn.WriteMessage(authData)
 		framing.ReturnBuffer(authData)
@@ -468,9 +488,13 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	collectors.ActiveSessions.Inc()
 
 	// @sk-task production-readiness-hardening#T2.5: per-session proxy streams (AC-005)
-	sessionStreams := &sessionProxyStreams{m: make(map[uint32]net.Conn)}
+	// @sk-task post-hardening#T1.2: per-session cancel context (AC-002)
+	// @sk-task post-hardening#T3.4: use proxy.SessionStreams (AC-012)
+	sessionCtx, sessionCancel := context.WithCancel(context.Background())
+	sm.SetCancel(sess.ID, sessionCancel)
+	sessionStreams := &proxy.SessionStreams{M: make(map[uint32]net.Conn)}
 
-	eg, ctx := errgroup.WithContext(context.Background())
+	eg, ctx := errgroup.WithContext(sessionCtx)
 	eg.Go(func() error {
 		return serverWSToTun(ctx, tunDev, wsConn, sess.ID, prl, collectors, logger, sessionStreams)
 	})
@@ -494,42 +518,16 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 }
 
 const wsTunnelTimeout = 30 * time.Second
+const defaultProxyConcurrency = 1000
 
-// @sk-task production-readiness-hardening#T2.5: per-session proxy streams (AC-005)
-type sessionProxyStreams struct {
-	mu   sync.Mutex
-	m    map[uint32]net.Conn
+// @sk-task post-hardening#T2.2: proxy worker pool semaphore (AC-006)
+var proxySem chan struct{}
+
+func init() {
+	proxySem = make(chan struct{}, defaultProxyConcurrency)
 }
 
-func (s *sessionProxyStreams) Load(key uint32) (net.Conn, bool) {
-	s.mu.Lock()
-	v, ok := s.m[key]
-	s.mu.Unlock()
-	return v, ok
-}
-
-func (s *sessionProxyStreams) Store(key uint32, val net.Conn) {
-	s.mu.Lock()
-	s.m[key] = val
-	s.mu.Unlock()
-}
-
-func (s *sessionProxyStreams) Delete(key uint32) {
-	s.mu.Lock()
-	delete(s.m, key)
-	s.mu.Unlock()
-}
-
-func (s *sessionProxyStreams) CloseAll() {
-	s.mu.Lock()
-	for _, conn := range s.m {
-		_ = conn.Close()
-	}
-	s.m = make(map[uint32]net.Conn)
-	s.mu.Unlock()
-}
-
-func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger, proxyStreams *sessionProxyStreams) error {
+func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger, proxyStreams *proxy.SessionStreams) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -593,13 +591,33 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 				}
 				f.Release()
 
-				go func(sid uint32, tcp net.Conn, ws *websocket.WSConn, streams *sessionProxyStreams) {
+				// @sk-task post-hardening#T2.2: acquire semaphore (AC-006)
+				select {
+				case proxySem <- struct{}{}:
+				default:
+					logger.Warn("proxy concurrency limit reached, dropping stream", zap.Uint32("stream_id", streamID))
+					_ = tcpConn.Close()
+					proxyStreams.Delete(streamID)
+					continue
+				}
+
+				// @sk-task post-hardening#T3.2: context-aware proxy goroutine with read deadline (AC-009)
+				go func(sid uint32, tcp net.Conn, ws *websocket.WSConn, streams *proxy.SessionStreams, ctx context.Context) {
 					defer func() {
+						<-proxySem
 						_ = tcp.Close()
 						streams.Delete(sid)
 					}()
 					buf := make([]byte, 4096)
 					for {
+						if err := tcp.SetReadDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
+							return
+						}
+						select {
+						case <-ctx.Done():
+							return
+						default:
+						}
 						n, err := tcp.Read(buf)
 						if err != nil {
 							return
@@ -623,7 +641,7 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 						}
 						framing.ReturnBuffer(encoded)
 					}
-				}(streamID, tcpConn, conn, proxyStreams)
+				}(streamID, tcpConn, conn, proxyStreams, ctx)
 			}
 		} else {
 			f.Release()

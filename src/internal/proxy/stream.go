@@ -1,4 +1,5 @@
 // @sk-task local-proxy-mode#T2.2: ProxyStream and stream management (AC-001)
+// @sk-task post-hardening#T3.4: sessionProxyStreams extracted (AC-012)
 package proxy
 
 import (
@@ -10,6 +11,40 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 )
+
+// @sk-task post-hardening#T3.4: per-session proxy stream container (AC-012)
+type SessionStreams struct {
+	mu sync.Mutex
+	M  map[uint32]net.Conn
+}
+
+func (s *SessionStreams) Load(key uint32) (net.Conn, bool) {
+	s.mu.Lock()
+	v, ok := s.M[key]
+	s.mu.Unlock()
+	return v, ok
+}
+
+func (s *SessionStreams) Store(key uint32, val net.Conn) {
+	s.mu.Lock()
+	s.M[key] = val
+	s.mu.Unlock()
+}
+
+func (s *SessionStreams) Delete(key uint32) {
+	s.mu.Lock()
+	delete(s.M, key)
+	s.mu.Unlock()
+}
+
+func (s *SessionStreams) CloseAll() {
+	s.mu.Lock()
+	for _, conn := range s.M {
+		_ = conn.Close()
+	}
+	s.M = make(map[uint32]net.Conn)
+	s.mu.Unlock()
+}
 
 var nextStreamID uint32
 

@@ -9,7 +9,7 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
-	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -190,10 +190,13 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 	if wsCfg.Compression {
 		_ = conn.SetCompressionLevel(4)
 	}
+	// @sk-task post-hardening#T2.1: cap incoming message size (AC-005)
+	conn.SetReadLimit(1 << 20) // 1MB
 	return &WSConn{conn: conn, cfg: wsCfg, logger: logger}, nil
 }
 
 // @sk-task security-acl#T4: NewOriginChecker creates origin check function from whitelist
+// @sk-task post-hardening#T1.3: fix origin pattern matching — use glob/fnmatch instead of path.Match (AC-003)
 func NewOriginChecker(whitelist []string, allowEmpty bool) func(r *http.Request) bool {
 	return func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
@@ -204,13 +207,37 @@ func NewOriginChecker(whitelist []string, allowEmpty bool) func(r *http.Request)
 			return allowEmpty
 		}
 		for _, p := range whitelist {
-			matched, err := path.Match(p, origin)
-			if err == nil && matched {
+			if matchOriginPattern(p, origin) {
 				return true
 			}
 		}
 		return false
 	}
+}
+
+func matchOriginPattern(pattern, origin string) bool {
+	if pattern == "" {
+		return false
+	}
+	starIdx := -1
+	for i, c := range pattern {
+		if c == '*' {
+			starIdx = i
+			break
+		}
+	}
+	if starIdx < 0 {
+		return pattern == origin
+	}
+	prefix := pattern[:starIdx]
+	suffix := pattern[starIdx+1:]
+	if !strings.HasPrefix(origin, prefix) {
+		return false
+	}
+	if suffix == "" {
+		return true
+	}
+	return len(origin) >= len(suffix) && origin[len(origin)-len(suffix):] == suffix
 }
 
 // @sk-task performance-and-polish#T2.2: TCP_NODELAY after Upgrade (AC-002)

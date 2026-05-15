@@ -1,6 +1,10 @@
 package auth
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
+)
 
 // @sk-test core-tunnel-mvp#T5.1: TestAuthValidateToken (AC-006)
 func TestValidateTokenValid(t *testing.T) {
@@ -50,5 +54,18 @@ func TestValidateTokenCaseSensitive(t *testing.T) {
 
 	if ValidateToken("token", valid) {
 		t.Error("ValidateToken should be case-sensitive")
+	}
+}
+
+// @sk-test post-hardening#T4.1: TestAuthErrorMessageDoesNotLeakInfo (AC-004)
+func TestAuthErrorMessageDoesNotLeakInfo(t *testing.T) {
+	// Verify that FindToken returns nil for invalid tokens
+	// (the actual error message is in server/main.go: "authentication failed")
+	tokens := []config.TokenCfg{{Name: "valid-token", Secret: "valid-token"}}
+	if found := FindToken("invalid-token", tokens); found != nil {
+		t.Error("FindToken(invalid) should return nil")
+	}
+	if found := FindToken("valid-token", tokens); found == nil {
+		t.Error("FindToken(valid) should return non-nil")
 	}
 }

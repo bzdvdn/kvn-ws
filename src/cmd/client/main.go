@@ -43,7 +43,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	logger, err := logger.New(cfg.Log.Level)
+	logger, _, err := logger.New(cfg.Log.Level) //nolint: forbidigo
 	if err != nil {
 		log.Fatalf("logger: %v", err)
 	}
