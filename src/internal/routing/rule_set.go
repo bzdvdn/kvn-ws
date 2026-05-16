@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"go.uber.org/zap"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
 // @sk-task routing-split-tunnel#T2.2: ruleset struct (AC-006)

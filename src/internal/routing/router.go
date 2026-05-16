@@ -131,7 +131,8 @@ func parseDstIP6(packet []byte) (netip.Addr, error) {
 }
 
 // parseDstIPPort returns destination IP and port from TCP/UDP header
-// nolint: unused
+//
+//nolint:unused // kept for reference
 func parseDstIPPort(packet []byte) (netip.Addr, int, bool) {
 	if len(packet) < 20 {
 		return netip.Addr{}, 0, false

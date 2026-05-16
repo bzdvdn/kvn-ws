@@ -25,6 +25,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/time/rate"
+
 	"github.com/bzdvdn/kvn-ws/src/internal/acl"
 	"github.com/bzdvdn/kvn-ws/src/internal/admin"
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
@@ -40,11 +46,6 @@ import (
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/time/rate"
 )
 
 // @sk-task foundation#T1.1: Go module init (AC-001)
@@ -507,7 +508,7 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 	tokenName := tokenCfg.Name
 	var sidBuf [16]byte
 	if _, rerr := rand.Read(sidBuf[:]); rerr != nil {
-		copy(sidBuf[:], []byte(clientHello.Token))
+		copy(sidBuf[:], clientHello.Token)
 	}
 	sessionID := hex.EncodeToString(sidBuf[:])
 	sess, assignedIP, assignedIPv6, err := sm.Create(sessionID, tokenName, r.RemoteAddr, tokenCfg.MaxSessions, clientHello.IPv6)

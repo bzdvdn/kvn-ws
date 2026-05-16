@@ -225,8 +225,7 @@ func DecodeServerHello(frame *framing.Frame) (*ServerHello, error) {
 		if pos+length > len(data) {
 			break
 		}
-		switch tag {
-		case CryptoTag:
+		if tag == CryptoTag {
 			salt := make([]byte, length)
 			copy(salt, data[pos:pos+length])
 			hello.CryptoSalt = salt

@@ -4,8 +4,9 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"go.uber.org/zap"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
 var nopLogger = zap.NewNop()

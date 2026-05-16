@@ -317,7 +317,7 @@ func TestServerHelloCryptoSalt(t *testing.T) {
 // @sk-test app-crypto#T2: TestServerHelloCryptoSaltWithoutMTU (AC-006)
 func TestServerHelloCryptoSaltWithoutMTU(t *testing.T) {
 	salt := make([]byte, 32)
-	copy(salt, []byte("this-is-a-32-byte-salt-for-test!!"))
+	copy(salt, "this-is-a-32-byte-salt-for-test!!")
 	original := &ServerHello{
 		SessionID:  "0102030405060708090a0b0c0d0e0f10",
 		AssignedIP: net.ParseIP("10.10.0.5").To4(),

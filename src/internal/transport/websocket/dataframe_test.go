@@ -3,6 +3,7 @@
 package websocket
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"net"
@@ -136,8 +137,8 @@ func TestDataFrameRoundTrip(t *testing.T) {
 	if recvFrame.Type != framing.FrameTypeData {
 		t.Errorf("echoed frame type = %d, want FrameTypeData (%d)", recvFrame.Type, framing.FrameTypeData)
 	}
-	if string(recvFrame.Payload) != string(payload) {
-		t.Errorf("echoed payload = %q, want %q", string(recvFrame.Payload), string(payload))
+	if !bytes.Equal(recvFrame.Payload, payload) {
+		t.Errorf("echoed payload = %q, want %q", recvFrame.Payload, payload)
 	}
 
 	echoed, err := conn.ReadMessage()
@@ -148,7 +149,7 @@ func TestDataFrameRoundTrip(t *testing.T) {
 	if err := echoFrame.Decode(echoed); err != nil {
 		t.Fatalf("decode echoed frame: %v", err)
 	}
-	if string(echoFrame.Payload) != string(payload) {
-		t.Errorf("echo payload = %q, want %q", string(echoFrame.Payload), string(payload))
+	if !bytes.Equal(echoFrame.Payload, payload) {
+		t.Errorf("echo payload = %q, want %q", echoFrame.Payload, payload)
 	}
 }

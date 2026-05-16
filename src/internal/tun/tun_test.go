@@ -3,6 +3,7 @@
 package tun
 
 import (
+	"bytes"
 	"net"
 	"sync"
 	"testing"
@@ -145,8 +146,8 @@ func TestMockTunWriteAndCollect(t *testing.T) {
 	if len(pkts) != 1 {
 		t.Fatalf("written count = %d, want 1", len(pkts))
 	}
-	if string(pkts[0]) != string(payload) {
-		t.Errorf("written data = %q, want %q", string(pkts[0]), string(payload))
+	if !bytes.Equal(pkts[0], payload) {
+		t.Errorf("written data = %q, want %q", pkts[0], payload)
 	}
 }
 

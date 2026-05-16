@@ -13,7 +13,6 @@ linters:
     - asciicheck
     - durationcheck
     - errorlint
-    - exportloopref
     - gocritic
     - gofmt
     - goimports
@@ -23,7 +22,6 @@ linters:
     - prealloc
     - predeclared
     - reassign
-    - tenv
     - thelper
     - tparallel
     - unconvert

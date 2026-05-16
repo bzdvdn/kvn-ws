@@ -19,17 +19,17 @@ func NewServerTLSConfig(certFile, keyFile, clientCAFile, clientAuth string) (*tl
 	if err != nil {
 		return nil, err
 	}
-	return newServerTLSConfig(cert, clientCAFile, nil, clientAuth)
+	return newServerTLSConfig(&cert, clientCAFile, nil, clientAuth)
 }
 
 // @sk-task production-gap#T2.1: reusable server TLS builder for trust-enforcing tests (AC-002)
-func NewServerTLSConfigFromMaterial(cert tls.Certificate, clientCAPEM []byte, clientAuth string) (*tls.Config, error) {
+func NewServerTLSConfigFromMaterial(cert *tls.Certificate, clientCAPEM []byte, clientAuth string) (*tls.Config, error) {
 	return newServerTLSConfig(cert, "", clientCAPEM, clientAuth)
 }
 
-func newServerTLSConfig(cert tls.Certificate, clientCAFile string, clientCAPEM []byte, clientAuth string) (*tls.Config, error) {
+func newServerTLSConfig(cert *tls.Certificate, clientCAFile string, clientCAPEM []byte, clientAuth string) (*tls.Config, error) {
 	cfg := &tls.Config{
-		Certificates: []tls.Certificate{cert},
+		Certificates: []tls.Certificate{*cert},
 		MinVersion:   tls.VersionTLS13,
 	}
 	switch {

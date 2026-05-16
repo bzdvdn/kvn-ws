@@ -2,6 +2,7 @@
 package websocket
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -20,9 +21,10 @@ import (
 	"testing"
 	"time"
 
-	tlscfg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+
+	tlscfg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 )
 
 var nopLogger = zap.NewNop()
@@ -195,7 +197,7 @@ func TestWSDialAndEcho(t *testing.T) {
 		t.Fatalf("ReadMessage: %v", err)
 	}
 
-	if string(msg) != string(payload) {
+	if !bytes.Equal(msg, payload) {
 		t.Errorf("echo = %s, want %s", msg, payload)
 	}
 }
@@ -357,7 +359,7 @@ func TestWSMTLSModesDifferentiateRequestRequireVerify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.clientAuth+"-"+boolLabel(tt.clientTLS != nil)+"-"+boolLabel(tt.wantOK), func(t *testing.T) {
-			serverTLS, err := tlscfg.NewServerTLSConfigFromMaterial(material.serverTLS, material.caPEM, tt.clientAuth)
+			serverTLS, err := tlscfg.NewServerTLSConfigFromMaterial(&material.serverTLS, material.caPEM, tt.clientAuth)
 			if err != nil {
 				t.Fatalf("NewServerTLSConfigFromMaterial: %v", err)
 			}
@@ -412,14 +414,14 @@ func boolLabel(v bool) string {
 func TestOriginCheckerAllowed(t *testing.T) {
 	checker := NewOriginChecker([]string{"https://example.com", "https://*.app.com"}, false)
 
-	req := httptest.NewRequest("GET", "/tunnel", nil)
+	req := httptest.NewRequest("GET", "/tunnel", http.NoBody)
 	req.Header.Set("Origin", "https://example.com")
 
 	if !checker(req) {
 		t.Error("expected https://example.com to be allowed")
 	}
 
-	req2 := httptest.NewRequest("GET", "/tunnel", nil)
+	req2 := httptest.NewRequest("GET", "/tunnel", http.NoBody)
 	req2.Header.Set("Origin", "https://sub.app.com")
 
 	if !checker(req2) {
@@ -431,7 +433,7 @@ func TestOriginCheckerAllowed(t *testing.T) {
 func TestOriginCheckerDenied(t *testing.T) {
 	checker := NewOriginChecker([]string{"https://example.com"}, false)
 
-	req := httptest.NewRequest("GET", "/tunnel", nil)
+	req := httptest.NewRequest("GET", "/tunnel", http.NoBody)
 	req.Header.Set("Origin", "https://evil.com")
 
 	if checker(req) {
@@ -443,7 +445,7 @@ func TestOriginCheckerAllowEmpty(t *testing.T) {
 	checkerAllow := NewOriginChecker([]string{"https://example.com"}, true)
 	checkerDeny := NewOriginChecker([]string{"https://example.com"}, false)
 
-	req := httptest.NewRequest("GET", "/tunnel", nil)
+	req := httptest.NewRequest("GET", "/tunnel", http.NoBody)
 
 	if !checkerAllow(req) {
 		t.Error("expected empty origin to be allowed when allowEmpty=true")
@@ -456,14 +458,14 @@ func TestOriginCheckerAllowEmpty(t *testing.T) {
 func TestOriginCheckerRefererFallback(t *testing.T) {
 	checker := NewOriginChecker([]string{"https://example.com/*"}, false)
 
-	req := httptest.NewRequest("GET", "/tunnel", nil)
+	req := httptest.NewRequest("GET", "/tunnel", http.NoBody)
 	req.Header.Set("Referer", "https://example.com/page")
 
 	if !checker(req) {
 		t.Error("expected Referer to be allowed when it matches whitelist pattern")
 	}
 
-	req2 := httptest.NewRequest("GET", "/tunnel", nil)
+	req2 := httptest.NewRequest("GET", "/tunnel", http.NoBody)
 	req2.Header.Set("Referer", "https://evil.com/page")
 
 	if checker(req2) {
@@ -486,7 +488,7 @@ func TestOriginCheckerGlobPattern(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		req := httptest.NewRequest("GET", "/tunnel", nil)
+		req := httptest.NewRequest("GET", "/tunnel", http.NoBody)
 		req.Header.Set("Origin", tc.origin)
 		got := checker(req)
 		if got != tc.allow {
@@ -498,7 +500,7 @@ func TestOriginCheckerGlobPattern(t *testing.T) {
 func TestOriginCheckerWhitelistEmpty(t *testing.T) {
 	checker := NewOriginChecker(nil, false)
 
-	req := httptest.NewRequest("GET", "/tunnel", nil)
+	req := httptest.NewRequest("GET", "/tunnel", http.NoBody)
 	req.Header.Set("Origin", "https://example.com")
 
 	if checker(req) {
@@ -682,7 +684,7 @@ func TestWSCompression(t *testing.T) {
 		t.Fatalf("ReadMessage: %v", err)
 	}
 
-	if string(msg) != string(payload) {
+	if !bytes.Equal(msg, payload) {
 		t.Errorf("echo = %s, want %s", msg, payload)
 	}
 }
@@ -731,6 +733,7 @@ func TestWSAcceptWithOriginChecker(t *testing.T) {
 		if err != nil {
 			if strings.Contains(err.Error(), "origin") {
 				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
 			}
 			return
 		}
@@ -742,7 +745,7 @@ func TestWSAcceptWithOriginChecker(t *testing.T) {
 	defer server.Close()
 
 	// Valid origin
-	req, _ := http.NewRequest("GET", "/ws", nil)
+	req, _ := http.NewRequest("GET", "/ws", http.NoBody)
 	req.Header.Set("Origin", "https://trusted.com")
 
 	// We can't easily test WS upgrade via httptest without a real WS client

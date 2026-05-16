@@ -34,12 +34,12 @@ const (
 )
 
 type Listener struct {
-	cfg    config.ClientConfig
+	cfg    *config.ClientConfig
 	ln     net.Listener
 	onConn func(conn net.Conn, dst string)
 }
 
-func NewListener(cfg config.ClientConfig, onConn func(net.Conn, string)) *Listener {
+func NewListener(cfg *config.ClientConfig, onConn func(net.Conn, string)) *Listener {
 	return &Listener{cfg: cfg, onConn: onConn}
 }
 

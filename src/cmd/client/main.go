@@ -14,6 +14,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/pflag"
+	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
@@ -25,9 +29,6 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
-	"github.com/spf13/pflag"
-	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
 // @sk-task foundation#T1.1: Go module init (AC-001)
@@ -45,7 +46,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	logger, _, err := logger.New(cfg.Log.Level) //nolint: forbidigo // main package uses log.Fatalf on init failure
+	logger, _, err := logger.New(cfg.Log.Level) //nolint:forbidigo // main package uses log.Fatalf on init failure
 	if err != nil {
 		log.Fatalf("logger: %v", err)
 	}
@@ -120,7 +121,7 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 		}
 	}
 
-	pl := proxy.NewListener(*cfg, func(client net.Conn, dst string) {
+	pl := proxy.NewListener(cfg, func(client net.Conn, dst string) {
 		// Check exclusion rules
 		if routeSet != nil {
 			host, _, err := net.SplitHostPort(dst)

@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/session"
 	"go.uber.org/zap"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/session"
 )
 
 func newTestSM(t *testing.T) *session.SessionManager {
@@ -41,7 +42,7 @@ func TestAdminListSessions(t *testing.T) {
 		t.Fatalf("Create sess-2: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/admin/sessions", nil)
+	req := httptest.NewRequest("GET", "/admin/sessions", http.NoBody)
 	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
@@ -78,7 +79,7 @@ func TestAdminDeleteSession(t *testing.T) {
 		t.Fatal("session should exist before delete")
 	}
 
-	req := httptest.NewRequest("DELETE", "/admin/sessions/sess-del", nil)
+	req := httptest.NewRequest("DELETE", "/admin/sessions/sess-del", http.NoBody)
 	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
@@ -98,7 +99,7 @@ func TestAdminNoAuth(t *testing.T) {
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
 	srv := NewAdminServer(cfg, sm)
 
-	req := httptest.NewRequest("GET", "/admin/sessions", nil)
+	req := httptest.NewRequest("GET", "/admin/sessions", http.NoBody)
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -113,7 +114,7 @@ func TestAdminDeleteNotFound(t *testing.T) {
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
 	srv := NewAdminServer(cfg, sm)
 
-	req := httptest.NewRequest("DELETE", "/admin/sessions/nonexistent", nil)
+	req := httptest.NewRequest("DELETE", "/admin/sessions/nonexistent", http.NoBody)
 	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
@@ -129,7 +130,7 @@ func TestAdminListEmpty(t *testing.T) {
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
 	srv := NewAdminServer(cfg, sm)
 
-	req := httptest.NewRequest("GET", "/admin/sessions", nil)
+	req := httptest.NewRequest("GET", "/admin/sessions", http.NoBody)
 	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
@@ -157,7 +158,7 @@ func TestAdminSessionFields(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/admin/sessions", nil)
+	req := httptest.NewRequest("GET", "/admin/sessions", http.NoBody)
 	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
@@ -193,7 +194,7 @@ func TestTokenMiddlewareRejectsMissingToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest("GET", "/metrics", http.NoBody)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -209,7 +210,7 @@ func TestTokenMiddlewareAllowsValidToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest("GET", "/metrics", http.NoBody)
 	req.Header.Set(TokenHeader, "admin-tok")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)

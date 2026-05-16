@@ -12,12 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/config"
-	"github.com/bzdvdn/kvn-ws/src/internal/routing"
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/routing"
+	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 )
 
 type mockResolver struct{}

@@ -316,7 +316,7 @@ func (sm *SessionManager) cancelSession(id string) {
 
 // @sk-task security-acl#T5: Create with maxSessions check
 // @sk-task ipv6-dual-stack#T2.1: dual-stack session creation with IPv6 allocation (AC-004)
-func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSessions int, ipv6 bool) (sess *Session, ip net.IP, ip6 net.IP, err error) {
+func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSessions int, ipv6 bool) (sess *Session, ip, ip6 net.IP, err error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if s, ok := sm.sessions[sessionID]; ok {

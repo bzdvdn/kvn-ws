@@ -9,8 +9,9 @@ import (
 	"net/http/pprof"
 	"time"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/session"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/session"
 )
 
 type AdminServer struct {

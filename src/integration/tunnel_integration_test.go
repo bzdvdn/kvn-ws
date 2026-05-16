@@ -13,10 +13,11 @@ import (
 	"testing"
 	"time"
 
+	gorillaws "github.com/gorilla/websocket"
+
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
-	gorillaws "github.com/gorilla/websocket"
 )
 
 // @sk-test production-readiness-gap#T3: full handshake + encrypted data round-trip (AC-001)
