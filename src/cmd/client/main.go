@@ -1,6 +1,6 @@
 package main
 
-	import (
+import (
 	"context"
 	"fmt"
 	"io"
@@ -457,19 +457,25 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 					}
 				}
 			}
+			var routeCleanups []func()
 			for _, cidr := range excludeCIDRs {
 				if err := tunDev.AddExcludeRoute(cidr, phyGateway, phyIface); err != nil {
 					logger.Warn("add exclude route", zap.String("cidr", cidr), zap.Error(err))
 				} else {
 					ec := cidr
-					defer func() {
+					routeCleanups = append(routeCleanups, func() {
 						if err := tunDev.RemoveExcludeRoute(ec, phyGateway, phyIface); err != nil {
 							logger.Warn("remove exclude route", zap.String("cidr", ec), zap.Error(err))
 						}
-					}()
+					})
 					logger.Debug("exclude route added", zap.String("cidr", cidr))
 				}
 			}
+			defer func() {
+				for _, cleanup := range routeCleanups {
+					cleanup()
+				}
+			}()
 		}
 
 		// Add default route via TUN gateway
