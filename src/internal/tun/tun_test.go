@@ -79,6 +79,26 @@ func (m *MockTunDevice) SetMTU(mtu int) error {
 	return nil
 }
 
+func (m *MockTunDevice) SetGateway(gateway net.IP) error {
+	return nil
+}
+
+func (m *MockTunDevice) RemoveGateway(gateway net.IP) error {
+	return nil
+}
+
+func (m *MockTunDevice) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
+	return nil
+}
+
+func (m *MockTunDevice) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
+	return nil
+}
+
+func (m *MockTunDevice) DisableGSO() error {
+	return nil
+}
+
 func (m *MockTunDevice) Inject(pkt []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

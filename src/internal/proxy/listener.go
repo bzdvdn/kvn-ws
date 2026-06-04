@@ -82,7 +82,12 @@ func (l *Listener) AcceptLoop() error {
 }
 
 func (l *Listener) handleClient(client net.Conn) {
-	defer func() { _ = client.Close() }()
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			_ = client.Close()
+		}
+	}()
 
 	buf := make([]byte, 1)
 	_, err := io.ReadFull(client, buf)
@@ -92,23 +97,24 @@ func (l *Listener) handleClient(client net.Conn) {
 
 	switch buf[0] {
 	case socksVersion5:
-		l.handleSOCKS5(client, buf)
+		handedOff = l.handleSOCKS5(client, buf)
 	case 'C':
-		l.handleHTTPConnect(client, buf)
+		handedOff = l.handleHTTPConnect(client, buf)
 	default:
 		return
 	}
 }
 
 // @sk-task local-proxy-mode#T3.2: SOCKS5 with optional auth (AC-005)
-func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
+func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) (handedOff bool) {
 	buf := make([]byte, 1024)
 	buf[0] = firstByte[0]
 
-	n, err := io.ReadAtLeast(client, buf, 2)
+	n, err := io.ReadAtLeast(client, buf[1:], 2)
 	if err != nil {
 		return
 	}
+	n++
 	if buf[0] != socksVersion5 {
 		return
 	}
@@ -253,11 +259,13 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) {
 
 	if l.onConn != nil {
 		l.onConn(client, dst)
+		return true
 	}
+	return false
 }
 
 // @sk-task local-proxy-mode#T3.1: HTTP CONNECT handler (AC-002)
-func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) {
+func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) (handedOff bool) {
 	br := bufio.NewReader(io.MultiReader(
 		strings.NewReader(string(firstByte)),
 		client,
@@ -279,5 +287,7 @@ func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) {
 
 	if l.onConn != nil {
 		l.onConn(client, dst)
+		return true
 	}
+	return false
 }

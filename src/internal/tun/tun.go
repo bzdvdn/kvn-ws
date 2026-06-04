@@ -11,7 +11,9 @@ import (
 	"net"
 	"os/exec"
 	"strconv"
+	"strings"
 
+	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -23,6 +25,11 @@ type TunDevice interface {
 	Write([]byte) (int, error)
 	SetIP(ip net.IP, mask *net.IPNet) error
 	SetMTU(mtu int) error
+	SetGateway(gateway net.IP) error
+	RemoveGateway(gateway net.IP) error
+	AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error
+	RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error
+	DisableGSO() error
 }
 
 type tunDevice struct {
@@ -68,6 +75,24 @@ func (t *tunDevice) Read(buf []byte) (int, error) {
 	return sizes[0], nil
 }
 
+func addDefaultRoute(iface string, gateway net.IP) error {
+	cmd := exec.Command("ip", "route", "replace", "default", "via", gateway.String(), "dev", iface) // #nosec G204
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("add default route via %s on %s: %w: %s", gateway, iface, err, string(out))
+	}
+	return nil
+}
+
+func removeDefaultRoute(iface string, gateway net.IP) error {
+	cmd := exec.Command("ip", "route", "del", "default", "via", gateway.String(), "dev", iface) // #nosec G204
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("remove default route via %s on %s: %w: %s", gateway, iface, err, string(out))
+	}
+	return nil
+}
+
 const virtioNetHdrLen = 12
 const writeHeadroom = virtioNetHdrLen
 
@@ -82,6 +107,8 @@ func (t *tunDevice) Write(buf []byte) (int, error) {
 }
 
 func (t *tunDevice) SetIP(ip net.IP, mask *net.IPNet) error {
+	flush := exec.Command("ip", "-4", "addr", "flush", "dev", t.name) // #nosec G204
+	_ = flush.Run()
 	cidr := &net.IPNet{IP: ip, Mask: mask.Mask}
 	ipCmd := exec.Command("ip", "addr", "add", cidr.String(), "dev", t.name) // #nosec G204 — whitelisted ip binary for TUN
 	if out, err := ipCmd.CombinedOutput(); err != nil {
@@ -100,4 +127,96 @@ func (t *tunDevice) SetMTU(mtu int) error {
 		return fmt.Errorf("set mtu %d on %s: %w: %s", mtu, t.name, err, string(out))
 	}
 	return nil
+}
+
+func (t *tunDevice) SetGateway(gateway net.IP) error {
+	return addDefaultRoute(t.name, gateway)
+}
+
+func (t *tunDevice) RemoveGateway(gateway net.IP) error {
+	return removeDefaultRoute(t.name, gateway)
+}
+
+func (t *tunDevice) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return fmt.Errorf("parse cidr %s: %w", cidr, err)
+	}
+	is6 := ipNet.IP.To4() == nil
+	if is6 {
+		return nil // skip IPv6 routes — kernel handles link-local/multicast natively
+	}
+	cmd := exec.Command("ip", "route", "replace", cidr, "via", phyGateway.String(), "dev", phyIface) // #nosec G204
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("add exclude route %s via %s dev %s: %w: %s", cidr, phyGateway, phyIface, err, string(out))
+	}
+	return nil
+}
+
+func (t *tunDevice) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return fmt.Errorf("parse cidr %s: %w", cidr, err)
+	}
+	is6 := ipNet.IP.To4() == nil
+	if is6 {
+		return nil // skip IPv6 — kernel handles natively
+	}
+	cmd := exec.Command("ip", "route", "del", cidr, "via", phyGateway.String(), "dev", phyIface) // #nosec G204
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("remove exclude route %s via %s dev %s: %w: %s", cidr, phyGateway, phyIface, err, string(out))
+	}
+	return nil
+}
+
+func (t *tunDevice) DisableGSO() error {
+	// Disable TUN driver offloading via ioctl (the definitive fix).
+	// This undoes the TUNSETOFFLOAD that tun.CreateTUN enables.
+	if t.device != nil {
+		f := t.device.File()
+		if f != nil {
+			sc, err := f.SyscallConn()
+			if err == nil {
+				_ = sc.Control(func(fd uintptr) {
+					_ = unix.IoctlSetInt(int(fd), unix.TUNSETOFFLOAD, 0)
+				})
+			}
+		}
+	}
+
+	// Also try via ip link (best-effort, unsupported on some kernels)
+	for _, opt := range []string{"gso", "gro"} {
+		_ = exec.Command("ip", "link", "set", "dev", t.name, opt, "off").Run() // #nosec G204
+	}
+	return nil
+}
+
+// SaveDefaultRoute returns the current default route's gateway and interface.
+func SaveDefaultRoute() (net.IP, string, error) {
+	out, err := exec.Command("ip", "route", "show", "default").Output() // #nosec G204
+	if err != nil {
+		return nil, "", fmt.Errorf("get default route: %w", err)
+	}
+	// Parse: "default via 192.168.1.1 dev eno1 proto dhcp metric 100"
+	fields := strings.Fields(string(out))
+	if len(fields) < 3 || fields[0] != "default" {
+		return nil, "", fmt.Errorf("unexpected default route format: %s", strings.TrimSpace(string(out)))
+	}
+	gateway := net.ParseIP(fields[2])
+	if gateway == nil {
+		return nil, "", fmt.Errorf("parse gateway %s", fields[2])
+	}
+	iface := ""
+	for i, f := range fields {
+		if f == "dev" && i+1 < len(fields) {
+			iface = fields[i+1]
+			break
+		}
+	}
+	if iface == "" {
+		return nil, "", fmt.Errorf("no dev in default route: %s", strings.TrimSpace(string(out)))
+	}
+	return gateway, iface, nil
 }

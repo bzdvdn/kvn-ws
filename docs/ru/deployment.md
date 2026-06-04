@@ -141,6 +141,16 @@ echo 'net.ipv6.conf.all.forwarding=1' | sudo tee -a /etc/sysctl.d/99-kvn.conf
 sudo sysctl -p /etc/sysctl.d/99-kvn.conf
 ```
 
+Разрешите форвардинг трафика через TUN-интерфейс в nftables:
+
+```bash
+sudo nft add table inet kvn-forward
+sudo nft add chain inet kvn-forward forward '{ type filter hook forward priority 0; policy drop; }'
+sudo nft add rule inet kvn-forward forward iifname "kvn" accept
+sudo nft add rule inet kvn-forward forward oifname "kvn" accept
+sudo nft list ruleset | sudo tee /etc/nftables/kvn.ruleset
+```
+
 ---
 
 ### Вариант B: Docker

@@ -107,7 +107,7 @@ if [ "$VERSION" = "latest" ]; then
   echo "Resolved latest version: $VERSION"
 fi
 
-ARCHIVE="kvn-ws-server-${OS}-${ARCH}.tar.gz"
+ARCHIVE="kvn-${OS}-${ARCH}.tar.gz"
 URL="https://github.com/$REPO/releases/download/$VERSION/$ARCHIVE"
 CHECKSUM_URL="https://github.com/$REPO/releases/download/$VERSION/${ARCHIVE}.sha256"
 
@@ -120,18 +120,20 @@ curl -sL "$URL" -o "$TMPDIR/$ARCHIVE"
 
 # --- verify checksum ---
 echo "Verifying checksum ..."
-if CHECKSUM="$(curl -sL "$CHECKSUM_URL" 2>/dev/null | awk '{print $1}')" && [ -n "$CHECKSUM" ]; then
-  echo "$CHECKSUM  $TMPDIR/$ARCHIVE" | sha256sum -c - || {
+CHECKSUM_LINE="$(curl -sL "$CHECKSUM_URL" 2>/dev/null | grep -E '^[a-f0-9]{64}[[:space:]]' || true)"
+if [ -n "$CHECKSUM_LINE" ]; then
+  CHECKSUM_VAL="${CHECKSUM_LINE%%[[:space:]]*}"
+  printf "%s  %s\n" "$CHECKSUM_VAL" "$TMPDIR/$ARCHIVE" | sha256sum -c - || {
     echo "Checksum verification FAILED." >&2
     exit 1
   }
 else
-  echo "Checksum file not found, skipping verification."
+  echo "Checksum file not found or invalid format, skipping verification."
 fi
 
 # --- extract ---
-tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR"
 mkdir -p "$BINDIR" "$CONFDIR"
+tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" --strip-components=1
 
 install -m 0755 "$TMPDIR/server" "$BINDIR/kvn-server"
 
@@ -219,6 +221,48 @@ SYSTEMD
 echo "systemd unit written: $SYSTEMD_DIR/kvn-server.service"
 
 systemctl daemon-reload
+
+# --- enable IP forwarding ---
+sysctl_conf="/etc/sysctl.d/99-kvn.conf"
+echo "Configuring IP forwarding ..."
+cat > "$sysctl_conf" <<SYSCTL
+# kvn-ws — enable IP forwarding for TUN traffic
+net.ipv4.ip_forward=1
+SYSCTL
+if [ "$ENABLE_IPV6" = true ]; then
+  echo "net.ipv6.conf.all.forwarding=1" >> "$sysctl_conf"
+fi
+sysctl -p "$sysctl_conf" >/dev/null 2>&1
+
+# --- nftables: allow forwarding through TUN ---
+echo "Configuring nftables FORWARD rules ..."
+nft add table inet kvn-forward 2>/dev/null || true
+nft add chain inet kvn-forward forward '{ type filter hook forward priority 0; policy drop; }' 2>/dev/null || true
+nft add rule inet kvn-forward forward iifname "kvn" accept 2>/dev/null || true
+nft add rule inet kvn-forward forward oifname "kvn" accept 2>/dev/null || true
+
+# --- persist nftables rules ---
+mkdir -p /etc/nftables
+nft list ruleset > /etc/nftables/kvn.ruleset 2>/dev/null || true
+
+# --- systemd oneshot to load nft rules on boot ---
+nft_svc="/etc/systemd/system/kvn-nftables.service"
+cat > "$nft_svc" <<NFTSVC
+[Unit]
+Description=Load kvn-ws nftables rules
+Before=kvn-server.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/nft -f /etc/nftables/kvn.ruleset
+ExecStop=/sbin/nft delete table inet kvn-forward 2>/dev/null; /sbin/nft delete table ip kvn-nat 2>/dev/null; /sbin/nft delete table ip6 kvn-nat 2>/dev/null; true
+
+[Install]
+WantedBy=multi-user.target
+NFTSVC
+systemctl daemon-reload
+systemctl enable kvn-nftables.service 2>/dev/null || true
 
 echo ""
 echo "=== Installation complete ==="

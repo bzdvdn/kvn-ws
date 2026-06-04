@@ -75,10 +75,16 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		cfg.TLS.VerifyMode = "verify"
 	}
 	if cfg.Routing == nil {
-		cfg.Routing = &RoutingCfg{DefaultRoute: "server"}
+		cfg.Routing = &RoutingCfg{
+			DefaultRoute:  "server",
+			ExcludeRanges: defaultExcludeRanges,
+		}
 	} else if cfg.Routing.DefaultRoute == "" {
 		cfg.Routing.DefaultRoute = "server"
 	}
+	merged := make([]string, len(defaultExcludeRanges))
+	copy(merged, defaultExcludeRanges)
+	cfg.Routing.ExcludeRanges = append(merged, cfg.Routing.ExcludeRanges...)
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		cfg.Crypto.Enabled = false
 	}
@@ -92,4 +98,15 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		log.Println("[config] WARNING: secrets (auth.token, crypto.key) loaded from config file. Use environment variables KVN_CLIENT_* for production.")
 	}
 	return cfg, nil
+}
+
+var defaultExcludeRanges = []string{
+	"127.0.0.0/8",
+	"::1/128",
+	"224.0.0.0/4",
+	"239.0.0.0/8",
+	"ff00::/8",
+	"255.255.255.255/32",
+	"169.254.0.0/16",
+	"fe80::/10",
 }

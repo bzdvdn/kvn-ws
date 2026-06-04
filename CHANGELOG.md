@@ -6,6 +6,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] — 2026-06-04
+
+### Fixed
+
+- **Клиентские падения "too many segments"** — при смене default route на TUN
+  интерфейс клиента падал с ошибкой `tun read: too many segments`. Причина: GSO/GRO
+  super-пакеты от ядра. Исправлено: отключение TUN offloading через `TUNSETOFFLOAD`
+  ioctl=0 на TUN-устройстве (клиент и сервер).
+- **Серверные падения "too many segments"** — та же проблема, исправлена
+  отключением GSO на стороне сервера.
+- **IPv6 exclude routes** — добавлено корректное пропускание IPv6 CIDR
+  (`::1/128`, `ff00::/8`, `fe80::/10`) вместо попытки добавить их с IPv4-gateway.
+- **RTNETLINK: File exists** на exclude routes — заменён `ip route add` на
+  `ip route replace` для всех exclude-маршрутов.
+- **Спам rate limit логов** — повторяющиеся `"packet rate limited"` теперь
+  логируются не чаще раза в секунду на сессию.
+
+### Added
+
+- **DisableGSO()** — новый метод в `TunDevice` интерфейс, вызывается
+  на клиенте и сервере после настройки TUN.
+- **scripts/install-client.sh** — скрипт установки клиента из GitHub release
+  с поддержкой `--mode proxy`, `--service` (systemd), SHA256-верификацией.
+- **SHA256 checksums** в CI — для каждого архива релиза генерируется
+  `.sha256`, таблица с хэшами в release notes.
+- **scripts/build.sh** — аргумент `client`/`server`/`both` для сборки
+  только нужного бинарника.
+
+### Changed
+
+- **scripts/build.sh** — добавлены ldflags `-s -w`.
+- **install-server.sh** — использует SHA256-верификацию из CI.
+- **Rate limit logging** — подавление повторяющихся warn-логов.
+
 ## [1.0.0] — 2026-05-14
 
 ### Added

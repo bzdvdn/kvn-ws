@@ -5,7 +5,7 @@ package control
 import "time"
 
 const (
-	DefaultPingInterval = 30 * time.Second
-	DefaultPongTimeout  = 30 * time.Second
+	DefaultPingInterval = 25 * time.Second
+	DefaultPongTimeout  = 45 * time.Second
 	DefaultPingLimit    = 3
 )

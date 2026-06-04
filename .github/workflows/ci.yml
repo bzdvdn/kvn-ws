@@ -100,6 +100,7 @@ jobs:
             suffix=""
             [ "$os" = "windows" ] && suffix=".exe"
             echo "Building $os/$arch..."
+            mkdir -p "dist/kvn-$os-$arch"
             GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
               go build -ldflags="-s -w" \
               -o "dist/kvn-$os-$arch/client${suffix}" ./src/cmd/client
@@ -112,15 +113,24 @@ jobs:
         run: |
           cd dist
           for dir in kvn-*; do
-            if [ -d "$dir" ]; then
-              if echo "$dir" | grep -q windows; then
-                zip -r "${dir}.zip" "$dir"
-              else
-                tar czf "${dir}.tar.gz" "$dir"
-              fi
+            [ -d "$dir" ] || continue
+            if echo "$dir" | grep -q windows; then
+              zip -r "${dir}.zip" "$dir"
+            else
+              tar czf "${dir}.tar.gz" "$dir"
             fi
           done
           rm -rf kvn-*/
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          for f in *; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+          done
+          echo "Checksums:"
+          cat *.sha256
 
       - name: Generate release notes
         id: notes
@@ -131,11 +141,13 @@ jobs:
             echo ""
             echo "### Downloads"
             echo ""
-            echo "| Platform | Archive |"
-            echo "|----------|---------|"
-            for f in dist/*; do
+            echo "| Platform | Archive | SHA256 |"
+            echo "|----------|---------|--------|"
+            for f in dist/*.tar.gz dist/*.zip; do
+              [ -f "$f" ] || continue
               name=$(basename "$f")
-              echo "| ${name} | \`${name}\` |"
+              hash=$(sha256sum "$f" | cut -d' ' -f1)
+              echo "| ${name} | \`${name}\` | \`${hash}\` |"
             done
             echo ""
             if [ -f CHANGELOG.md ]; then
@@ -146,6 +158,16 @@ jobs:
             fi
             echo "EOFNOTES"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Delete existing release (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          gh release view "${{ steps.tag.outputs.tag }}" --json id 2>/dev/null && \
+            gh release delete "${{ steps.tag.outputs.tag }}" --yes || \
+            echo "Release does not exist yet, skipping delete."
+          git push origin --delete "refs/tags/${{ steps.tag.outputs.tag }}" 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Create release
         uses: softprops/action-gh-release@v2

@@ -38,13 +38,17 @@ type ServerHello struct {
 	AssignedIPv6 net.IP
 	MTU          int
 	CryptoSalt   []byte
+	GatewayIP    net.IP
 }
 
 type AuthError struct {
 	Reason string
 }
 
-const CryptoTag byte = 0x09
+const (
+	CryptoTag  byte = 0x09
+	GatewayTag byte = 0x0A
+)
 
 // @sk-task performance-and-polish#T3.1: encode MTU in ClientHello (AC-004)
 func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
@@ -134,6 +138,11 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 		cryptoLen = 2 + len(hello.CryptoSalt)
 		total += cryptoLen
 	}
+	var gatewayLen int
+	if hello.GatewayIP != nil {
+		gatewayLen = 2 + 4 // tag + length + 4 bytes IPv4
+		total += gatewayLen
+	}
 	payload := make([]byte, total)
 	pos := 0
 	copy(payload[:SessionIDLen], sidBytes)
@@ -162,6 +171,15 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 		payload[pos] = CryptoTag
 		payload[pos+1] = byte(len(hello.CryptoSalt)) // #nosec G115 — fixed salt length (32 bytes)
 		copy(payload[pos+2:], hello.CryptoSalt)
+		pos += cryptoLen
+	}
+	if gatewayLen > 0 {
+		gw4 := hello.GatewayIP.To4()
+		if gw4 != nil {
+			payload[pos] = GatewayTag
+			payload[pos+1] = 4
+			copy(payload[pos+2:], gw4)
+		}
 	}
 	return &framing.Frame{
 		Type:    framing.FrameTypeHello,
@@ -229,6 +247,8 @@ func DecodeServerHello(frame *framing.Frame) (*ServerHello, error) {
 			salt := make([]byte, length)
 			copy(salt, data[pos:pos+length])
 			hello.CryptoSalt = salt
+		} else if tag == GatewayTag && length == 4 {
+			hello.GatewayIP = net.IP(data[pos : pos+4]).To4()
 		}
 		pos += length
 	}

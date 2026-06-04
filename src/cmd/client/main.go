@@ -1,6 +1,6 @@
 package main
 
-import (
+	import (
 	"context"
 	"fmt"
 	"io"
@@ -8,8 +8,10 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"net/url"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -71,7 +73,7 @@ func main() {
 
 	if cfg.Mode == "proxy" {
 		// @sk-task local-proxy-mode#T1.1: proxy mode entry (AC-003)
-		runProxyMode(ctx, cfg, logger)
+		runProxyMode(ctx, cfg, logger, masterKey)
 		return
 	}
 
@@ -88,7 +90,7 @@ func main() {
 // @sk-task local-proxy-mode#T2.1: SOCKS5 listener in proxy mode (AC-001)
 // @sk-task local-proxy-mode#T2.2: stream manager initialization (AC-001)
 // @sk-task production-gap#T1.1: proxy mode uses explicit client TLS trust settings (AC-001)
-func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger) {
+func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger, masterKey []byte) {
 	tlsCfg, err := tls.NewClientTLSConfigFromSettings(tls.ClientTLSSettings{
 		CAFile:     cfg.TLS.CAFile,
 		ServerName: cfg.TLS.ServerName,
@@ -107,6 +109,54 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 		logger.Fatal("proxy dial", zap.Error(err))
 	}
 	defer func() { _ = wsConn.Close() }()
+
+	// @sk-task local-proxy-mode#T4.1: handshake before proxy (AC-001)
+	{
+		helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
+			ProtoVersion: handshake.ProtoVersion,
+			IPv6:         cfg.IPv6,
+			Token:        cfg.Auth.Token,
+			MTU:          cfg.MTU,
+		})
+		if err != nil {
+			logger.Fatal("encode client hello", zap.Error(err))
+		}
+		helloData, err := helloFrame.Encode()
+		if err != nil {
+			logger.Fatal("encode hello frame", zap.Error(err))
+		}
+		if err := wsConn.WriteMessage(helloData); err != nil {
+			framing.ReturnBuffer(helloData)
+			logger.Fatal("send hello", zap.Error(err))
+		}
+		framing.ReturnBuffer(helloData)
+
+		respData, err := wsConn.ReadMessage()
+		if err != nil {
+			logger.Fatal("read server hello", zap.Error(err))
+		}
+		var respFrame framing.Frame
+		if err := respFrame.Decode(respData); err != nil {
+			logger.Fatal("decode server hello", zap.Error(err))
+		}
+		switch respFrame.Type {
+		case framing.FrameTypeAuth:
+			authErr, _ := handshake.DecodeAuthError(&respFrame)
+			logger.Fatal("auth rejected", zap.String("reason", authErr.Reason))
+		case framing.FrameTypeHello:
+			serverHello, err := handshake.DecodeServerHello(&respFrame)
+			if err != nil {
+				logger.Fatal("decode server hello", zap.Error(err))
+			}
+			logger.Info("handshake complete",
+				zap.String("session", serverHello.SessionID),
+				zap.String("assigned_ip", serverHello.AssignedIP.String()),
+			)
+		default:
+			logger.Fatal("unexpected handshake response", zap.Int("type", int(respFrame.Type)))
+		}
+	}
+	wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
 
 	streamMgr := proxy.NewManager(wsConn)
 
@@ -197,14 +247,19 @@ func runProxyMode(ctx context.Context, cfg *config.ClientConfig, logger *zap.Log
 			}
 			data, err := wsConn.ReadMessage()
 			if err != nil {
+				logger.Warn("ws read error in proxy mode", zap.Error(err))
 				return err
 			}
 			var f framing.Frame
 			if err := f.Decode(data); err != nil {
+				logger.Warn("frame decode error", zap.Error(err))
 				continue
 			}
 			if f.Type == framing.FrameTypeProxy {
+				logger.Debug("proxy frame received", zap.Int("payload_len", len(f.Payload)))
 				streamMgr.HandleIncomingFrame(&f)
+			} else {
+				logger.Debug("skipping non-proxy frame", zap.Int("type", int(f.Type)))
 			}
 			f.Release()
 		}
@@ -359,6 +414,11 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 				logger.Warn("set tun mtu", zap.Int("mtu", cfg.MTU), zap.Error(err))
 			}
 		}
+		if err := tunDev.DisableGSO(); err != nil {
+			logger.Warn("disable gso", zap.Error(err))
+		} else {
+			logger.Info("gso/gro disabled on tun")
+		}
 		// @sk-task app-crypto#T5: derive session key from server salt (AC-006)
 		if len(masterKey) > 0 && len(serverHello.CryptoSalt) > 0 {
 			sessionCipher, err = crypto.NewSessionCipher(masterKey, serverHello.CryptoSalt, serverHello.SessionID)
@@ -369,6 +429,63 @@ func runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSC
 			logger.Info("app-layer encryption active")
 		} else if len(masterKey) > 0 && len(serverHello.CryptoSalt) == 0 {
 			logger.Warn("server did not send crypto salt, connection will be unencrypted")
+		}
+
+		// Save physical gateway and add bypass routes before TUN default route
+		phyGateway, phyIface, pErr := tun.SaveDefaultRoute()
+		if pErr != nil {
+			logger.Warn("save default route (bypass routes won't be added)", zap.Error(pErr))
+		}
+		var excludeCIDRs []string
+		if pErr == nil {
+			// Server IP — must bypass TUN or WS loop
+			u, uErr := url.Parse(cfg.Server)
+			if uErr == nil {
+				host := u.Hostname()
+				if ip := net.ParseIP(host); ip != nil {
+					bits := 32
+					if ip.To4() == nil {
+						bits = 128
+					}
+					excludeCIDRs = append(excludeCIDRs, host+"/"+strconv.Itoa(bits))
+				}
+			}
+			if cfg.Routing != nil {
+				for _, r := range cfg.Routing.ExcludeRanges {
+					if r != "0.0.0.0/0" && r != "::/0" {
+						excludeCIDRs = append(excludeCIDRs, r)
+					}
+				}
+			}
+			for _, cidr := range excludeCIDRs {
+				if err := tunDev.AddExcludeRoute(cidr, phyGateway, phyIface); err != nil {
+					logger.Warn("add exclude route", zap.String("cidr", cidr), zap.Error(err))
+				} else {
+					ec := cidr
+					defer func() {
+						if err := tunDev.RemoveExcludeRoute(ec, phyGateway, phyIface); err != nil {
+							logger.Warn("remove exclude route", zap.String("cidr", ec), zap.Error(err))
+						}
+					}()
+					logger.Debug("exclude route added", zap.String("cidr", cidr))
+				}
+			}
+		}
+
+		// Add default route via TUN gateway
+		gateway := serverHello.GatewayIP
+		if gateway == nil {
+			gateway = computeGateway(serverHello.AssignedIP, mask.Mask)
+		}
+		if err := tunDev.SetGateway(gateway); err != nil {
+			logger.Warn("set default route", zap.Error(err))
+		} else {
+			defer func() {
+				if err := tunDev.RemoveGateway(gateway); err != nil {
+					logger.Warn("remove default route", zap.Error(err))
+				}
+			}()
+			logger.Info("default route added", zap.String("gateway", gateway.String()))
 		}
 	default:
 		logger.Error("unexpected response type", zap.Int("type", int(respFrame.Type)))
@@ -505,7 +622,7 @@ func tunToWS(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 			return ctx.Err()
 		default:
 		}
-		n, err := dev.Read(buf)
+		n, err := tunReadInterruptible(ctx, dev, buf)
 		if err != nil {
 			return fmt.Errorf("tun read: %w", err)
 		}
@@ -588,4 +705,32 @@ func wsToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, log
 			return nil
 		}
 	}
+}
+
+func tunReadInterruptible(ctx context.Context, dev tun.TunDevice, buf []byte) (int, error) {
+	readBuf := make([]byte, len(buf))
+	type result struct {
+		n   int
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		n, err := dev.Read(readBuf)
+		ch <- result{n, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case r := <-ch:
+		copy(buf, readBuf[:r.n])
+		return r.n, r.err
+	}
+}
+
+func computeGateway(ip net.IP, mask net.IPMask) net.IP {
+	network := ip.Mask(mask)
+	gw := make(net.IP, len(network))
+	copy(gw, network)
+	gw[len(gw)-1] = 1
+	return gw
 }

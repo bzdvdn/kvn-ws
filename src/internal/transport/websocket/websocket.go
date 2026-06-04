@@ -18,6 +18,7 @@ import (
 )
 
 const MultiplexSubprotocol = "kvn-ws-mux"
+const DefaultPongTimeout = 45 * time.Second
 
 // @sk-task performance-and-polish#T1.1: WSConfig for Dial/Accept options (AC-004, AC-006, AC-007)
 type WSConfig struct {
@@ -32,6 +33,7 @@ type WSConn struct {
 	conn   *websocket.Conn
 	cfg    WSConfig
 	logger *zap.Logger
+	wmu    sync.Mutex
 }
 
 // @sk-task performance-and-polish#T2.3: BatchWriter for coalescing writes (AC-003)
@@ -125,6 +127,8 @@ func (c *WSConn) ReadMessage() ([]byte, error) {
 }
 
 func (c *WSConn) WriteMessage(data []byte) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	return c.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
@@ -150,12 +154,29 @@ func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for range ticker.C {
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			c.wmu.Lock()
+			err := c.conn.WriteMessage(websocket.PingMessage, nil)
+			c.wmu.Unlock()
+			if err != nil {
 				c.logger.Warn("ping error", zap.Error(err))
 				return
 			}
 		}
 	}()
+}
+
+// @sk-task production-hardening#T4.1: set ping handler with write mutex (AC-002)
+func (c *WSConn) SetPingHandler(h func(string) error) {
+	c.conn.SetPingHandler(func(appData string) error {
+		err := h(appData)
+		if err != nil {
+			return err
+		}
+		// pong reply is also a write — must hold wmu
+		c.wmu.Lock()
+		defer c.wmu.Unlock()
+		return c.conn.WriteMessage(websocket.PongMessage, nil)
+	})
 }
 
 // @sk-task performance-and-polish#T2.2: TCP_NODELAY via NetDial (AC-002)
@@ -273,10 +294,11 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	if cfg.Compression {
 		_ = conn.SetCompressionLevel(4)
 	}
-	conn.SetPingHandler(func(appData string) error {
-		return conn.WriteMessage(websocket.PongMessage, nil)
+	wsConn := &WSConn{conn: conn, cfg: cfg, logger: logger}
+	wsConn.SetPingHandler(func(appData string) error {
+		return conn.SetReadDeadline(time.Now().Add(DefaultPongTimeout))
 	})
-	return &WSConn{conn: conn, cfg: cfg, logger: logger}, nil
+	return wsConn, nil
 }
 
 func ResetUpgrader() {}

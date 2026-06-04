@@ -227,6 +227,12 @@ func main() {
 		}
 	}
 
+	if err := tunDev.DisableGSO(); err != nil {
+		logger.Warn("disable gso", zap.Error(err))
+	} else {
+		logger.Info("gso/gro disabled on tun")
+	}
+
 	// @sk-task ipv6-dual-stack#T2.3: setup IPv6 NAT masquerade (AC-003)
 	natMgr := nat.NewNFTManager()
 	if err := natMgr.Setup(); err != nil {
@@ -303,7 +309,8 @@ func main() {
 			MTU:         cfg.MTU,
 		}
 		// @sk-task performance-and-polish#T1.1: pass Compression, Multiplex, MTU to Accept (AC-004, AC-006, AC-007)
-		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, bwMgr, originChecker, wsCfg, collectors, logger, masterKey)
+		gatewayIP := net.ParseIP(cfg.Network.PoolIPv4.Gateway)
+		handleTunnel(w, r, tunDev, sm, cfg.Auth.Tokens, prl, bwMgr, originChecker, wsCfg, collectors, logger, masterKey, gatewayIP)
 	})
 
 	cidrMiddleware := func(next http.Handler) http.Handler {
@@ -463,7 +470,7 @@ func main() {
 	logger.Info("shutting down")
 }
 
-func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []config.TokenCfg, prl *sessionPacketLimiter, bwMgr *session.TokenBandwidthManager, originChecker func(r *http.Request) bool, wsCfg websocket.WSConfig, collectors *metrics.Collectors, logger *zap.Logger, masterKey []byte) {
+func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, sm *session.SessionManager, validTokens []config.TokenCfg, prl *sessionPacketLimiter, bwMgr *session.TokenBandwidthManager, originChecker func(r *http.Request) bool, wsCfg websocket.WSConfig, collectors *metrics.Collectors, logger *zap.Logger, masterKey []byte, gatewayIP net.IP) {
 	wsConn, err := websocket.Accept(w, r, logger, originChecker, wsCfg)
 	if err != nil {
 		logger.Error("ws upgrade", zap.Error(err))
@@ -552,6 +559,7 @@ func handleTunnel(w http.ResponseWriter, r *http.Request, tunDev tun.TunDevice, 
 		AssignedIPv6: assignedIPv6,
 		MTU:          mtu,
 		CryptoSalt:   cryptoSalt,
+		GatewayIP:    gatewayIP,
 	})
 	if err != nil {
 		logger.Error("encode server hello", zap.Error(err))
@@ -631,6 +639,7 @@ func init() {
 }
 
 func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSConn, sm *session.SessionManager, sessionID string, prl *sessionPacketLimiter, collectors *metrics.Collectors, logger *zap.Logger, proxyStreams *proxy.SessionStreams, sessionCipher *crypto.SessionCipher) error {
+	var lastRateLimitLog time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -639,10 +648,13 @@ func serverWSToTun(ctx context.Context, dev tun.TunDevice, conn *websocket.WSCon
 		}
 		sm.UpdateActivity(sessionID)
 		if prl != nil && !prl.Allow(sessionID) {
-			pkglog.Audit(logger, zapcore.WarnLevel, "packet rate limited",
-				zap.String("session_id", sessionID),
-				zap.String("reason", "packet rate exceeded"),
-			)
+			if time.Since(lastRateLimitLog) > time.Second {
+				lastRateLimitLog = time.Now()
+				pkglog.Audit(logger, zapcore.WarnLevel, "packet rate limited",
+					zap.String("session_id", sessionID),
+					zap.String("reason", "packet rate exceeded"),
+				)
+			}
 			continue
 		}
 		if err := conn.SetReadDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
