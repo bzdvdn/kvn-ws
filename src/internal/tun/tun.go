@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -180,7 +179,7 @@ func (t *tunDevice) DisableGSO() error {
 			sc, err := f.SyscallConn()
 			if err == nil {
 				_ = sc.Control(func(fd uintptr) {
-					_ = unix.IoctlSetInt(int(fd), unix.TUNSETOFFLOAD, 0)
+					_ = disableTUNOffload(fd)
 				})
 			}
 		}
