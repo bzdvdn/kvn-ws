@@ -2,7 +2,21 @@
 # @sk-task performance-and-polish#T4.2: add gatetest routing step (AC-008)
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches-ignore:
+      - "revert-*"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ci:
@@ -31,3 +45,116 @@ jobs:
         run: ./scripts/build.sh
       - name: Gatetest routing
         run: go run ./src/cmd/gatetest/ --mode routing
+
+  release:
+    if: |
+      startsWith(github.ref, 'refs/tags/v')
+      || github.event_name == 'workflow_dispatch'
+    needs: [ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "ref=refs/tags/${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "ref=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check tag exists (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if ! git rev-parse "${{ steps.tag.outputs.ref }}" >/dev/null 2>&1; then
+            echo "Tag ${{ steps.tag.outputs.tag }} does not exist. Create it first:"
+            echo "  git tag ${{ steps.tag.outputs.tag }}"
+            echo "  git push origin ${{ steps.tag.outputs.tag }}"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Checkout tag
+        run: git checkout "${{ steps.tag.outputs.ref }}"
+
+      - name: Build release binaries
+        run: |
+          mkdir -p dist
+          platforms=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/arm64"
+            "windows/amd64"
+          )
+          for platform in "${platforms[@]}"; do
+            os=${platform%%/*}
+            arch=${platform#*/}
+            suffix=""
+            [ "$os" = "windows" ] && suffix=".exe"
+            echo "Building $os/$arch..."
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+              go build -ldflags="-s -w" \
+              -o "dist/kvn-$os-$arch/client${suffix}" ./src/cmd/client
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+              go build -ldflags="-s -w" \
+              -o "dist/kvn-$os-$arch/server${suffix}" ./src/cmd/server
+          done
+
+      - name: Package archives
+        run: |
+          cd dist
+          for dir in kvn-*; do
+            if [ -d "$dir" ]; then
+              if echo "$dir" | grep -q windows; then
+                zip -r "${dir}.zip" "$dir"
+              else
+                tar czf "${dir}.tar.gz" "$dir"
+              fi
+            fi
+          done
+          rm -rf kvn-*/
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          {
+            echo "notes<<EOFNOTES"
+            echo "## KVN-WS ${{ steps.tag.outputs.tag }}"
+            echo ""
+            echo "### Downloads"
+            echo ""
+            echo "| Platform | Archive |"
+            echo "|----------|---------|"
+            for f in dist/*; do
+              name=$(basename "$f")
+              echo "| ${name} | \`${name}\` |"
+            done
+            echo ""
+            if [ -f CHANGELOG.md ]; then
+              echo "### Changelog"
+              echo ""
+              grep -A 100 "^## \[${{ steps.tag.outputs.tag }}" CHANGELOG.md \
+                | sed '/^## \[/q' | head -n -1 || true
+            fi
+            echo "EOFNOTES"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Release ${{ steps.tag.outputs.tag }}
+          body: ${{ steps.notes.outputs.notes }}
+          files: dist/*
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-rc') || contains(steps.tag.outputs.tag, '-beta') || contains(steps.tag.outputs.tag, '-alpha') }}
+          fail_on_unmatched_files: true
+          generate_release_notes: false
