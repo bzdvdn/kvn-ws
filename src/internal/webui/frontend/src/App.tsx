@@ -5,6 +5,7 @@ type Status = "disconnected" | "connecting" | "connected" | "error";
 interface ClientConfig {
   server?: string;
   auth?: { token?: string };
+  transport?: string;
   mode?: string;
   mtu?: number;
   ipv6?: boolean;
@@ -151,6 +152,12 @@ function App() {
               <select style={inp} value={config.mode || "proxy"} onChange={(e) => update("mode", e.target.value)}>
                 <option value="proxy">Proxy (SOCKS5/HTTP)</option>
                 <option value="tun">TUN</option>
+              </select>
+            </label>
+            <label style={lbl}>Transport
+              <select style={inp} value={config.transport || "tcp"} onChange={(e) => update("transport", e.target.value)}>
+                <option value="tcp">TCP (WebSocket)</option>
+                <option value="quic">QUIC (UDP)</option>
               </select>
             </label>
             {config.mode === "proxy" && <>

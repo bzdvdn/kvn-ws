@@ -63,7 +63,11 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 
 		if transport == "quic" {
 			c.logger.Info("dialing with QUIC transport")
-			quicConn, err := quictp.Dial(c.cfg.Server, tlsCfg, nil)
+			quicAddr := c.cfg.Server
+			if u, parseErr := url.Parse(quicAddr); parseErr == nil && u.Host != "" {
+				quicAddr = u.Host
+			}
+			quicConn, err := quictp.Dial(quicAddr, tlsCfg, nil)
 			if err != nil {
 				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
 				transport = "tcp"

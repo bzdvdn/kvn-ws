@@ -2,6 +2,9 @@
 package quic
 
 import (
+	"encoding/binary"
+	"io"
+	"math"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -16,15 +19,27 @@ func NewQUICConn(stream quic.Stream) *QUICConn {
 }
 
 func (c *QUICConn) ReadMessage() ([]byte, error) {
-	buf := make([]byte, 4096)
-	n, err := c.stream.Read(buf)
-	if err != nil {
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(c.stream, lenBuf[:]); err != nil {
 		return nil, err
 	}
-	return buf[:n], nil
+	msgLen := binary.BigEndian.Uint32(lenBuf[:])
+	buf := make([]byte, msgLen)
+	if _, err := io.ReadFull(c.stream, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
 }
 
 func (c *QUICConn) WriteMessage(data []byte) error {
+	if len(data) > math.MaxUint32 {
+		return io.ErrShortWrite
+	}
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
+	if _, err := c.stream.Write(lenBuf[:]); err != nil {
+		return err
+	}
 	_, err := c.stream.Write(data)
 	return err
 }

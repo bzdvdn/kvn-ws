@@ -104,9 +104,16 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	} else if cfg.Routing.DefaultRoute == "" {
 		cfg.Routing.DefaultRoute = "server"
 	}
-	merged := make([]string, len(DefaultExcludeRanges))
-	copy(merged, DefaultExcludeRanges)
-	cfg.Routing.ExcludeRanges = append(merged, cfg.Routing.ExcludeRanges...)
+	seen := make(map[string]bool, len(cfg.Routing.ExcludeRanges))
+	for _, r := range cfg.Routing.ExcludeRanges {
+		seen[r] = true
+	}
+	for _, d := range DefaultExcludeRanges {
+		if !seen[d] {
+			cfg.Routing.ExcludeRanges = append([]string{d}, cfg.Routing.ExcludeRanges...)
+			seen[d] = true
+		}
+	}
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		cfg.Crypto.Enabled = false
 	}
