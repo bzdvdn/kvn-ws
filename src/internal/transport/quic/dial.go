@@ -23,5 +23,5 @@ func Dial(addr string, tlsConf *tls.Config, quicConf *quic.Config) (*QUICConn, e
 	if err != nil {
 		return nil, err
 	}
-	return NewQUICConn(stream), nil
+	return NewQUICConn(conn, stream), nil
 }

@@ -7,10 +7,21 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 )
+
+// @sk-task quic-proxy-mode#T2.1: local StreamConn for cycle avoidance (AC-001, AC-003)
+// StreamConn is the minimal interface needed by Manager/ForwardToStream.
+// Implemented by websocket.WSConn and quic.QUICConn.
+type StreamConn interface {
+	ReadMessage() ([]byte, error)
+	WriteMessage([]byte) error
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
+	Close() error
+}
 
 // @sk-task post-hardening#T3.4: per-session proxy stream container (AC-012)
 type SessionStreams struct {
@@ -62,8 +73,8 @@ type Stream struct {
 	Local net.Conn
 }
 
-// @sk-task local-proxy-mode#T2.2: forward local TCP data to WS proxy frames (AC-001)
-func (s *Stream) ForwardToWS(ws *websocket.WSConn) {
+// @sk-task quic-proxy-mode#T2.1: ForwardToWS → ForwardToStream (AC-001, AC-003)
+func (s *Stream) ForwardToStream(stream StreamConn) {
 	defer func() { _ = s.Local.Close() }()
 	buf := make([]byte, 4096)
 	for {
@@ -86,7 +97,7 @@ func (s *Stream) ForwardToWS(ws *websocket.WSConn) {
 		if err != nil {
 			return
 		}
-		if err := ws.WriteMessage(encoded); err != nil {
+		if err := stream.WriteMessage(encoded); err != nil {
 			framing.ReturnBuffer(encoded)
 			return
 		}
@@ -94,16 +105,18 @@ func (s *Stream) ForwardToWS(ws *websocket.WSConn) {
 	}
 }
 
+// @sk-task quic-proxy-mode#T2.1: Manager.wsConn → Manager.stream (AC-001, AC-003)
 type Manager struct {
 	mu      sync.Mutex
 	streams map[uint32]*Stream
-	wsConn  *websocket.WSConn
+	stream  StreamConn
 }
 
-func NewManager(ws *websocket.WSConn) *Manager {
+// @sk-task quic-proxy-mode#T2.1: NewManager takes StreamConn (AC-001, AC-003)
+func NewManager(stream StreamConn) *Manager {
 	return &Manager{
 		streams: make(map[uint32]*Stream),
-		wsConn:  ws,
+		stream:  stream,
 	}
 }
 

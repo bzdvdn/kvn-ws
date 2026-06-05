@@ -19,6 +19,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
+	"github.com/quic-go/quic-go"
 )
 
 func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
@@ -67,7 +68,10 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 			if u, parseErr := url.Parse(quicAddr); parseErr == nil && u.Host != "" {
 				quicAddr = u.Host
 			}
-			quicConn, err := quictp.Dial(quicAddr, tlsCfg, nil)
+			quicCfg := &quic.Config{
+				KeepAlivePeriod: 15 * time.Second,
+			}
+			quicConn, err := quictp.Dial(quicAddr, tlsCfg, quicCfg)
 			if err != nil {
 				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
 				transport = "tcp"

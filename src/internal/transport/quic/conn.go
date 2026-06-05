@@ -5,17 +5,20 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
 )
 
 type QUICConn struct {
+	mu     sync.Mutex
+	conn   quic.Connection
 	stream quic.Stream
 }
 
-func NewQUICConn(stream quic.Stream) *QUICConn {
-	return &QUICConn{stream: stream}
+func NewQUICConn(conn quic.Connection, stream quic.Stream) *QUICConn {
+	return &QUICConn{conn: conn, stream: stream}
 }
 
 func (c *QUICConn) ReadMessage() ([]byte, error) {
@@ -35,6 +38,8 @@ func (c *QUICConn) WriteMessage(data []byte) error {
 	if len(data) > math.MaxUint32 {
 		return io.ErrShortWrite
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
 	if _, err := c.stream.Write(lenBuf[:]); err != nil {
@@ -53,7 +58,11 @@ func (c *QUICConn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *QUICConn) Close() error {
-	return c.stream.Close()
+	streamErr := c.stream.Close()
+	if c.conn != nil {
+		_ = c.conn.CloseWithError(0, "close")
+	}
+	return streamErr
 }
 
 func (c *QUICConn) StreamID() quic.StreamID {

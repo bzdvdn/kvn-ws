@@ -21,7 +21,7 @@ func TestQUICConnInterfaceConformance(t *testing.T) {
 }
 
 func TestNewQUICConn(t *testing.T) {
-	conn := NewQUICConn(&mockStream{})
+	conn := NewQUICConn(nil, &mockStream{})
 	if conn == nil {
 		t.Fatal("NewQUICConn returned nil")
 	}

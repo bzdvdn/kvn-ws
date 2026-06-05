@@ -29,7 +29,7 @@ func (l *Listener) Accept(ctx context.Context) (*QUICConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewQUICConn(stream), nil
+	return NewQUICConn(conn, stream), nil
 }
 
 func (l *Listener) Close() error {

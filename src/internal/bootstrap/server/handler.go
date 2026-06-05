@@ -82,7 +82,7 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 		} else {
 			s.logger.Error("session create", zap.Error(err))
 		}
-		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "authentication failed"})
+		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: errMsg})
 		authData, _ := authFrame.Encode()
 		_ = stream.WriteMessage(authData)
 		framing.ReturnBuffer(authData)

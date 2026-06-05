@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"net/url"
 	"time"
 
 	"go.uber.org/zap"
@@ -16,9 +17,12 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
+	"github.com/quic-go/quic-go"
 )
 
+// @sk-task quic-proxy-mode#T2.2: transport selection in runProxyMode (AC-001, AC-002, AC-003)
 func (c *Client) runProxyMode(ctx context.Context) {
 	tlsCfg, err := tls.NewClientTLSConfigFromSettings(tls.ClientTLSSettings{
 		CAFile:     c.cfg.TLS.CAFile,
@@ -52,25 +56,55 @@ func (c *Client) runProxyMode(ctx context.Context) {
 		attempt++
 		c.logger.Info("connecting", zap.Int("attempt", attempt), zap.Duration("backoff", backoff))
 
-		wsConn, err := websocket.Dial(c.cfg.Server, tlsCfg, c.logger, websocket.WSConfig{
-			Compression: c.cfg.Compression,
-			Multiplex:   c.cfg.Multiplex,
-			MTU:         c.cfg.MTU,
-		})
-		if err != nil {
-			c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
-			sleepWithContext(ctx, backoff)
-			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
-			continue
+		var stream proxy.StreamConn
+		transport := c.cfg.Transport
+		if transport == "" {
+			transport = "tcp"
 		}
 
-		c.runProxySession(ctx, wsConn)
-		backoff = minBackoff
+		if transport == "quic" {
+			c.logger.Info("dialing with QUIC transport")
+			quicAddr := c.cfg.Server
+			if u, parseErr := url.Parse(quicAddr); parseErr == nil && u.Host != "" {
+				quicAddr = u.Host
+			}
+			quicCfg := &quic.Config{
+				KeepAlivePeriod: 15 * time.Second,
+			}
+			quicConn, err := quictp.Dial(quicAddr, tlsCfg, quicCfg)
+			if err != nil {
+				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
+				transport = "tcp"
+			} else {
+				stream = quicConn
+			}
+		}
+
+		if transport != "quic" {
+			wsCfg := websocket.WSConfig{
+				Compression: c.cfg.Compression,
+				Multiplex:   c.cfg.Multiplex,
+				MTU:         c.cfg.MTU,
+			}
+			wsConn, err := websocket.Dial(c.cfg.Server, tlsCfg, c.logger, wsCfg)
+			if err != nil {
+				c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
+				sleepWithContext(ctx, backoff)
+				backoff = nextBackoff(backoff, minBackoff, maxBackoff)
+				continue
+			}
+			wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
+			stream = wsConn
+		}
+
+		c.runProxySession(ctx, stream)
+		backoff = nextBackoff(backoff, minBackoff, maxBackoff)
 	}
 }
 
-func (c *Client) runProxySession(ctx context.Context, wsConn *websocket.WSConn) {
-	defer func() { _ = wsConn.Close() }()
+// @sk-task quic-proxy-mode#T2.2: runProxySession takes proxy.StreamConn (AC-001, AC-002, AC-003)
+func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
+	defer func() { _ = stream.Close() }()
 
 	{
 		helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
@@ -88,14 +122,14 @@ func (c *Client) runProxySession(ctx context.Context, wsConn *websocket.WSConn) 
 			c.logger.Warn("encode hello frame", zap.Error(err))
 			return
 		}
-		if err := wsConn.WriteMessage(helloData); err != nil {
+		if err := stream.WriteMessage(helloData); err != nil {
 			framing.ReturnBuffer(helloData)
 			c.logger.Warn("send hello", zap.Error(err))
 			return
 		}
 		framing.ReturnBuffer(helloData)
 
-		respData, err := wsConn.ReadMessage()
+		respData, err := stream.ReadMessage()
 		if err != nil {
 			c.logger.Warn("read server hello", zap.Error(err))
 			return
@@ -125,9 +159,8 @@ func (c *Client) runProxySession(ctx context.Context, wsConn *websocket.WSConn) 
 			return
 		}
 	}
-	wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
 
-	streamMgr := proxy.NewManager(wsConn)
+	streamMgr := proxy.NewManager(stream)
 
 	var routeSet *routing.RuleSet
 	if c.cfg.Routing != nil {
@@ -182,14 +215,14 @@ func (c *Client) runProxySession(ctx context.Context, wsConn *websocket.WSConn) 
 			}
 		}
 
-		stream := &proxy.Stream{
+		s := &proxy.Stream{
 			ID:    proxy.NewStreamID(),
 			Dst:   dst,
 			Local: client,
 		}
-		streamMgr.Add(stream)
+		streamMgr.Add(s)
 
-		go stream.ForwardToWS(wsConn)
+		go s.ForwardToStream(stream)
 	})
 
 	if err := pl.Start(); err != nil {
@@ -215,9 +248,12 @@ func (c *Client) runProxySession(ctx context.Context, wsConn *websocket.WSConn) 
 				return gctx.Err()
 			default:
 			}
-			data, err := wsConn.ReadMessage()
+			if err := stream.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+				return err
+			}
+			data, err := stream.ReadMessage()
 			if err != nil {
-				c.logger.Warn("ws read error in proxy mode", zap.Error(err))
+				c.logger.Warn("stream read error in proxy mode", zap.Error(err))
 				return err
 			}
 			var f framing.Frame
@@ -238,7 +274,7 @@ func (c *Client) runProxySession(ctx context.Context, wsConn *websocket.WSConn) 
 	<-gctx.Done()
 	c.logger.Debug("proxy session stopping")
 	_ = pl.Close()
-	_ = wsConn.Close()
+	_ = stream.Close()
 
 	if err := eg.Wait(); err != nil {
 		c.logger.Debug("proxy session stopped", zap.Error(err))
