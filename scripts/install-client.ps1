@@ -156,6 +156,8 @@ $configYaml = @"
 mode: proxy
 proxy_listen: ${ProxyListen}
 server: ${Server}
+transport: quic
+obfuscation: true
 auth:
   token: ${Token}
 tls:

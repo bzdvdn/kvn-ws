@@ -40,6 +40,8 @@ kvn-ws uses YAML configuration files for both server and client.
 | `admin.token` | string | `""` | Admin API authentication token |
 | `acl.deny_cidrs` | []string | `[]` | CIDR deny list (denied before allow check) |
 | `acl.allow_cidrs` | []string | `[]` | CIDR allow list (empty = allow all) |
+| `transport` | string | `""` | Transport: `quic` or empty (TCP/WebSocket) |
+| `obfuscation` | bool | `false` | Enable QUIC stream obfuscation (anti-DPI) |
 | `compression` | bool | `false` | Enable WebSocket per-message compression |
 | `multiplex` | bool | `false` | Enable WebSocket multiplexing |
 | `mtu` | int | `1400` | TUN interface MTU |
@@ -78,6 +80,8 @@ logging:
 |-----|------|---------|-------------|
 | `server` | string | — | WebSocket server URL (e.g. `wss://example.com/tunnel`) |
 | `mode` | string | `tun` | Client mode: `tun` (VPN tunnel) or `proxy` (local SOCKS5/HTTP proxy) |
+| `transport` | string | `""` | Transport: `quic` or empty (TCP/WebSocket) |
+| `obfuscation` | bool | `false` | Enable QUIC stream obfuscation (anti-DPI) |
 | `auth.token` | string | — | Authentication token matching server config |
 | `tls.verify_mode` | string | `verify` | TLS verification mode: `verify`, `skip` |
 | `tls.ca_file` | string | `""` | Custom CA certificate file (optional) |

@@ -33,7 +33,8 @@ func defaultConfig() *config.ClientConfig {
 		AutoReconnect: &autoReconnect,
 		Log:           config.LogConfig{Level: "info"},
 		Mode:          "proxy",
-		Transport:     "tcp",
+		Transport:     "quic",
+		Obfuscation:   true,
 		TLS:           config.ClientTLSCfg{VerifyMode: "verify"},
 		Routing: &config.RoutingCfg{
 			DefaultRoute:  "server",

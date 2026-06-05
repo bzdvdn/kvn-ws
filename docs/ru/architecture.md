@@ -2,7 +2,7 @@
 
 # Архитектура
 
-kvn-ws — VPN-туннель поверх HTTPS/WebSocket, написанный на Go. Этот документ описывает системную архитектуру, компоненты и потоки данных.
+kvn-ws — VPN-туннель поверх HTTPS/WebSocket и QUIC, написанный на Go. Этот документ описывает системную архитектуру, компоненты и потоки данных.
 
 ## Обзор
 
@@ -12,30 +12,39 @@ flowchart TB
         TUN["TUN IFace"]
         PROXY["Proxy / Routing"]
         WS_CLIENT["WebSocket Transport"]
+        QUIC_CLIENT["QUIC Transport"]
+        OBF["QUIC Obfuscation"]
         TUN <--> PROXY
         PROXY <--> WS_CLIENT
+        PROXY <--> QUIC_CLIENT
+        QUIC_CLIENT <--> OBF
     end
 
     subgraph Internet["Интернет"]
-        TLS_TUNNEL["TLS 1.3 / WebSocket Binary"]
+        WS_TUNNEL["TLS 1.3 / WebSocket Binary (TCP 443)"]
+        QUIC_TUNNEL["QUIC / TLS 1.3 (UDP 443)"]
     end
 
     subgraph Server["Сервер"]
-        TLS["TLS Listener"]
+        TLS["TLS Listener (TCP)"]
+        QUIC_LN["QUIC Listener (UDP)"]
         SESS["Session Manager"]
         IPPOOL["IP Pool"]
         AUTH["Auth"]
         NAT["NAT / Routing<br/>(nftables MASQUERADE)"]
         PHYS["Physical Network"]
         TLS --> SESS
+        QUIC_LN --> SESS
         SESS --> IPPOOL
         SESS --> AUTH
         SESS --> NAT
         NAT --> PHYS
     end
 
-    WS_CLIENT -- "WSS подключение" --> TLS_TUNNEL
-    TLS_TUNNEL --> TLS
+    WS_CLIENT -- "WSS" --> WS_TUNNEL
+    WS_TUNNEL --> TLS
+    OBF -- "QUIC + obfuscation" --> QUIC_TUNNEL
+    QUIC_TUNNEL --> QUIC_LN
 ```
 
 ## Компоненты
@@ -44,8 +53,9 @@ flowchart TB
 
 | Компонент | Пакет | Роль |
 |-----------|-------|------|
-| TLS Listener | `src/internal/transport/tls/` | Терминация TLS 1.3 |
+| TLS Listener | `src/internal/transport/tls/` | Терминация TLS 1.3 (TCP) |
 | WebSocket Acceptor | `src/internal/transport/websocket/` | WebSocket upgrade и ввод/вывод бинарных фреймов |
+| QUIC Listener | `src/internal/transport/quic/` | QUIC (UDP) listener + ObfuscatedQUICConn |
 | Session Manager | `src/internal/session/` | Жизненный цикл сессий, выделение/возврат IP, BoltDB |
 | IP Pool | `src/internal/session/` | Динамическое выделение IPv4/IPv6 из подсетей |
 | Auth | `src/internal/protocol/auth/` | Аутентификация по токену, JWT и basic |
@@ -62,6 +72,7 @@ flowchart TB
 | Routing Engine | `src/internal/routing/` | RuleSet: server/direct, CIDR, домены, IP с ordered rules |
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT прокси для локального трафика |
 | WebSocket Dialer | `src/internal/transport/websocket/` | Клиентское WebSocket-подключение |
+| QUIC Dialer | `src/internal/transport/quic/` | QUIC (UDP) dial + ObfuscatedQUICConn |
 | DNS Resolver | `src/internal/dns/` | DNS-резолвер с TTL-кэшем |
 | Crypto | `src/internal/crypto/` | Шифрование на уровне приложения (AES-256-GCM, per-session key) |
 
@@ -78,6 +89,11 @@ flowchart TB
 
 ### Установка соединения (handshake)
 
+Выбор транспорта определяется полем `transport` в конфиге:
+- `""` (пусто) или `"tcp"` — WebSocket поверх TLS 1.3 (TCP 443)
+- `"quic"` — QUIC поверх TLS 1.3 (UDP 443)
+
+#### WebSocket (TCP)
 1. Клиент читает конфиг из `client.yaml`
 2. Клиент устанавливает TLS 1.3 соединение с сервером
 3. Клиент отправляет WebSocket upgrade request на путь `/ws`
@@ -87,14 +103,25 @@ flowchart TB
 7. Клиент настраивает TUN-интерфейс с полученным IP
 8. Routing engine начинает обработку пакетов
 
+#### QUIC (UDP)
+1. Клиент читает конфиг из `client.yaml`
+2. Клиент открывает QUIC-соединение (встроенный TLS 1.3 handshake) с сервером
+3. Клиент открывает единственный QUIC stream
+4. Если `obfuscation: true`, клиент генерирует 8-байт nonce и отправляет его первыми байтами stream'а
+5. Клиент отправляет `ClientHello` (с XOR-обфускацией length prefix если obfuscation включён)
+6. Сервер отвечает `ServerHello` (с XOR-обфускацией)
+7. Клиент настраивает TUN-интерфейс с полученным IP
+8. Routing engine начинает обработку пакетов
+
 ### Передача данных
 
 1. Приложение на клиенте отправляет пакет в TUN-интерфейс
 2. Routing engine проверяет правила (ordered): direct или tunnel
-3. Для tunnel: пакет инкапсулируется в бинарный WebSocket-фрейм (опционально шифруется)
-4. Сервер получает фрейм, расшифровывает при необходимости, извлекает пакет
-5. Сервер применяет NAT (MASQUERADE) и пересылает пакет получателю
-6. Ответ следует обратным путём: сервер получает → инкапсулирует → отправляет через WebSocket → клиент извлекает → инжектирует в TUN
+3. Для tunnel: пакет инкапсулируется в фрейм (length-prefix + payload), опционально шифруется
+4. Если `transport: quic` с `obfuscation: true`, length prefix XOR'ится с nonce перед отправкой
+5. Сервер получает фрейм, расшифровывает при необходимости, извлекает пакет
+6. Сервер применяет NAT (MASQUERADE) и пересылает пакет получателю
+7. Ответ следует обратным путём: сервер получает → инкапсулирует → отправляет (с XOR-обфускацией если включена) → клиент извлекает → инжектирует в TUN
 
 ### Keepalive
 
@@ -127,6 +154,7 @@ src/
 │   ├── session/             # Сессии + IP pool + BoltDB
 │   ├── transport/
 │   │   ├── framing/         # Протокол бинарных фреймов
+│   │   ├── quic/            # QUIC dial/listen + ObfuscatedQUICConn
 │   │   ├── tls/             # TLS конфиг
 │   │   └── websocket/       # WebSocket dial/accept
 │   └── tun/                 # TUN-интерфейс

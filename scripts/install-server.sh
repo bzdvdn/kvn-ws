@@ -170,6 +170,8 @@ if [ ! -f "$CONFDIR/server.yaml" ]; then
   TOKEN="$(openssl rand -hex 24)"
   cat > "$CONFDIR/server.yaml" <<EOF
 listen: ${LISTEN}
+transport: quic
+obfuscation: true
 tls:
   cert: ${CONFDIR}/certs/cert.pem
   key: ${CONFDIR}/certs/key.pem
@@ -177,6 +179,10 @@ ${NETWORK_YAML}
 session:
   max_clients: 100
   idle_timeout_sec: 120
+rate_limiting:
+  packets_per_sec: 5000
+origin:
+  allow_empty: true
 auth:
   mode: token
   tokens:

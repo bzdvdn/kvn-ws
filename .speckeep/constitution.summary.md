@@ -1,6 +1,6 @@
 # Constitution Summary — kvn-ws (github.com/bzdvdn/kvn-ws)
 
-**Purpose:** Производительный VPN-туннель через HTTPS/WebSocket + TUN на Go с маскировкой под обычный веб-трафик.
+**Purpose:** Производительный VPN-туннель через HTTPS/WebSocket и QUIC + TUN на Go с маскировкой под обычный веб-трафик.
 
 **Non-negotiables:**
 - Весь код только на Go, без глобального мутабельного состояния
@@ -10,11 +10,12 @@
 - Docker multi-stage build — основной способ поставки
 
 **Stack/Architecture:**
-- Go 1.22+, gorilla/websocket, viper, zap, prometheus, wireguard/tun
+- Go 1.22+, gorilla/websocket, quic-go v0.50, viper, zap, prometheus, wireguard/tun
 - `src/` — весь код, `docs/{ru,en}/` — двуязычная документация, `examples/` — примеры
-- TCP 443 + TLS 1.3 + WebSocket Binary Frames
+- TCP 443 + TLS 1.3 + WebSocket Binary Frames (fallback) или UDP 443 + QUIC + TLS 1.3 (основной транспорт)
 - IP-пул с динамическим выделением, BoltDB/SQLite persistence
 - Клиентская маршрутизация: server/direct, CIDR, DNS-имена, отдельные IP с ordered rules
+- QUIC obfuscation (8‑байт nonce + XOR length prefix) для анти-DPI
 
 **Workflow/DoD:**
 - Каждая фича в отдельной ветке `feature/<slug>`

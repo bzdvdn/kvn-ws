@@ -1,6 +1,8 @@
 <!-- @sk-task docs-and-release#T1.3: standalone server example config (AC-005) -->
 <!-- @sk-task production-gap#T2.3: server example reads runtime-generated cert material (AC-003) -->
 listen: :443
+transport: quic
+obfuscation: true
 tls:
   cert: /etc/kvn-ws/certs/server.pem
   key: /etc/kvn-ws/certs/server-key.pem
@@ -17,6 +19,8 @@ network:
 session:
   max_clients: 100
   idle_timeout_sec: 120
+rate_limiting:
+  packets_per_sec: 5000
 auth:
   mode: token
   tokens:

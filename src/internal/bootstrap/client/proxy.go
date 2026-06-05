@@ -23,6 +23,7 @@ import (
 )
 
 // @sk-task quic-proxy-mode#T2.2: transport selection in runProxyMode (AC-001, AC-002, AC-003)
+// @sk-task quic-obfuscation#T2.2: wrap QUICConn after dial if obfuscation (AC-001, AC-002)
 func (c *Client) runProxyMode(ctx context.Context) {
 	tlsCfg, err := tls.NewClientTLSConfigFromSettings(tls.ClientTLSSettings{
 		CAFile:     c.cfg.TLS.CAFile,
@@ -76,7 +77,17 @@ func (c *Client) runProxyMode(ctx context.Context) {
 				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
 				transport = "tcp"
 			} else {
-				stream = quicConn
+				if c.cfg.Obfuscation {
+					c.logger.Info("QUIC obfuscation enabled")
+					var obfErr error
+					stream, obfErr = quictp.NewObfuscatedQUICConn(quicConn, true)
+					if obfErr != nil {
+						c.logger.Warn("QUIC obfuscation init failed, falling back to TCP", zap.Error(obfErr))
+						transport = "tcp"
+					}
+				} else {
+					stream = quicConn
+				}
 			}
 		}
 

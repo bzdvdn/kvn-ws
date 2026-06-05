@@ -40,6 +40,8 @@ kvn-ws использует YAML-файлы конфигурации для се
 | `admin.token` | string | `""` | Токен аутентификации Admin API |
 | `acl.deny_cidrs` | []string | `[]` | CIDR deny список (проверяется перед allow) |
 | `acl.allow_cidrs` | []string | `[]` | CIDR allow список (пусто = все разрешены) |
+| `transport` | string | `""` | Транспорт: `quic` или пусто (TCP/WebSocket) |
+| `obfuscation` | bool | `false` | Включить обфускацию QUIC стрима (anti-DPI) |
 | `compression` | bool | `false` | Включить сжатие WebSocket per-message |
 | `multiplex` | bool | `false` | Включить мультиплексирование WebSocket |
 | `mtu` | int | `1400` | MTU TUN-интерфейса |
@@ -78,6 +80,8 @@ logging:
 |------|-----|-------------|----------|
 | `server` | string | — | URL WebSocket-сервера (например `wss://example.com/tunnel`) |
 | `mode` | string | `tun` | Режим клиента: `tun` (VPN) или `proxy` (локальный SOCKS5/HTTP прокси) |
+| `transport` | string | `""` | Транспорт: `quic` или пусто (TCP/WebSocket) |
+| `obfuscation` | bool | `false` | Включить обфускацию QUIC стрима (anti-DPI) |
 | `auth.token` | string | — | Токен аутентификации (должен совпадать с серверным) |
 | `tls.verify_mode` | string | `verify` | Режим проверки TLS: `verify`, `skip` |
 | `tls.ca_file` | string | `""` | Файл CA-сертификата (опционально) |

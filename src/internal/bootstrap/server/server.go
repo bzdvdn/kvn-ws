@@ -352,6 +352,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.handleReadyz(w, r)
 }
 
+// @sk-task quic-obfuscation#T2.3: wrap QUICConn after Accept if obfuscation (AC-001, AC-002)
 func (s *Server) Run(ctx context.Context) error {
 	defer s.logger.Info("server stopped")
 
@@ -419,6 +420,17 @@ func (s *Server) Run(ctx context.Context) error {
 				quicConn, err := quicListener.Accept(ctx)
 				if err != nil {
 					return fmt.Errorf("quic accept: %w", err)
+				}
+				if s.cfg.Obfuscation {
+					s.logger.Debug("quic obfuscation enabled, wrapping connection")
+					obfConn, obfErr := quictp.NewObfuscatedQUICConn(quicConn, false)
+					if obfErr != nil {
+						s.logger.Error("quic obfuscation init failed, closing connection", zap.Error(obfErr))
+						_ = quicConn.Close()
+						continue
+					}
+					go s.handleStream(ctx, obfConn, s.cfg.MTU, quicListener.Addr())
+					continue
 				}
 				go s.handleStream(ctx, quicConn, s.cfg.MTU, quicListener.Addr())
 			}

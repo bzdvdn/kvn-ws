@@ -6,6 +6,7 @@ interface ClientConfig {
   server?: string;
   auth?: { token?: string };
   transport?: string;
+  obfuscation?: boolean;
   mode?: string;
   mtu?: number;
   ipv6?: boolean;
@@ -208,6 +209,7 @@ function App() {
             <Checkbox checked={config.auto_reconnect ?? true} onChange={(v) => update("auto_reconnect", v)} label="Auto Reconnect" />
             <Checkbox checked={config.compression ?? false} onChange={(v) => update("compression", v)} label="Compression" />
             <Checkbox checked={config.multiplex ?? false} onChange={(v) => update("multiplex", v)} label="Multiplex" />
+            <Checkbox checked={config.obfuscation ?? false} onChange={(v) => update("obfuscation", v)} label="QUIC Obfuscation (anti-DPI)" />
           </Section>
 
           <Section title="Routing">

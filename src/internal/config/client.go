@@ -14,9 +14,11 @@ import (
 // @sk-task local-proxy-mode#T1.1: add Mode, ProxyListen, ProxyAuth fields (AC-003, AC-004)
 // @sk-task app-crypto#T3: add Crypto config (AC-006)
 // @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
+// @sk-task quic-obfuscation#T2.1: add Obfuscation field (AC-001)
 type ClientConfig struct {
 	Server        string         `json:"server" mapstructure:"server"`
 	Transport     string         `json:"transport" mapstructure:"transport"`
+	Obfuscation   bool           `json:"obfuscation" mapstructure:"obfuscation"`
 	Auth          AuthCfg        `json:"auth" mapstructure:"auth"`
 	TLS           ClientTLSCfg   `json:"tls" mapstructure:"tls"`
 	MTU           int            `json:"mtu" mapstructure:"mtu"`
@@ -130,10 +132,29 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 }
 
 // @sk-task kvn-web#T1.1: SaveClientConfig writes config to YAML (AC-005)
+// @sk-task quic-obfuscation#T3.3: normalize routing defaults on save (AC-001)
 func SaveClientConfig(path string, cfg *ClientConfig) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
+	}
+
+	if cfg.Routing == nil {
+		cfg.Routing = &RoutingCfg{
+			DefaultRoute:  "server",
+			ExcludeRanges: DefaultExcludeRanges,
+		}
+	} else {
+		seen := make(map[string]bool, len(cfg.Routing.ExcludeRanges))
+		for _, r := range cfg.Routing.ExcludeRanges {
+			seen[r] = true
+		}
+		for _, d := range DefaultExcludeRanges {
+			if !seen[d] {
+				cfg.Routing.ExcludeRanges = append([]string{d}, cfg.Routing.ExcludeRanges...)
+				seen[d] = true
+			}
+		}
 	}
 
 	var m map[string]interface{}

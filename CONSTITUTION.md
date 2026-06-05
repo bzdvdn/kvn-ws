@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Создать производительный, безопасный и расширяемый VPN-туннель, использующий стандартный веб-трафик (HTTP/HTTPS + WebSocket) как транспортный слой для передачи IP/IPv4/IPv6 пакетов между клиентом и сервером через TUN-интерфейсы. Маскировка под обычный HTTPS/WebSocket-трафик для работы в сетях с ограничениями.
+Создать производительный, безопасный и расширяемый VPN-туннель, использующий стандартный веб-трафик (HTTP/HTTPS + WebSocket) и QUIC как транспортный слой для передачи IP/IPv4/IPv6 пакетов между клиентом и сервером через TUN-интерфейсы. Маскировка под обычный HTTPS/WebSocket-трафик или QUIC с обфускацией для работы в сетях с ограничениями.
 
 ## Ключевые принципы
 
@@ -61,8 +61,8 @@
 
 ## Ограничения
 
-- MVP: без GUI, без QUIC/HTTP3, без mobile-поддержки, без full mesh.
-- Только TCP 443 / TLS 1.3 / WebSocket Binary Frames.
+- MVP: без GUI, без HTTP3, без mobile-поддержки, без full mesh.
+- TCP 443 (TLS 1.3 + WebSocket Binary Frames) и/или UDP 443 (QUIC + TLS 1.3).
 - Минимальный external dependency footprint.
 - Один writer на сокет (горутин-безопасность).
 
@@ -70,6 +70,7 @@
 
 - **Язык:** Go 1.22+
 - **WebSocket:** `github.com/gorilla/websocket` или `nhooyr.io/websocket`
+- **QUIC:** `github.com/quic-go/quic-go` v0.50
 - **Конфигурация:** `spf13/viper`
 - **Логирование:** `uber-go/zap`
 - **Метрики:** `prometheus/client_golang`
@@ -80,7 +81,7 @@
 ## Основная архитектура
 
 ```
-[TUN Client] <-> [Client Core] <-> [TLS + WebSocket] <-> [Server Core] <-> [TUN/Router/NAT] <-> Internet/LAN
+[TUN Client] <-> [Client Core] <-> [TLS + WebSocket / QUIC + Obfuscation] <-> [Server Core] <-> [TUN/Router/NAT] <-> Internet/LAN
 ```
 
 Структура репозитория:

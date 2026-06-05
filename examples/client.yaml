@@ -1,6 +1,8 @@
 <!-- @sk-task docs-and-release#T1.3: standalone client example config (AC-005) -->
 <!-- @sk-task production-gap#T2.3: client example trusts mounted CA bundle (AC-003) -->
 server: wss://server:443/tunnel
+transport: quic
+obfuscation: true
 auth:
   token: your-token-here
 tls:

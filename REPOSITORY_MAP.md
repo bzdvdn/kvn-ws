@@ -14,6 +14,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/logger/` — structured JSON logging (zap)
 - `src/internal/tun/` — TUN device (WireGuard tun, ip-link)
 - `src/internal/transport/websocket/` — WS dial/accept, per-conn config
+- `src/internal/transport/quic/` — QUIC dial/listen, ObfuscatedQUICConn (8B nonce + XOR)
 - `src/internal/transport/tls/` — TLS config (mTLS, CA, verify mode)
 - `src/internal/transport/framing/` — binary frame protocol (encode/decode, buffer pool)
 - `src/internal/protocol/handshake/` — Client/Server Hello, MTU negotiation
@@ -40,6 +41,9 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `docker-compose.test.yml` — gate test compose
 - `scripts/build.sh` — native binary build to `bin/`
 - `scripts/test-gate.sh` — gate test script
+- `scripts/install-server.sh` — server install script (systemd, TLS, config gen)
+- `scripts/install-client.sh` — Linux client install script (binary + config + systemd)
+- `scripts/install-client.ps1` — Windows client install script (binary + config + scheduled task)
 - `scripts/install-web.sh` — Linux/macOS install script for kvn-web
 - `scripts/install-web.ps1` — Windows install script for kvn-web
 - `scripts/kvn-web.service` — systemd unit for kvn-web
@@ -55,7 +59,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `docs/ru/` — Russian documentation (full translation)
 
 ## Where To Edit
-- Core tunnel logic — `src/internal/tun/`, `src/internal/transport/*`, `src/internal/protocol/*`
+- Core tunnel logic — `src/internal/tun/`, `src/internal/transport/{websocket,quic,framing}/*`, `src/internal/protocol/*`
 - Routing/rules — `src/internal/routing/`, `src/internal/nat/`, `src/internal/dns/`
 - Session/auth — `src/internal/session/`, `src/internal/protocol/auth/`, `src/internal/logger/`
 - Config changes — `src/internal/config/`
