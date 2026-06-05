@@ -26,23 +26,27 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 		s.logger.Error("ws upgrade", zap.Error(err))
 		return
 	}
+	s.handleStream(r.Context(), wsConn, wsCfg.MTU, r.RemoteAddr)
+}
 
-	data, err := wsConn.ReadMessage()
+// @sk-task quic-transport#T3.1: shared stream handler for WS and QUIC (AC-001)
+func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu int, remoteAddr string) {
+	data, err := stream.ReadMessage()
 	if err != nil {
 		s.logger.Error("read client hello", zap.Error(err))
-		_ = wsConn.Close()
+		_ = stream.Close()
 		return
 	}
 	var frame framing.Frame
 	if err := frame.Decode(data); err != nil {
 		s.logger.Error("decode client hello frame", zap.Error(err))
-		_ = wsConn.Close()
+		_ = stream.Close()
 		return
 	}
 	clientHello, err := handshake.DecodeClientHello(&frame)
 	if err != nil {
 		s.logger.Error("decode client hello", zap.Error(err))
-		_ = wsConn.Close()
+		_ = stream.Close()
 		return
 	}
 
@@ -51,13 +55,13 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 		pkglog.Audit(s.logger, zapcore.WarnLevel, "auth failed",
 			zap.String("session_id", ""),
 			zap.String("reason", "invalid token"),
-			zap.String("remote_addr", r.RemoteAddr),
+			zap.String("remote_addr", remoteAddr),
 		)
 		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "authentication failed"})
 		authData, _ := authFrame.Encode()
-		_ = wsConn.WriteMessage(authData)
+		_ = stream.WriteMessage(authData)
 		framing.ReturnBuffer(authData)
-		_ = wsConn.Close()
+		_ = stream.Close()
 		return
 	}
 
@@ -67,22 +71,22 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 		copy(sidBuf[:], clientHello.Token)
 	}
 	sessionID := hex.EncodeToString(sidBuf[:])
-	sess, assignedIP, assignedIPv6, err := s.sm.Create(sessionID, tokenName, r.RemoteAddr, tokenCfg.MaxSessions, clientHello.IPv6)
+	sess, assignedIP, assignedIPv6, err := s.sm.Create(sessionID, tokenName, remoteAddr, tokenCfg.MaxSessions, clientHello.IPv6)
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "max sessions exceeded") {
 			pkglog.Audit(s.logger, zapcore.WarnLevel, "max sessions exceeded",
 				zap.String("token_name", tokenName),
-				zap.String("remote_addr", r.RemoteAddr),
+				zap.String("remote_addr", remoteAddr),
 			)
 		} else {
 			s.logger.Error("session create", zap.Error(err))
 		}
 		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: "authentication failed"})
 		authData, _ := authFrame.Encode()
-		_ = wsConn.WriteMessage(authData)
+		_ = stream.WriteMessage(authData)
 		framing.ReturnBuffer(authData)
-		_ = wsConn.Close()
+		_ = stream.Close()
 		return
 	}
 
@@ -92,12 +96,11 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 		cryptoSalt, err = crypto.GenerateSalt()
 		if err != nil {
 			s.logger.Error("generate crypto salt", zap.Error(err))
-			_ = wsConn.Close()
+			_ = stream.Close()
 			return
 		}
 	}
 
-	mtu := wsCfg.MTU
 	if mtu <= 0 {
 		mtu = handshake.DefaultMTU
 	}
@@ -111,19 +114,19 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 	})
 	if err != nil {
 		s.logger.Error("encode server hello", zap.Error(err))
-		_ = wsConn.Close()
+		_ = stream.Close()
 		return
 	}
 	helloData, err := serverHello.Encode()
 	if err != nil {
 		s.logger.Error("encode hello frame", zap.Error(err))
-		_ = wsConn.Close()
+		_ = stream.Close()
 		return
 	}
-	if err := wsConn.WriteMessage(helloData); err != nil {
+	if err := stream.WriteMessage(helloData); err != nil {
 		framing.ReturnBuffer(helloData)
 		s.logger.Error("send server hello", zap.Error(err))
-		_ = wsConn.Close()
+		_ = stream.Close()
 		return
 	}
 	framing.ReturnBuffer(helloData)
@@ -139,16 +142,16 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 		sessionCipher, err = crypto.NewSessionCipher(s.masterKey, cryptoSalt, sess.ID)
 		if err != nil {
 			s.logger.Error("session cipher init", zap.Error(err))
-			_ = wsConn.Close()
+			_ = stream.Close()
 			return
 		}
 	}
 
-	sessionCtx, sessionCancel := context.WithCancel(r.Context())
+	sessionCtx, sessionCancel := context.WithCancel(ctx)
 	s.sm.SetCancel(sess.ID, sessionCancel)
 	sessionStreams := proxy.NewSessionStreams()
 
-	tunSess := tunnel.NewSession(s.tunDev, wsConn, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams)
+	tunSess := tunnel.NewSession(s.tunDev, stream, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams)
 	if err := tunSess.Run(sessionCtx); err != nil {
 		s.logger.Info("session ended",
 			zap.String("session", sess.ID),
@@ -161,5 +164,5 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 
 	sessionStreams.CloseAll()
 	s.sm.Remove(sess.ID)
-	_ = wsConn.Close()
+	_ = stream.Close()
 }

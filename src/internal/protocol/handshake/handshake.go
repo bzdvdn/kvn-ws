@@ -22,16 +22,19 @@ const (
 
 // @sk-task core-tunnel-mvp#T3.1: handshake messages (AC-005)
 // @sk-task performance-and-polish#T3.1: add MTU field (AC-004)
+// @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
 type ClientHello struct {
 	ProtoVersion byte
 	IPv6         bool
 	Token        string
 	MTU          int
+	Transport    string // "tcp" or "quic"
 }
 
 // @sk-task ipv6-dual-stack#T2.1: add AssignedIPv6 to handshake (AC-004)
 // @sk-task performance-and-polish#T3.1: add MTU field (AC-004)
 // @sk-task app-crypto#T2: add CryptoSalt field (AC-006)
+// @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
 type ServerHello struct {
 	SessionID    string
 	AssignedIP   net.IP
@@ -39,6 +42,7 @@ type ServerHello struct {
 	MTU          int
 	CryptoSalt   []byte
 	GatewayIP    net.IP
+	Transport    string // "tcp" or "quic"
 }
 
 type AuthError struct {
@@ -46,11 +50,13 @@ type AuthError struct {
 }
 
 const (
-	CryptoTag  byte = 0x09
-	GatewayTag byte = 0x0A
+	CryptoTag    byte = 0x09
+	GatewayTag   byte = 0x0A
+	TransportTag byte = 0x0B
 )
 
 // @sk-task performance-and-polish#T3.1: encode MTU in ClientHello (AC-004)
+// @sk-task quic-transport#T1.2: encode Transport field (AC-001, AC-004)
 func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 	tokenBytes := []byte(hello.Token)
 	flags := byte(0)
@@ -62,13 +68,25 @@ func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 		flags |= FlagMTU
 		mtuSize = 2
 	}
-	payload := make([]byte, 2+2+len(tokenBytes)+mtuSize)
+	transportBytes := []byte(hello.Transport)
+	transportSize := 0
+	if len(transportBytes) > 0 {
+		transportSize = 2 + len(transportBytes)
+	}
+	payload := make([]byte, 2+2+len(tokenBytes)+mtuSize+transportSize)
 	payload[0] = hello.ProtoVersion
 	payload[1] = flags
 	binary.BigEndian.PutUint16(payload[2:4], uint16(len(tokenBytes))) // #nosec G115 — bounded by config
 	copy(payload[4:], tokenBytes)
+	pos := 4 + len(tokenBytes)
 	if mtuSize > 0 {
-		binary.BigEndian.PutUint16(payload[4+len(tokenBytes):], uint16(hello.MTU)) // #nosec G115 — bounded by config
+		binary.BigEndian.PutUint16(payload[pos:], uint16(hello.MTU)) // #nosec G115 — bounded by config
+		pos += 2
+	}
+	if transportSize > 0 {
+		payload[pos] = TransportTag
+		payload[pos+1] = byte(len(transportBytes))
+		copy(payload[pos+2:], transportBytes)
 	}
 	return &framing.Frame{
 		Type:    framing.FrameTypeHello,
@@ -78,6 +96,7 @@ func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 }
 
 // @sk-task performance-and-polish#T3.1: decode MTU from ClientHello (AC-004)
+// @sk-task quic-transport#T1.2: decode Transport field (AC-001, AC-004)
 func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 	if frame.Type != framing.FrameTypeHello {
 		return nil, fmt.Errorf("unexpected frame type %d", frame.Type)
@@ -96,11 +115,23 @@ func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 		return nil, fmt.Errorf("token length %d exceeds payload", tokenLen)
 	}
 	hello.Token = string(data[4 : 4+tokenLen])
+	pos := 4 + int(tokenLen)
 	if (data[1] & FlagMTU) != 0 {
-		mtuStart := 4 + int(tokenLen)
-		if len(data) >= mtuStart+2 {
-			hello.MTU = int(binary.BigEndian.Uint16(data[mtuStart:]))
+		if len(data) >= pos+2 {
+			hello.MTU = int(binary.BigEndian.Uint16(data[pos:]))
+			pos += 2
 		}
+	}
+	for pos+2 <= len(data) {
+		tag := data[pos]
+		length := int(data[pos+1])
+		if pos+2+length > len(data) {
+			break
+		}
+		if tag == TransportTag {
+			hello.Transport = string(data[pos+2 : pos+2+length])
+		}
+		pos += 2 + length
 	}
 	return hello, nil
 }
@@ -108,6 +139,7 @@ func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 // @sk-task ipv6-dual-stack#T2.1: length-prefixed ServerHello encoding (AC-004)
 // @sk-task performance-and-polish#T3.1: encode MTU in ServerHello (AC-004)
 // @sk-task app-crypto#T2: encode CryptoSalt (AC-006)
+// @sk-task quic-transport#T1.2: encode Transport field (AC-001, AC-004)
 func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 	sidBytes, err := hex.DecodeString(hello.SessionID)
 	if err != nil {
@@ -142,6 +174,12 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 	if hello.GatewayIP != nil {
 		gatewayLen = 2 + 4 // tag + length + 4 bytes IPv4
 		total += gatewayLen
+	}
+	transportBytes := []byte(hello.Transport)
+	transportLen := 0
+	if len(transportBytes) > 0 {
+		transportLen = 2 + len(transportBytes) // tag + length + value
+		total += transportLen
 	}
 	payload := make([]byte, total)
 	pos := 0
@@ -180,6 +218,11 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 			payload[pos+1] = 4
 			copy(payload[pos+2:], gw4)
 		}
+	}
+	if transportLen > 0 {
+		payload[pos] = TransportTag
+		payload[pos+1] = byte(len(transportBytes))
+		copy(payload[pos+2:], transportBytes)
 	}
 	return &framing.Frame{
 		Type:    framing.FrameTypeHello,
@@ -249,6 +292,8 @@ func DecodeServerHello(frame *framing.Frame) (*ServerHello, error) {
 			hello.CryptoSalt = salt
 		} else if tag == GatewayTag && length == 4 {
 			hello.GatewayIP = net.IP(data[pos : pos+4]).To4()
+		} else if tag == TransportTag {
+			hello.Transport = string(data[pos : pos+length])
 		}
 		pos += length
 	}

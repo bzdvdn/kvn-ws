@@ -29,9 +29,11 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/nat"
 	"github.com/bzdvdn/kvn-ws/src/internal/ratelimit"
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
+	"github.com/quic-go/quic-go"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -399,6 +401,28 @@ func (s *Server) Run(ctx context.Context) error {
 
 	if s.cfg.Admin.Enabled {
 		s.startAdminAPI(ctx, eg)
+	}
+
+	if s.cfg.Transport == "quic" {
+		quicCfg := &quic.Config{
+			KeepAlivePeriod: 15 * time.Second,
+		}
+		quicListener, err := quictp.Listen(s.cfg.Listen, s.tlsCfg, quicCfg)
+		if err != nil {
+			return fmt.Errorf("quic listen: %w", err)
+		}
+		defer func() { _ = quicListener.Close() }()
+
+		s.logger.Info("quic listening", zap.String("addr", quicListener.Addr()))
+		eg.Go(func() error {
+			for {
+				quicConn, err := quicListener.Accept(ctx)
+				if err != nil {
+					return fmt.Errorf("quic accept: %w", err)
+				}
+				go s.handleStream(ctx, quicConn, s.cfg.MTU, quicListener.Addr())
+			}
+		})
 	}
 
 	return eg.Wait()

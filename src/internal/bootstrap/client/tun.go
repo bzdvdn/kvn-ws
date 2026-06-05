@@ -15,6 +15,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
@@ -54,31 +55,50 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 		attempt++
 		c.logger.Info("connecting", zap.Int("attempt", attempt), zap.Duration("backoff", backoff))
 
-		wsCfg := websocket.WSConfig{
-			Compression: c.cfg.Compression,
-			Multiplex:   c.cfg.Multiplex,
-			MTU:         c.cfg.MTU,
-		}
-		wsConn, err := websocket.Dial(c.cfg.Server, tlsCfg, c.logger, wsCfg)
-		if err != nil {
-			c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
-			applyKillSwitch(c.cfg, c.logger)
-			sleepWithContext(ctx, backoff)
-			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
-			continue
+		var stream tunnel.StreamConn
+		transport := c.cfg.Transport
+		if transport == "" {
+			transport = "tcp"
 		}
 
-		wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
+		if transport == "quic" {
+			c.logger.Info("dialing with QUIC transport")
+			quicConn, err := quictp.Dial(c.cfg.Server, tlsCfg, nil)
+			if err != nil {
+				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
+				transport = "tcp"
+			} else {
+				stream = quicConn
+			}
+		}
+
+		if transport != "quic" {
+			wsCfg := websocket.WSConfig{
+				Compression: c.cfg.Compression,
+				Multiplex:   c.cfg.Multiplex,
+				MTU:         c.cfg.MTU,
+			}
+			wsConn, err := websocket.Dial(c.cfg.Server, tlsCfg, c.logger, wsCfg)
+			if err != nil {
+				c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
+				applyKillSwitch(c.cfg, c.logger)
+				sleepWithContext(ctx, backoff)
+				backoff = nextBackoff(backoff, minBackoff, maxBackoff)
+				continue
+			}
+			wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
+			stream = wsConn
+		}
 
 		removeKillSwitch(c.cfg, c.logger)
 		backoff = minBackoff
 
-		c.runSession(ctx, tunDev, wsConn)
+		c.runSession(ctx, tunDev, stream)
 	}
 }
 
-func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *websocket.WSConn) {
-	defer func() { _ = wsConn.Close() }()
+func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tunnel.StreamConn) {
+	defer func() { _ = stream.Close() }()
 
 	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,
@@ -95,14 +115,14 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *w
 		c.logger.Error("encode hello frame", zap.Error(err))
 		return
 	}
-	if err := wsConn.WriteMessage(helloData); err != nil {
+	if err := stream.WriteMessage(helloData); err != nil {
 		framing.ReturnBuffer(helloData)
 		c.logger.Error("send hello", zap.Error(err))
 		return
 	}
 	framing.ReturnBuffer(helloData)
 
-	respData, err := wsConn.ReadMessage()
+	respData, err := stream.ReadMessage()
 	if err != nil {
 		c.logger.Error("read server hello", zap.Error(err))
 		return
@@ -260,10 +280,10 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *w
 					return encErr
 				}
 				defer framing.ReturnBuffer(data)
-				if err := wsConn.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
+				if err := stream.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
 					return err
 				}
-				return wsConn.WriteMessage(data)
+				return stream.WriteMessage(data)
 			}
 			tunWrite := func(pkt []byte) (int, error) { return tunDev.Write(pkt) }
 			tunRouter = routing.NewTunRouter(rs, tunDev.Read, tunWrite, tunnelSend, c.logger)
@@ -275,7 +295,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, wsConn *w
 		}
 	}
 
-	tunSess := tunnel.NewSession(tunDev, wsConn, nil, sessionID, "", nil, nil, nil, c.logger, sessionCipher, nil)
+	tunSess := tunnel.NewSession(tunDev, stream, nil, sessionID, "", nil, nil, nil, c.logger, sessionCipher, nil)
 	if tunRouter != nil {
 		tunSess.SetTunRouter(tunRouter)
 	}

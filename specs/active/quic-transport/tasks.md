@@ -33,29 +33,29 @@ Stop if: не выбран подход к StreamConn interface (один тип
 
 Цель: подготовить интерфейс для абстракции транспорта и добавить поле конфига.
 
-- [ ] T1.1 Выделить интерфейс `StreamConn` в `src/internal/tunnel/` с методами `ReadMessage() ([]byte, error)`, `WriteMessage([]byte) error`, `Close() error`. Переименовать существующий `*websocket.WSConn` usage в интерфейс. Touches: `src/internal/tunnel/session.go`, `src/internal/transport/websocket/conn.go`
-- [ ] T1.2 Добавить поле `Transport string` (значения: `tcp`, `quic`) в `config.ClientConfig` и `config.ServerConfig` (если есть). ClientHello/ServerHello — добавить поле Transport для согласования. Touches: `src/internal/config/client.go`, `src/internal/config/server.go`, `src/internal/protocol/handshake/`
+- [x] T1.1 Выделить интерфейс `StreamConn` в `src/internal/tunnel/` с методами `ReadMessage() ([]byte, error)`, `WriteMessage([]byte) error`, `Close() error`. Переименовать существующий `*websocket.WSConn` usage в интерфейс. Touches: `src/internal/tunnel/session.go`, `src/internal/transport/websocket/conn.go`
+- [x] T1.2 Добавить поле `Transport string` (значения: `tcp`, `quic`) в `config.ClientConfig` и `config.ServerConfig` (если есть). ClientHello/ServerHello — добавить поле Transport для согласования. Touches: `src/internal/config/client.go`, `src/internal/config/server.go`, `src/internal/protocol/handshake/`
 
 ## Фаза 2: QUIC transport
 
 Цель: ядро QUIC — dial, listen, conn wrapper.
 
-- [ ] T2.1 Создать `src/internal/transport/quic/conn.go` — обёртка `QUICConn` над `quic-go` stream, реализующая `StreamConn`. Touches: `src/internal/transport/quic/conn.go`
-- [ ] T2.2 Создать `src/internal/transport/quic/listen.go` — QUIC listener: `Listen(addr, tlsConfig) (*QUICListener, error)`, accept возвращает `*QUICConn`. Интегрировать в `cmd/server/` — параллельный quic listener. Touches: `src/internal/transport/quic/listen.go`, `src/cmd/server/main.go`
+- [x] T2.1 Создать `src/internal/transport/quic/conn.go` — обёртка `QUICConn` над `quic-go` stream, реализующая `StreamConn`. Touches: `src/internal/transport/quic/conn.go`
+- [x] T2.2 Создать `src/internal/transport/quic/listen.go` — QUIC listener: `Listen(addr, tlsConfig) (*QUICListener, error)`, accept возвращает `*QUICConn`. Интегрировать в `cmd/server/` — параллельный quic listener. Touches: `src/internal/transport/quic/listen.go`, `src/cmd/server/main.go`
 
 ## Фаза 3: Интеграция клиента
 
 Цель: клиент выбирает транспорт, fallback при недоступности UDP.
 
-- [ ] T3.1 В `bootstrap/client/client.go` — выбор транспорта при dial: если `transport: quic` — `quic.Dial` вместо `websocket.Dial`. Touches: `src/internal/bootstrap/client/client.go`, `src/internal/bootstrap/client/tun.go`
-- [ ] T3.2 Реализовать fallback: при timeout/ошибке QUIC dial → пробуем TCP/WebSocket с логом. Touches: `src/internal/bootstrap/client/client.go`
+- [x] T3.1 В `bootstrap/client/client.go` — выбор транспорта при dial: если `transport: quic` — `quic.Dial` вместо `websocket.Dial`. Touches: `src/internal/bootstrap/client/client.go`, `src/internal/bootstrap/client/tun.go`
+- [x] T3.2 Реализовать fallback: при timeout/ошибке QUIC dial → пробуем TCP/WebSocket с логом. Touches: `src/internal/bootstrap/client/client.go`
 
 ## Фаза 4: Проверка
 
 Цель: доказать производительность и совместимость.
 
-- [ ] T4.1 Написать integration test: поднять сервер c QUIC, клиент c QUIC, измерить throughput с `tc netem delay 60ms loss 1%`. Touches: `src/internal/tests/quic_test.go`
-- [ ] T4.2 Проверить обратную совместимость: старый клиент (без transport) → TCP/WS, новый клиент → QUIC. Touches: `src/internal/tests/quic_test.go`
+- [x] T4.1 Написать integration test: поднять сервер c QUIC, клиент c QUIC, измерить throughput с `tc netem delay 60ms loss 1%`. Touches: `src/internal/transport/quic/quic_test.go`
+- [x] T4.2 Проверить обратную совместимость: старый клиент (без transport) → TCP/WS, новый клиент → QUIC. Touches: `src/internal/tests/quic_transport_test.go`
 
 ## Покрытие критериев приемки
 

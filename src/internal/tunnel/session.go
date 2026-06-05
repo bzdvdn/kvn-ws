@@ -20,18 +20,17 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
 const wsTunnelTimeout = 30 * time.Second
 const defaultProxyConcurrency = 1000
 
-// Session encapsulates bidirectional forwarding between a WebSocket
-// connection and a TUN device.
+// Session encapsulates bidirectional forwarding between a transport
+// stream (WebSocket or QUIC) and a TUN device.
 type Session struct {
 	tunDev         tun.TunDevice
-	wsConn         *websocket.WSConn
+	stream         StreamConn
 	sm             *session.SessionManager
 	sessionID      string
 	tokenName      string
@@ -48,7 +47,7 @@ type Session struct {
 
 func NewSession(
 	tunDev tun.TunDevice,
-	wsConn *websocket.WSConn,
+	stream StreamConn,
 	sm *session.SessionManager,
 	sessionID string,
 	tokenName string,
@@ -61,7 +60,7 @@ func NewSession(
 ) *Session {
 	return &Session{
 		tunDev:       tunDev,
-		wsConn:       wsConn,
+		stream:       stream,
 		sm:           sm,
 		sessionID:    sessionID,
 		tokenName:    tokenName,
@@ -133,10 +132,10 @@ func (s *Session) wsToTun(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := s.wsConn.SetReadDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
+		if err := s.stream.SetReadDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
 			return err
 		}
-		data, err := s.wsConn.ReadMessage()
+		data, err := s.stream.ReadMessage()
 		if err != nil {
 			return err
 		}
@@ -212,7 +211,7 @@ func (s *Session) wsToTun(ctx context.Context) error {
 					continue
 				}
 
-				go func(sid uint32, tcp net.Conn, ws *websocket.WSConn, streams *proxy.SessionStreams, parentCtx context.Context) {
+				go func(sid uint32, tcp net.Conn, stream StreamConn, streams *proxy.SessionStreams, parentCtx context.Context) {
 					defer func() {
 						<-s.proxySem
 						_ = tcp.Close()
@@ -248,13 +247,13 @@ func (s *Session) wsToTun(ctx context.Context) error {
 						if err != nil {
 							return
 						}
-						if err := ws.WriteMessage(encoded); err != nil {
+						if err := stream.WriteMessage(encoded); err != nil {
 							framing.ReturnBuffer(encoded)
 							return
 						}
 						framing.ReturnBuffer(encoded)
 					}
-				}(streamID, tcpConn, s.wsConn, s.proxyStreams, ctx)
+				}(streamID, tcpConn, s.stream, s.proxyStreams, ctx)
 			}
 		default:
 			f.Release()
@@ -316,11 +315,11 @@ func (s *Session) tunToWS(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := s.wsConn.SetWriteDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
+		if err := s.stream.SetWriteDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
 			framing.ReturnBuffer(data)
 			return err
 		}
-		if err := s.wsConn.WriteMessage(data); err != nil {
+		if err := s.stream.WriteMessage(data); err != nil {
 			framing.ReturnBuffer(data)
 			return err
 		}

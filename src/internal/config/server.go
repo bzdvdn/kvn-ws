@@ -12,8 +12,10 @@ import (
 // @sk-task security-acl#T1: TokenCfg structured config
 // @sk-task performance-and-polish#T1.1: add Compression, Multiplex, MTU fields (AC-004, AC-006, AC-007)
 // @sk-task app-crypto#T3: add Crypto config (AC-006)
+// @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
 type ServerConfig struct {
 	Listen       string       `mapstructure:"listen"`
+	Transport    string       `mapstructure:"transport"`
 	TLS          TLSCfg       `mapstructure:"tls"`
 	Network      NetworkCfg   `mapstructure:"network"`
 	Session      SessionCfg   `mapstructure:"session"`

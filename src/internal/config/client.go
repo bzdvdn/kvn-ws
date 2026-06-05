@@ -13,8 +13,10 @@ import (
 // @sk-task performance-and-polish#T1.1: add Compression, Multiplex fields (AC-006, AC-007)
 // @sk-task local-proxy-mode#T1.1: add Mode, ProxyListen, ProxyAuth fields (AC-003, AC-004)
 // @sk-task app-crypto#T3: add Crypto config (AC-006)
+// @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
 type ClientConfig struct {
 	Server        string         `json:"server" mapstructure:"server"`
+	Transport     string         `json:"transport" mapstructure:"transport"`
 	Auth          AuthCfg        `json:"auth" mapstructure:"auth"`
 	TLS           ClientTLSCfg   `json:"tls" mapstructure:"tls"`
 	MTU           int            `json:"mtu" mapstructure:"mtu"`
