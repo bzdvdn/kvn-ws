@@ -22,6 +22,37 @@ type Client struct {
 	tunDev     tun.TunDevice
 }
 
+func (c *Client) SetLogger(l *zap.Logger) {
+	c.logger = l
+}
+
+// @sk-task kvn-web#T2.2: NewFromConfig creates Client from existing config (AC-003)
+func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
+	logger, _, err := logger.New(cfg.Log.Level) //nolint:forbidigo
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info("starting client", zap.String("server", cfg.Server))
+
+	var masterKey []byte
+	if cfg.Crypto.Enabled {
+		masterKey, err = crypto.ParseMasterKey(cfg.Crypto.Key)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("app-layer encryption enabled")
+	} else {
+		logger.Info("app-layer encryption disabled")
+	}
+
+	return &Client{
+		cfg:       cfg,
+		logger:    logger,
+		masterKey: masterKey,
+	}, nil
+}
+
 func New() (*Client, error) {
 	cfgPath := pflag.String("config", "configs/client.yaml", "path to config file")
 	pflag.Parse()

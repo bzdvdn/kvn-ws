@@ -15,7 +15,7 @@ import (
 var envPrefixForWarning string
 
 type LogConfig struct {
-	Level string `mapstructure:"level"`
+	Level string `json:"level" mapstructure:"level"`
 }
 
 // @sk-task production-hardening#T1.1: atomic config wrapper (AC-009)

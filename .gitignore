@@ -33,6 +33,12 @@ coverage/
 tmp/
 .opencode
 
+# Node.js / React
+node_modules/
+src/internal/webui/frontend/dist/
+.env
+.env.local
+
 # >>> speckeep: skills checkouts >>>
 .speckeep/skills/checkouts/
 # <<< speckeep: skills checkouts <<<

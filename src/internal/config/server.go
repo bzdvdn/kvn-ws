@@ -31,8 +31,8 @@ type ServerConfig struct {
 }
 
 type CryptoCfg struct {
-	Enabled bool   `mapstructure:"enabled"`
-	Key     string `mapstructure:"key"`
+	Enabled bool   `json:"enabled" mapstructure:"enabled"`
+	Key     string `json:"key" mapstructure:"key"`
 }
 
 // @sk-task security-acl#T1: TLSCfg extended with mTLS fields

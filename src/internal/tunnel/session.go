@@ -4,6 +4,7 @@ package tunnel
 import (
 	"context"
 	"encoding/binary"
+	"math"
 	"net"
 	"time"
 
@@ -229,6 +230,9 @@ func (s *Session) wsToTun(ctx context.Context) error {
 						}
 						n, err := tcp.Read(buf)
 						if err != nil {
+							return
+						}
+						if len(dst) > math.MaxUint16 {
 							return
 						}
 						frame := framing.Frame{

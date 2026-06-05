@@ -1,66 +1,73 @@
 package config
 
-import "log"
+import (
+	"log"
+	"os"
+	"path/filepath"
+
+	"github.com/go-viper/mapstructure/v2"
+	"go.yaml.in/yaml/v3"
+)
 
 // @sk-task foundation#T2.3: client config struct (AC-006)
 // @sk-task performance-and-polish#T1.1: add Compression, Multiplex fields (AC-006, AC-007)
 // @sk-task local-proxy-mode#T1.1: add Mode, ProxyListen, ProxyAuth fields (AC-003, AC-004)
 // @sk-task app-crypto#T3: add Crypto config (AC-006)
 type ClientConfig struct {
-	Server        string         `mapstructure:"server"`
-	Auth          AuthCfg        `mapstructure:"auth"`
-	TLS           ClientTLSCfg   `mapstructure:"tls"`
-	MTU           int            `mapstructure:"mtu"`
-	IPv6          bool           `mapstructure:"ipv6"`
-	AutoReconnect bool           `mapstructure:"auto_reconnect"`
-	Log           LogConfig      `mapstructure:"log"`
-	Routing       *RoutingCfg    `mapstructure:"routing"`
-	KillSwitch    *KillSwitchCfg `mapstructure:"kill_switch"`
-	Reconnect     *ReconnectCfg  `mapstructure:"reconnect"`
-	Compression   bool           `mapstructure:"compression"`
-	Multiplex     bool           `mapstructure:"multiplex"`
-	Mode          string         `mapstructure:"mode"`
-	ProxyListen   string         `mapstructure:"proxy_listen"`
-	ProxyAuth     *ProxyAuthCfg  `mapstructure:"proxy_auth"`
-	Crypto        CryptoCfg      `mapstructure:"crypto"`
+	Server        string         `json:"server" mapstructure:"server"`
+	Auth          AuthCfg        `json:"auth" mapstructure:"auth"`
+	TLS           ClientTLSCfg   `json:"tls" mapstructure:"tls"`
+	MTU           int            `json:"mtu" mapstructure:"mtu"`
+	IPv6          bool           `json:"ipv6" mapstructure:"ipv6"`
+	AutoReconnect *bool          `json:"auto_reconnect" mapstructure:"auto_reconnect"`
+	Log           LogConfig      `json:"log" mapstructure:"log"`
+	Routing       *RoutingCfg    `json:"routing" mapstructure:"routing"`
+	KillSwitch    *KillSwitchCfg `json:"kill_switch" mapstructure:"kill_switch"`
+	Reconnect     *ReconnectCfg  `json:"reconnect" mapstructure:"reconnect"`
+	Compression   bool           `json:"compression" mapstructure:"compression"`
+	Multiplex     bool           `json:"multiplex" mapstructure:"multiplex"`
+	Mode          string         `json:"mode" mapstructure:"mode"`
+	ProxyListen   string         `json:"proxy_listen" mapstructure:"proxy_listen"`
+	ProxyAuth     *ProxyAuthCfg  `json:"proxy_auth" mapstructure:"proxy_auth"`
+	Crypto        CryptoCfg      `json:"crypto" mapstructure:"crypto"`
 }
 
 // @sk-task production-gap#T1.1: explicit client TLS trust surface (AC-001)
 type ClientTLSCfg struct {
-	CAFile     string `mapstructure:"ca_file"`
-	ServerName string `mapstructure:"server_name"`
-	VerifyMode string `mapstructure:"verify_mode"`
+	CAFile     string `json:"ca_file" mapstructure:"ca_file"`
+	ServerName string `json:"server_name" mapstructure:"server_name"`
+	VerifyMode string `json:"verify_mode" mapstructure:"verify_mode"`
 }
 
 type ProxyAuthCfg struct {
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	Username string `json:"username" mapstructure:"username"`
+	Password string `json:"password" mapstructure:"password"`
 }
 
 // @sk-task routing-split-tunnel#T1.1: routing config struct (AC-009)
 type RoutingCfg struct {
-	DefaultRoute   string   `mapstructure:"default_route"`
-	IncludeRanges  []string `mapstructure:"include_ranges"`
-	ExcludeRanges  []string `mapstructure:"exclude_ranges"`
-	IncludeIPs     []string `mapstructure:"include_ips"`
-	ExcludeIPs     []string `mapstructure:"exclude_ips"`
-	IncludeDomains []string `mapstructure:"include_domains"`
-	ExcludeDomains []string `mapstructure:"exclude_domains"`
+	DefaultRoute   string   `json:"default_route" mapstructure:"default_route"`
+	IncludeRanges  []string `json:"include_ranges" mapstructure:"include_ranges"`
+	ExcludeRanges  []string `json:"exclude_ranges" mapstructure:"exclude_ranges"`
+	IncludeIPs     []string `json:"include_ips" mapstructure:"include_ips"`
+	ExcludeIPs     []string `json:"exclude_ips" mapstructure:"exclude_ips"`
+	IncludeDomains []string `json:"include_domains" mapstructure:"include_domains"`
+	ExcludeDomains []string `json:"exclude_domains" mapstructure:"exclude_domains"`
 }
 
 // @sk-task production-hardening#T1.1: kill switch config (AC-003)
 type KillSwitchCfg struct {
-	Enabled bool `mapstructure:"enabled"`
+	Enabled bool `json:"enabled" mapstructure:"enabled"`
 }
 
 // @sk-task production-hardening#T1.1: reconnect config (AC-001)
 type ReconnectCfg struct {
-	MinBackoffSec int `mapstructure:"min_backoff_sec"`
-	MaxBackoffSec int `mapstructure:"max_backoff_sec"`
+	MinBackoffSec int `json:"min_backoff_sec" mapstructure:"min_backoff_sec"`
+	MaxBackoffSec int `json:"max_backoff_sec" mapstructure:"max_backoff_sec"`
 }
 
 type AuthCfg struct {
-	Token string `mapstructure:"token"`
+	Token string `json:"token" mapstructure:"token"`
 }
 
 // @sk-task routing-split-tunnel#T2.1: load config with routing defaults (AC-009)
@@ -70,6 +77,19 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	if err := load(path, "KVN_CLIENT", cfg); err != nil {
 		return nil, err
 	}
+	if cfg.MTU == 0 {
+		cfg.MTU = 1400
+	}
+	if cfg.ProxyListen == "" {
+		cfg.ProxyListen = "127.0.0.1:2310"
+	}
+	if cfg.AutoReconnect == nil {
+		v := true
+		cfg.AutoReconnect = &v
+	}
+	if cfg.Mode == "" {
+		cfg.Mode = "proxy"
+	}
 	// @sk-task production-gap#T1.1: default to trusted client verification (AC-001)
 	if cfg.TLS.VerifyMode == "" {
 		cfg.TLS.VerifyMode = "verify"
@@ -77,13 +97,13 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	if cfg.Routing == nil {
 		cfg.Routing = &RoutingCfg{
 			DefaultRoute:  "server",
-			ExcludeRanges: defaultExcludeRanges,
+			ExcludeRanges: DefaultExcludeRanges,
 		}
 	} else if cfg.Routing.DefaultRoute == "" {
 		cfg.Routing.DefaultRoute = "server"
 	}
-	merged := make([]string, len(defaultExcludeRanges))
-	copy(merged, defaultExcludeRanges)
+	merged := make([]string, len(DefaultExcludeRanges))
+	copy(merged, DefaultExcludeRanges)
 	cfg.Routing.ExcludeRanges = append(merged, cfg.Routing.ExcludeRanges...)
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		cfg.Crypto.Enabled = false
@@ -100,7 +120,26 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	return cfg, nil
 }
 
-var defaultExcludeRanges = []string{
+// @sk-task kvn-web#T1.1: SaveClientConfig writes config to YAML (AC-005)
+func SaveClientConfig(path string, cfg *ClientConfig) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
+	var m map[string]interface{}
+	if err := mapstructure.Decode(cfg, &m); err != nil {
+		return err
+	}
+
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+var DefaultExcludeRanges = []string{
 	"127.0.0.0/8",
 	"::1/128",
 	"224.0.0.0/4",

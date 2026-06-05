@@ -1,0 +1,87 @@
+// @sk-task kvn-web#T1.2: webui server package (AC-001, AC-002)
+package webui
+
+import (
+	"context"
+	"embed"
+	"fmt"
+	"io/fs"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+//go:embed all:frontend/dist
+var reactDist embed.FS
+
+type Server struct {
+	httpServer *http.Server
+	state      *AppState
+	configDir  string
+	baseCtx    context.Context
+}
+
+func New(port int) (*Server, error) {
+	userCfgDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	configDir := filepath.Join(userCfgDir, "kvn")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return nil, err
+	}
+
+	state := NewAppState()
+	bgCtx := context.Background()
+	go state.broadcastLogs(bgCtx)
+	go state.broadcastStatus(bgCtx)
+
+	s := &Server{
+		state:     state,
+		configDir: configDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/config", s.handleGetConfig)
+	mux.HandleFunc("POST /api/config", s.handleSaveConfig)
+	mux.HandleFunc("POST /api/connect", s.handleConnect)
+	mux.HandleFunc("POST /api/disconnect", s.handleDisconnect)
+	mux.HandleFunc("GET /api/logs", s.handleLogs)
+
+	subFS, err := fs.Sub(reactDist, "frontend/dist")
+	if err != nil {
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte("<html><body><h1>KVN Web UI</h1><p>React build not found. Run npm build in frontend/ first.</p></body></html>"))
+		})
+	} else {
+		fileServer := http.FileServer(http.FS(subFS))
+		mux.Handle("GET /", fileServer)
+	}
+
+	s.httpServer = &http.Server{
+		Addr:    net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)),
+		Handler: mux,
+	}
+
+	return s, nil
+}
+
+func (s *Server) Serve(ctx context.Context) error {
+	s.baseCtx = ctx
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.httpServer.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		return s.httpServer.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		return err
+	}
+}
