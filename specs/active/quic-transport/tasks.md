@@ -2,8 +2,8 @@
 
 ## Phase Contract
 
-Inputs: plan `quic-transport.plan.md`.
-Outputs: упорядоченные задачи с покрытием AC-001–AC-004.
+Inputs: plan `specs/active/quic-transport/plan.md`.
+Outputs: упорядоченные задачи с покрытием AC-001–AC-004, DEC-001–DEC-003.
 Stop if: не выбран подход к StreamConn interface (один тип vs generic).
 
 ## Surface Map
@@ -63,6 +63,12 @@ Stop if: не выбран подход к StreamConn interface (один тип
 - AC-002 -> T3.2, T4.1
 - AC-003 -> T4.1
 - AC-004 -> T4.2
+
+## Покрытие решений
+
+- DEC-001 (один stream) -> T2.1, T3.1
+- DEC-002 (StreamConn interface) -> T1.1
+- DEC-003 (fallback) -> T3.2
 
 ## Заметки
 
