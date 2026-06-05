@@ -1,0 +1,473 @@
+package server
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/acl"
+	"github.com/bzdvdn/kvn-ws/src/internal/admin"
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
+	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
+	"github.com/bzdvdn/kvn-ws/src/internal/metrics"
+	"github.com/bzdvdn/kvn-ws/src/internal/nat"
+	"github.com/bzdvdn/kvn-ws/src/internal/ratelimit"
+	"github.com/bzdvdn/kvn-ws/src/internal/session"
+	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
+	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
+	"github.com/bzdvdn/kvn-ws/src/internal/tun"
+)
+
+const shutdownTimeout = 5 * time.Second
+
+type Server struct {
+	cfg        *config.ServerConfig
+	cfgPath    string
+	cfgPtr     *config.AtomicConfig[config.ServerConfig]
+	logger     *zap.Logger
+	lvl        zap.AtomicLevel
+
+	cidrMatcher   *acl.CIDRMatcher
+	gatewayIP     net.IP
+	pool          *session.IPPool
+	pool6         *session.IPPool
+	bolt          *session.BoltStore
+	bolt6         *session.BoltStore
+	sm            *session.SessionManager
+	collectors    *metrics.Collectors
+	tunDev        tun.TunDevice
+	natMgr        *nat.NFTManager
+	tlsCfg        *tls.Config
+	originChecker func(*http.Request) bool
+	bwMgr         *session.TokenBandwidthManager
+	masterKey     []byte
+	rl            *ratelimit.IPRateLimiter
+	prl           *ratelimit.SessionPacketLimiter
+	mux           *http.ServeMux
+	httpServer    *http.Server
+	startTime     time.Time
+	shutdownTO    time.Duration
+}
+
+func New(configPath string) (*Server, error) {
+	cfg, err := config.LoadServerConfig(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+
+	logger, lvl, err := pkglog.New(cfg.Logging.Level)
+	if err != nil {
+		return nil, fmt.Errorf("logger: %w", err)
+	}
+
+	logger.Info("starting server", zap.String("listen", cfg.Listen))
+
+	cidrMatcher, err := acl.NewCIDRMatcher(cfg.ACL.AllowCIDRs, cfg.ACL.DenyCIDRs)
+	if err != nil {
+		return nil, fmt.Errorf("cidr matcher: %w", err)
+	}
+	if len(cfg.ACL.DenyCIDRs) > 0 {
+		logger.Info("cidr deny list", zap.Strings("cidrs", cfg.ACL.DenyCIDRs))
+	}
+	if len(cfg.ACL.AllowCIDRs) > 0 {
+		logger.Info("cidr allow list", zap.Strings("cidrs", cfg.ACL.AllowCIDRs))
+	}
+
+	pool, err := session.NewIPPool(session.PoolCfg{
+		Subnet:     cfg.Network.PoolIPv4.Subnet,
+		Gateway:    cfg.Network.PoolIPv4.Gateway,
+		RangeStart: cfg.Network.PoolIPv4.RangeStart,
+		RangeEnd:   cfg.Network.PoolIPv4.RangeEnd,
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create ip pool: %w", err)
+	}
+
+	var pool6 *session.IPPool
+	var bolt, bolt6 *session.BoltStore
+	if cfg.BoltDBPath != "" {
+		bolt, err = session.NewBoltStore(cfg.BoltDBPath, logger)
+		if err != nil {
+			logger.Warn("bolt db init, using in-memory pool", zap.Error(err))
+		} else {
+			pool.SetBoltStore(bolt)
+			if err := pool.LoadFromBolt(); err != nil {
+				logger.Warn("bolt db load", zap.Error(err))
+			}
+			logger.Info("ip pool loaded from bolt", zap.String("path", cfg.BoltDBPath))
+		}
+	}
+
+	sm := session.NewSessionManager(pool, logger)
+
+	if cfg.Network.PoolIPv6.Subnet != "" {
+		pool6, err = session.NewIPPool6(session.PoolCfg{
+			Subnet:  cfg.Network.PoolIPv6.Subnet,
+			Gateway: cfg.Network.PoolIPv6.Gateway,
+		}, logger)
+		if err != nil {
+			logger.Warn("create ipv6 pool, running ipv4-only", zap.Error(err))
+		} else {
+			if cfg.BoltDBPath != "" {
+				bolt6, err = session.NewBoltStore6(cfg.BoltDBPath, logger)
+				if err != nil {
+					logger.Warn("bolt db6 init", zap.Error(err))
+				} else {
+					pool6.SetBoltStore(bolt6)
+					if err := pool6.LoadFromBolt(); err != nil {
+						logger.Warn("bolt db6 load", zap.Error(err))
+					}
+				}
+			}
+			sm.SetPool6(pool6)
+			logger.Info("ipv6 pool initialized", zap.String("subnet", cfg.Network.PoolIPv6.Subnet))
+		}
+	} else {
+		logger.Info("no ipv6 pool configured, running ipv4-only")
+	}
+
+	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSec) * time.Second
+	if idleTimeout <= 0 {
+		idleTimeout = 300 * time.Second
+	}
+	sessionTTL := 24 * time.Hour
+	reclaimInterval := 10 * time.Second
+	if cfg.Session.Expiry != nil {
+		if cfg.Session.Expiry.SessionTTLSec > 0 {
+			sessionTTL = time.Duration(cfg.Session.Expiry.SessionTTLSec) * time.Second
+		}
+		if cfg.Session.Expiry.ReclaimInterval > 0 {
+			reclaimInterval = time.Duration(cfg.Session.Expiry.ReclaimInterval) * time.Second
+		}
+	}
+	sm.Start(idleTimeout, sessionTTL, reclaimInterval)
+
+	collectors := metrics.NewCollectors()
+
+	tunDev := tun.NewTunDevice()
+	if err := tunDev.Open(); err != nil {
+		return nil, fmt.Errorf("open tun: %w", err)
+	}
+
+	gatewayIP := net.ParseIP(cfg.Network.PoolIPv4.Gateway)
+	_, subnet, _ := net.ParseCIDR(cfg.Network.PoolIPv4.Subnet)
+	if err := tunDev.SetIP(gatewayIP, subnet); err != nil {
+		return nil, fmt.Errorf("set tun ip: %w", err)
+	}
+
+	if cfg.Network.PoolIPv6.Subnet != "" {
+		gatewayIPv6 := net.ParseIP(cfg.Network.PoolIPv6.Gateway)
+		_, v6Subnet, _ := net.ParseCIDR(cfg.Network.PoolIPv6.Subnet)
+		if err := tunDev.SetIP(gatewayIPv6, v6Subnet); err != nil {
+			logger.Warn("set tun ipv6", zap.Error(err))
+		}
+	}
+
+	if err := tunDev.DisableGSO(); err != nil {
+		logger.Warn("disable gso", zap.Error(err))
+	} else {
+		logger.Info("gso/gro disabled on tun")
+	}
+
+	natMgr := nat.NewNFTManager()
+	if err := natMgr.Setup(); err != nil {
+		logger.Warn("nat setup", zap.Error(err))
+	}
+	if cfg.Network.PoolIPv6.Subnet != "" {
+		if err := natMgr.Setup6(); err != nil {
+			logger.Warn("ipv6 nat setup", zap.Error(err))
+		}
+	}
+
+	tlsCfg, err := tlspkg.NewServerTLSConfig(cfg.TLS.Cert, cfg.TLS.Key, cfg.TLS.ClientCAFile, cfg.TLS.ClientAuth)
+	if err != nil {
+		return nil, fmt.Errorf("tls config: %w", err)
+	}
+	if cfg.TLS.ClientCAFile != "" {
+		logger.Info("mtls enabled", zap.String("client_ca", cfg.TLS.ClientCAFile), zap.String("client_auth", cfg.TLS.ClientAuth))
+	}
+
+	originChecker := websocket.NewOriginChecker(cfg.Origin.Whitelist, cfg.Origin.AllowEmpty)
+
+	bwCfg := make(map[string]int)
+	for _, tc := range cfg.Auth.Tokens {
+		bwCfg[tc.Name] = tc.BandwidthBPS
+	}
+	bwMgr := session.NewTokenBandwidthManager(bwCfg)
+
+	var masterKey []byte
+	if cfg.Crypto.Enabled {
+		masterKey, err = crypto.ParseMasterKey(cfg.Crypto.Key)
+		if err != nil {
+			return nil, fmt.Errorf("crypto key: %w", err)
+		}
+		logger.Info("app-layer encryption enabled")
+	} else {
+		logger.Info("app-layer encryption disabled")
+	}
+
+	rl := ratelimit.NewIPRateLimiter(cfg.RateLimiting.AuthBurst, cfg.RateLimiting.AuthPerMinute)
+	prl := ratelimit.NewSessionPacketLimiter(cfg.RateLimiting.PacketsPerSec)
+
+	s := &Server{
+		cfg:     cfg,
+		cfgPath: configPath,
+		cfgPtr:  config.NewAtomicConfig(cfg),
+		logger:  logger,
+		lvl:     lvl,
+
+		cidrMatcher:   cidrMatcher,
+		gatewayIP:     gatewayIP,
+		pool:          pool,
+		pool6:         pool6,
+		bolt:          bolt,
+		bolt6:         bolt6,
+		sm:            sm,
+		collectors:    collectors,
+		tunDev:        tunDev,
+		natMgr:        natMgr,
+		tlsCfg:        tlsCfg,
+		originChecker: originChecker,
+		bwMgr:         bwMgr,
+		masterKey:     masterKey,
+		rl:            rl,
+		prl:           prl,
+		startTime:     time.Now(),
+		shutdownTO:    shutdownTimeout,
+	}
+
+	s.mux = s.buildMux()
+	s.httpServer = &http.Server{
+		Handler:           s.mux,
+		ReadHeaderTimeout: 20 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	return s, nil
+}
+
+func (s *Server) buildMux() *http.ServeMux {
+	mux := http.NewServeMux()
+
+	tunnelHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.rl.Allow(r.RemoteAddr) {
+			pkglog.Audit(s.logger, zapcore.WarnLevel, "auth rate limited",
+				zap.String("remote_addr", r.RemoteAddr),
+				zap.String("reason", "rate limit exceeded"),
+			)
+			http.Error(w, "429 too many requests", http.StatusTooManyRequests)
+			return
+		}
+		wsCfg := websocket.WSConfig{
+			Compression: s.cfg.Compression,
+			Multiplex:   s.cfg.Multiplex,
+			MTU:         s.cfg.MTU,
+		}
+		s.handleTunnel(w, r, wsCfg)
+	})
+
+	cidrMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				host = r.RemoteAddr
+			}
+			ip := net.ParseIP(host)
+			if ip != nil && !s.cidrMatcher.Allowed(ip) {
+				pkglog.Audit(s.logger, zapcore.WarnLevel, "connection denied by CIDR ACL",
+					zap.String("remote_addr", r.RemoteAddr),
+					zap.String("ip", host),
+				)
+				http.Error(w, "403 forbidden", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	mux.Handle("/tunnel", cidrMiddleware(tunnelHandler))
+	mux.HandleFunc("/livez", s.handleLivez)
+	mux.HandleFunc("/readyz", s.handleReadyz)
+	mux.HandleFunc("/health", s.handleHealth)
+
+	mrl := ratelimit.NewIPRateLimiter(100, 100)
+	metricsHandler := admin.TokenMiddleware(s.cfg.Admin.Token)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !mrl.Allow(r.RemoteAddr) {
+			http.Error(w, "429 too many requests", http.StatusTooManyRequests)
+			return
+		}
+		promhttp.Handler().ServeHTTP(w, r)
+	}))
+	mux.Handle("/metrics", metricsHandler)
+
+	return mux
+}
+
+func (s *Server) handleLivez(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":   "alive",
+		"uptime_s": time.Since(s.startTime).Seconds(),
+	})
+}
+
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	boltStatus := "disabled"
+	if s.bolt != nil {
+		boltStatus = "ok"
+	}
+	sessions := s.sm.List()
+	health := map[string]interface{}{
+		"status":          "ok",
+		"uptime_s":        time.Since(s.startTime).Seconds(),
+		"tun":             "ok",
+		"nat":             "ok",
+		"active_sessions": len(sessions),
+		"bolt":            boltStatus,
+	}
+	_ = json.NewEncoder(w).Encode(health)
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	s.handleReadyz(w, r)
+}
+
+func (s *Server) Run(ctx context.Context) error {
+	defer s.logger.Info("server stopped")
+
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	s.startSighupHandler(ctx)
+	defer s.sm.Stop()
+	defer func() { _ = s.tunDev.Close() }()
+	defer func() {
+		_ = s.natMgr.Teardown()
+		if s.cfg.Network.PoolIPv6.Subnet != "" {
+			_ = s.natMgr.Teardown6()
+		}
+	}()
+	if s.bolt != nil {
+		defer func() { _ = s.bolt.Close() }()
+	}
+	if s.bolt6 != nil {
+		defer func() { _ = s.bolt6.Close() }()
+	}
+
+	s.rl.StartCleanup(ctx)
+	s.prl.StartCleanup(ctx)
+
+	tlsListener, err := tls.Listen("tcp", s.cfg.Listen, s.tlsCfg)
+	if err != nil {
+		return fmt.Errorf("tls listen: %w", err)
+	}
+	defer func() { _ = tlsListener.Close() }()
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		s.logger.Info("listening", zap.String("addr", s.cfg.Listen))
+		if err := s.httpServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		<-ctx.Done()
+		s.logger.Info("shutting down http server")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTO)
+		defer cancel()
+		return s.httpServer.Shutdown(shutdownCtx)
+	})
+
+	if s.cfg.Admin.Enabled {
+		s.startAdminAPI(ctx, eg)
+	}
+
+	return eg.Wait()
+}
+
+func (s *Server) startSighupHandler(ctx context.Context) {
+	sighupCh := make(chan os.Signal, 1)
+	signal.Notify(sighupCh, syscall.SIGHUP)
+	go func() {
+		var mu sync.Mutex
+		for {
+			select {
+			case <-ctx.Done():
+				signal.Stop(sighupCh)
+				return
+			case <-sighupCh:
+			}
+			mu.Lock()
+			s.logger.Info("sighup received, reloading config")
+			newCfg, err := config.LoadServerConfig(s.cfgPath)
+			if err != nil {
+				s.logger.Warn("config reload failed, keeping old config", zap.Error(err))
+				mu.Unlock()
+				continue
+			}
+			s.cfgPtr.Store(newCfg)
+			if newCfg.Logging.Level != "" {
+				var lvl zapcore.Level
+				if err := lvl.UnmarshalText([]byte(newCfg.Logging.Level)); err == nil {
+					s.lvl.SetLevel(lvl)
+				}
+			}
+			s.logger.Info("config reloaded",
+				zap.Int("tokens", len(newCfg.Auth.Tokens)),
+				zap.String("log_level", s.lvl.Level().String()),
+			)
+			mu.Unlock()
+		}
+	}()
+}
+
+func (s *Server) startAdminAPI(ctx context.Context, eg *errgroup.Group) {
+	adminCfg := admin.AdminCfg{
+		Enabled: s.cfg.Admin.Enabled,
+		Listen:  s.cfg.Admin.Listen,
+		Token:   s.cfg.Admin.Token,
+	}
+	adminSrv := admin.NewAdminServer(adminCfg, s.sm)
+
+	if s.cfg.Admin.Token == "" {
+		s.logger.Warn("admin api token not set, disabling admin api")
+		return
+	}
+	addr := s.cfg.Admin.Listen
+	if !strings.HasPrefix(addr, "localhost:") && !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "unix:") {
+		s.logger.Warn("admin api listening on non-loopback interface", zap.String("addr", addr))
+	}
+	s.logger.Info("admin api enabled", zap.String("listen", addr))
+
+	eg.Go(func() error {
+		if err := adminSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("admin api: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTO)
+		defer cancel()
+		return adminSrv.Shutdown(shutdownCtx)
+	})
+}

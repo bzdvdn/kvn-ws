@@ -7,7 +7,7 @@ import (
 )
 
 func TestSessionStreamsCRUD(t *testing.T) {
-	ss := &SessionStreams{M: make(map[uint32]net.Conn)}
+	ss := NewSessionStreams()
 
 	_, ok := ss.Load(1)
 	if ok {
@@ -34,7 +34,7 @@ func TestSessionStreamsCRUD(t *testing.T) {
 }
 
 func TestSessionStreamsCloseAll(t *testing.T) {
-	ss := &SessionStreams{M: make(map[uint32]net.Conn)}
+	ss := NewSessionStreams()
 	c1, c2 := net.Pipe()
 	c3, c4 := net.Pipe()
 

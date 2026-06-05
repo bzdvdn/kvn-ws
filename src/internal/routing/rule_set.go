@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/dns"
 )
 
 // @sk-task routing-split-tunnel#T2.2: ruleset struct (AC-006)
@@ -14,7 +15,7 @@ import (
 type RuleSet struct {
 	rules          []Rule
 	defaultAction  RouteAction
-	domainResolver DomainResolver
+	domainResolver dns.Resolver
 	logger         *zap.Logger
 }
 
@@ -26,7 +27,7 @@ func NewRuleSet(cfg *config.RoutingCfg, logger *zap.Logger) (*RuleSet, error) {
 
 // @sk-task routing-split-tunnel#T3.1: new ruleset with dns resolver (AC-005)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
-func NewRuleSetWithResolver(cfg *config.RoutingCfg, resolver DomainResolver, logger *zap.Logger) (*RuleSet, error) {
+func NewRuleSetWithResolver(cfg *config.RoutingCfg, resolver dns.Resolver, logger *zap.Logger) (*RuleSet, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("routing config is nil")
 	}

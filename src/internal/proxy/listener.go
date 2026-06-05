@@ -12,8 +12,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-
-	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
 var (
@@ -33,25 +31,30 @@ const (
 	socksRepSuccess   = 0x00
 )
 
+type ProxyAuth struct {
+	Username string
+	Password string
+}
+
 type Listener struct {
-	cfg    *config.ClientConfig
+	addr   string
+	auth   *ProxyAuth
 	ln     net.Listener
 	onConn func(conn net.Conn, dst string)
 }
 
-func NewListener(cfg *config.ClientConfig, onConn func(net.Conn, string)) *Listener {
-	return &Listener{cfg: cfg, onConn: onConn}
-}
-
-func (l *Listener) Start() error {
-	addr := l.cfg.ProxyListen
+func NewListener(addr string, auth *ProxyAuth, onConn func(net.Conn, string)) *Listener {
 	if addr == "" {
 		addr = "127.0.0.1:2310"
 	}
+	return &Listener{addr: addr, auth: auth, onConn: onConn}
+}
+
+func (l *Listener) Start() error {
 	var err error
-	l.ln, err = net.Listen("tcp", addr)
+	l.ln, err = net.Listen("tcp", l.addr)
 	if err != nil {
-		return fmt.Errorf("proxy listen %s: %w", addr, err)
+		return fmt.Errorf("proxy listen %s: %w", l.addr, err)
 	}
 	return nil
 }
@@ -127,7 +130,7 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) (handedOff bo
 	}
 
 	var authMethod byte = socksAuthNone
-	if l.cfg.ProxyAuth != nil {
+	if l.auth != nil {
 		authMethod = socksAuthUserPass
 	}
 	_, _ = client.Write([]byte{socksVersion5, authMethod})
@@ -167,7 +170,7 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) (handedOff bo
 		}
 		pass := string(buf[offset : offset+plen])
 
-		if ver != 0x01 || uname != l.cfg.ProxyAuth.Username || pass != l.cfg.ProxyAuth.Password {
+		if ver != 0x01 || uname != l.auth.Username || pass != l.auth.Password {
 			_, _ = client.Write([]byte{0x01, 0x01})
 			return
 		}

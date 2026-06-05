@@ -7,19 +7,16 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-)
 
-// @sk-task routing-split-tunnel#T3.1: dns resolver interface for domain matcher (AC-005)
-type DomainResolver interface {
-	Lookup(ctx context.Context, domain string) ([]netip.Addr, error)
-}
+	"github.com/bzdvdn/kvn-ws/src/internal/dns"
+)
 
 // @sk-task routing-split-tunnel#T3.1: domain matcher (AC-005)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 // @sk-task prod-issue#T1.2: add local cache to avoid per-packet DNS lookups (AC-002)
 type DomainMatcher struct {
 	domains       []string
-	resolver      DomainResolver
+	resolver      dns.Resolver
 	logger        *zap.Logger
 	mu            sync.RWMutex
 	resolved      map[string][]netip.Addr
@@ -30,7 +27,7 @@ type DomainMatcher struct {
 // @sk-task routing-split-tunnel#T3.1: new domain matcher (AC-005)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 // @sk-task prod-issue#T1.2: init local cache (AC-002)
-func NewDomainMatcher(domains []string, resolver DomainResolver, logger *zap.Logger) *DomainMatcher {
+func NewDomainMatcher(domains []string, resolver dns.Resolver, logger *zap.Logger) *DomainMatcher {
 	return &DomainMatcher{
 		domains:       domains,
 		resolver:      resolver,

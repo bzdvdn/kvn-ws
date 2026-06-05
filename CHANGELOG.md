@@ -6,6 +6,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] — 2026-06-05
+
+### Changed
+
+- **cmd/client/main.go** — сокращён с ~787 до 25 строк: вся логика вынесена
+  в `internal/bootstrap/client/` (client.go, tun.go, proxy.go, reconnect.go, killswitch.go).
+- **cmd/server/main.go** — сокращён с ~632 до 32 строк: вся логика вынесена
+  в `internal/bootstrap/server/` (server.go, handler.go).
+- **internal/bootstrap/client/** — новый пакет: Client struct + New() + Run(),
+  TUN reconnectLoop с экспоненциальным backoff, runProxyMode с reconnect,
+  nftables kill-switch (apply/removeKillSwitch), computeGateway.
+- **internal/bootstrap/server/** — новый пакет: Server struct + New() + Run(),
+  buildMux(), startSighupHandler(), handleTunnel(), health endpoints.
+- **internal/tunnel/session.go** — извлечён из cmd/client; Session переиспользуется
+  и клиентом и сервером; nil-guards для sm/collectors/proxyStreams;
+  SetTunRouter, SetInterruptibleRead, tunReadInterruptible.
+- **internal/ratelimit/** — извлечён rate-limiter (IPRateLimiter, SessionPacketLimiter).
+- **internal/proxy/stream.go** — SessionStreams.M сделан private `m`,
+  добавлен конструктор NewSessionStreams().
+- **proxySem глобальная → поле Session** — убрана глобальная переменная,
+  proxySem инициализируется в NewSession().
+- **SIGHUP reload fix** — startSighupHandler теперь использует сохранённый
+  путь конфига вместо сломанного type assertion.
+- **Proxy goroutine nil-guard** — проверка proxyStreams в FrameTypeProxy handler.
+
+### Removed
+
+- **pkg/api/** — мёртвый пакет удалён.
+- **cmd/client: tunToWS, wsToTun, tunReadInterruptible** — дублированный
+  data-path (-114 строк) заменён на вызов tunnel.NewSession(...).Run(ctx).
+- **cmd/server: дублированная логика** — ~600 строк бутстрапа перенесены
+  в internal/bootstrap/server.
+
 ## [0.2.0] — 2026-06-04
 
 ### Fixed
