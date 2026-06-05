@@ -7,6 +7,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/cmd/server/main.go` — CLI entrypoint: KVN-over-WS server
 - `src/cmd/gatetest/main.go` — routing gate test program (AC-010 simulation)
 - `src/cmd/stability/main.go` — stability gate / soak test program (AC-012)
+- `src/cmd/web/main.go` — Web UI entrypoint: browser-based tunnel client manager
 
 ## Top-Level Code
 - `src/internal/config/` — YAML config parsing (viper + env override)
@@ -26,6 +27,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/metrics/` — Prometheus metrics (active_sessions, throughput, errors)
 - `src/pkg/api/` — public API package (stub)
 - `src/internal/proxy/` — SOCKS5 + HTTP CONNECT proxy listener for local proxy mode
+- `src/internal/webui/` — Web UI server (embed React SPA, REST API + SSE, AppState)
 
 ## Key Paths
 - `configs/client.yaml` — client config template
@@ -38,6 +40,10 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `docker-compose.test.yml` — gate test compose
 - `scripts/build.sh` — native binary build to `bin/`
 - `scripts/test-gate.sh` — gate test script
+- `scripts/install-web.sh` — Linux/macOS install script for kvn-web
+- `scripts/install-web.ps1` — Windows install script for kvn-web
+- `scripts/kvn-web.service` — systemd unit for kvn-web
+- `scripts/kvn-web.plist` — macOS launchd plist for kvn-web
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
 - `examples/docker-compose.yml` — standalone docker-compose example
 - `examples/client.yaml` — standalone client config example
@@ -54,12 +60,17 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Session/auth — `src/internal/session/`, `src/internal/protocol/auth/`, `src/internal/logger/`
 - Config changes — `src/internal/config/`
 - Logging/metrics — `src/internal/logger/`, `src/internal/metrics/`
+- Web UI — `src/internal/webui/`, `src/cmd/web/`, `src/internal/webui/frontend/`
 - Documentation — `docs/en/`, `docs/ru/`
 - Examples — `examples/`
+- Build/CI/install — `scripts/`, `.github/workflows/`
 - Release — `CHANGELOG.md`, `README.md`
 
 ## Excluded
 - `.speckeep/**` — excluded from indexing
 - `specs/archived/**` — excluded from indexing
+- `specs/active/` — spec artifacts (read via spec files)
 - `bin/` — build output
 - `vendor/` — vendored deps (not used)
+- `src/internal/webui/frontend/node_modules/` — JS deps
+- `src/internal/webui/frontend/dist/` — frontend build output

@@ -39,10 +39,15 @@ jobs:
         with:
           version: latest
           install-mode: goinstall
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: src/internal/webui/frontend/package-lock.json
       - name: Build
         run: go build ./src/...
       - name: Build binaries
-        run: ./scripts/build.sh
+        run: ./scripts/build.sh both
       - name: Gatetest routing
         run: go run ./src/cmd/gatetest/ --mode routing
 
@@ -85,6 +90,15 @@ jobs:
       - name: Checkout tag
         run: git checkout "${{ steps.tag.outputs.ref }}"
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build frontend
+        run: |
+          cd src/internal/webui/frontend
+          npm ci
+          npm run build
       - name: Build release binaries
         run: |
           mkdir -p dist
@@ -107,8 +121,26 @@ jobs:
             GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
               go build -ldflags="-s -w" \
               -o "dist/kvn-$os-$arch/server${suffix}" ./src/cmd/server
+            # web — linux and darwin only (no frontend for windows)
+            if [ "$os" != "windows" ]; then
+              GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+                go build -ldflags="-s -w" \
+                -o "dist/kvn-$os-$arch/kvn-web${suffix}" ./src/cmd/web
+            fi
           done
 
+      - name: Copy install scripts to dist
+        run: |
+          for dir in dist/kvn-*; do
+            [ -d "$dir" ] || continue
+            if echo "$dir" | grep -q windows; then
+              cp scripts/install-web.ps1 "$dir/"
+            else
+              cp scripts/install-web.sh "$dir/"
+              cp scripts/kvn-web.service "$dir/" 2>/dev/null || true
+              cp scripts/kvn-web.plist "$dir/" 2>/dev/null || true
+            fi
+          done
       - name: Package archives
         run: |
           cd dist

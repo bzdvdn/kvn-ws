@@ -1,0 +1,15 @@
+# @sk-task web-ci-install-autostart#T3.1: systemd unit for kvn-web
+[Unit]
+Description=KVN Web UI
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kvn-web --no-browser
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target

@@ -217,6 +217,107 @@ sudo systemctl enable --now kvn-docker
 
 ---
 
+## Web UI (веб-интерфейс)
+
+KVN Web UI — браузерный интерфейс для управления клиентом туннеля: редактор конфига, подключение/отключение, логи в реальном времени.
+
+### Linux — systemd сервис
+
+#### Быстрая установка
+
+```bash
+# Скачайте и распакуйте релиз
+curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/kvn-linux-amd64.tar.gz \
+  -o /tmp/kvn-web.tar.gz
+tar -xzf /tmp/kvn-web.tar.gz -C /tmp
+
+# Установите и запустите
+sudo /tmp/kvn-web/install-web.sh --start
+
+# Web UI: http://127.0.0.1:2311
+```
+
+#### Что делает install-web.sh
+
+1. Копирует бинарник `kvn-web` в `/usr/local/bin/kvn-web`
+2. Устанавливает systemd unit в `/etc/systemd/system/kvn-web.service`
+3. Включает авто-запуск при загрузке
+4. Запускает сервис (с флагом `--start`)
+
+#### Управление сервисом
+
+```bash
+sudo systemctl start kvn-web
+sudo systemctl stop kvn-web
+sudo systemctl status kvn-web
+sudo journalctl -u kvn-web -f
+```
+
+#### Сборка из исходников
+
+```bash
+./scripts/build.sh web
+sudo ./scripts/install-web.sh --start
+```
+
+### macOS — launchd демон
+
+#### Быстрая установка
+
+```bash
+# Скачайте и распакуйте
+curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/kvn-darwin-arm64.tar.gz \
+  -o /tmp/kvn-web.tar.gz
+tar -xzf /tmp/kvn-web.tar.gz -C /tmp
+
+# Установите и запустите
+sudo /tmp/kvn-web/install-web.sh --start
+
+# Web UI: http://127.0.0.1:2311
+```
+
+#### Управление демоном
+
+```bash
+sudo launchctl load -w /Library/LaunchDaemons/com.kvn-web.daemon.plist
+sudo launchctl unload /Library/LaunchDaemons/com.kvn-web.daemon.plist
+sudo launchctl list com.kvn-web.daemon
+```
+
+### Windows — служба Windows
+
+#### Быстрая установка
+
+```powershell
+# Запустите от имени администратора
+.\install-web.ps1 -Start
+
+# Web UI: http://127.0.0.1:2311
+```
+
+#### Управление службой
+
+```powershell
+Start-Service KVNWeb
+Stop-Service KVNWeb
+Get-Service KVNWeb
+```
+
+### Настройка через Web UI
+
+Все настройки клиента доступны через веб-интерфейс:
+
+| Раздел | Поля |
+|--------|------|
+| Connection | Server, Token, Mode (proxy/TUN), Proxy Listen/Auth |
+| TLS | Verify Mode, Server Name (SNI), CA File |
+| Routing | Default Route, CIDR Include/Exclude, IP Include/Exclude |
+| Advanced | MTU, Log Level, IPv6, Auto Reconnect, Compression, Multiplex |
+| Kill Switch & Reconnect | Kill Switch toggle, Min/Max Backoff |
+| Encryption | App-Layer Encryption toggle, Key |
+
+---
+
 ## Настройка клиента
 
 ### Linux — Режим TUN (VPN)

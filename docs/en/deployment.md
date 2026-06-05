@@ -223,6 +223,110 @@ docker build -t kvn-ws:latest .
 
 ---
 
+## Web UI Setup
+
+KVN Web UI provides a browser-based management interface for the tunnel client (config editor, connect/disconnect, live logs).
+
+### Linux — systemd service
+
+#### Quick install
+
+```bash
+# Download and extract the release archive
+curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/kvn-linux-amd64.tar.gz \
+  -o /tmp/kvn-web.tar.gz
+tar -xzf /tmp/kvn-web.tar.gz -C /tmp
+
+# Install and start
+sudo /tmp/kvn-web/install-web.sh --start
+
+# Web UI: http://127.0.0.1:2311
+```
+
+#### What install-web.sh does
+
+1. Copies `kvn-web` binary to `/usr/local/bin/kvn-web`
+2. Installs systemd unit to `/etc/systemd/system/kvn-web.service`
+3. Enables the service (auto-start on boot)
+4. Starts the service (with `--start` flag)
+
+#### Manage the service
+
+```bash
+sudo systemctl start kvn-web
+sudo systemctl stop kvn-web
+sudo systemctl status kvn-web
+sudo journalctl -u kvn-web -f
+```
+
+#### Build from source
+
+```bash
+./scripts/build.sh web
+sudo ./scripts/install-web.sh --start
+```
+
+### macOS — launchd daemon
+
+#### Quick install
+
+```bash
+# Download and extract
+curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/kvn-darwin-arm64.tar.gz \
+  -o /tmp/kvn-web.tar.gz
+tar -xzf /tmp/kvn-web.tar.gz -C /tmp
+
+# Install and start
+sudo /tmp/kvn-web/install-web.sh --start
+
+# Web UI: http://127.0.0.1:2311
+```
+
+#### Manage the daemon
+
+```bash
+sudo launchctl load -w /Library/LaunchDaemons/com.kvn-web.daemon.plist
+sudo launchctl unload /Library/LaunchDaemons/com.kvn-web.daemon.plist
+sudo launchctl list com.kvn-web.daemon
+```
+
+### Windows — Windows Service
+
+#### Quick install
+
+```powershell
+# Download and extract (or use the release zip)
+# Extract to C:\KVN
+
+# Run as Administrator
+.\install-web.ps1 -Start
+
+# Web UI: http://127.0.0.1:2311
+```
+
+#### Manage the service
+
+```powershell
+Start-Service KVNWeb
+Stop-Service KVNWeb
+Get-Service KVNWeb
+```
+
+### Configuration via Web UI
+
+All client settings (server, auth, TLS, routing, proxy, advanced) are available through the web interface:
+
+| Section | Fields |
+|---------|--------|
+| Connection | Server, Token, Mode (proxy/TUN), Proxy Listen/Auth |
+| TLS | Verify Mode, Server Name (SNI), CA File |
+| Routing | Default Route, CIDR Include/Exclude, IP Include/Exclude |
+| Advanced | MTU, Log Level, IPv6, Auto Reconnect, Compression, Multiplex |
+| Kill Switch & Reconnect | Kill Switch toggle, Min/Max Backoff |
+| Encryption | App-Layer Encryption toggle, Key |
+
+---
+
 ## Client Setup
 
 ### Linux — TUN mode (VPN)

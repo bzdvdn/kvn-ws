@@ -54,6 +54,26 @@ iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-clie
 .\install-client.ps1 -Server "wss://vpn.example.com/tunnel" -Token "your-token" -RegisterTask
 ```
 
+### Web UI install
+
+**Linux:**
+```bash
+sudo ./install-web.sh --start
+# Web UI: http://127.0.0.1:2311
+```
+
+**macOS:**
+```bash
+sudo ./install-web.sh --start
+# Web UI: http://127.0.0.1:2311
+```
+
+**Windows (PowerShell Admin):**
+```powershell
+.\install-web.ps1 -Start
+# Web UI: http://127.0.0.1:2311
+```
+
 Подробнее: [docs/en/deployment.md](docs/en/deployment.md)
 
 ## Examples

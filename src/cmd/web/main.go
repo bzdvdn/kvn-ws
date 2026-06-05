@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
@@ -17,6 +18,7 @@ import (
 func main() {
 	port := flag.Int("port", 2311, "web UI port")
 	openBrowser := flag.Bool("open-browser", true, "open browser on start")
+	noBrowser := flag.Bool("no-browser", false, "suppress browser open (for daemon mode)")
 	flag.Parse()
 
 	srv, err := webui.New(*port)
@@ -24,7 +26,7 @@ func main() {
 		log.Fatalf("webui: %v", err)
 	}
 
-	if *openBrowser {
+	if *openBrowser && !*noBrowser && isTerminal() {
 		tryOpenBrowser(*port)
 	}
 
@@ -35,6 +37,11 @@ func main() {
 	if err := srv.Serve(ctx); err != nil {
 		log.Printf("webui stopped: %v", err)
 	}
+}
+
+func isTerminal() bool {
+	stat, _ := os.Stdout.Stat()
+	return (stat.Mode() & os.ModeCharDevice) != 0
 }
 
 func tryOpenBrowser(port int) {

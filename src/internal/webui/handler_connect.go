@@ -4,6 +4,7 @@ package webui
 import (
 	"context"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -55,6 +56,12 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}))
 	cl.SetLogger(hookLogger)
+
+	if cfg.Mode == "tun" && os.Geteuid() != 0 {
+		s.state.setStatus(StatusError)
+		s.state.PushLog(LogEntry{Line: "TUN mode requires root privileges (run with sudo or set CAP_NET_ADMIN)", Level: "error"})
+		return
+	}
 
 	ctx, cancel := context.WithCancel(s.baseCtx)
 	s.state.SetCancel(cancel)
