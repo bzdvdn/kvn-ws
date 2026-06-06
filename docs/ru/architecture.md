@@ -71,7 +71,8 @@ flowchart TB
 | TUN Interface | `src/internal/tun/` | Абстракция виртуального сетевого интерфейса |
 | Routing Engine | `src/internal/routing/` | RuleSet: server/direct, CIDR, домены, IP с ordered rules |
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT прокси для локального трафика |
-| WebSocket Dialer | `src/internal/transport/websocket/` | Клиентское WebSocket-подключение |
+| WebSocket Dialer | `src/internal/transport/websocket/` | Клиентское WebSocket-подключение с опциональным padding |
+| uTLS Dialer | `src/internal/transport/tls/` | Браузерный TLS (uTLS, Chrome JA3), кастомный выбор SNI |
 | QUIC Dialer | `src/internal/transport/quic/` | QUIC (UDP) dial + ObfuscatedQUICConn |
 | DNS Resolver | `src/internal/dns/` | DNS-резолвер с TTL-кэшем |
 | Crypto | `src/internal/crypto/` | Шифрование на уровне приложения (AES-256-GCM, per-session key) |
@@ -95,9 +96,9 @@ flowchart TB
 
 #### WebSocket (TCP)
 1. Клиент читает конфиг из `client.yaml`
-2. Клиент устанавливает TLS 1.3 соединение с сервером
-3. Клиент отправляет WebSocket upgrade request на путь `/ws`
-4. Сервер принимает WebSocket, переключается в бинарный режим
+2. Клиент устанавливает TLS 1.3 соединение с сервером; если `uTLS.enabled` — использует Chrome JA3 fingerprint через `utls.HelloChrome_Auto`; если задан `tls.sni` — выбирает случайный домен при каждом connect
+3. Клиент отправляет WebSocket upgrade request с путём из URL (напр. `/api/v1/events`, а не жёстко `/ws`)
+4. Сервер проверяет path по `ws_paths` allowlist (404 если неизвестен), принимает WebSocket upgrade в бинарный режим
 5. Клиент отправляет `ClientHello` (версия протокола, поддерживаемые возможности)
 6. Сервер отвечает `ServerHello` (ID сессии, назначенный IP, возможности)
 7. Клиент настраивает TUN-интерфейс с полученным IP
@@ -105,11 +106,11 @@ flowchart TB
 
 #### QUIC (UDP)
 1. Клиент читает конфиг из `client.yaml`
-2. Клиент открывает QUIC-соединение (встроенный TLS 1.3 handshake) с сервером
+2. Клиент открывает QUIC-соединение (встроенный TLS 1.3 handshake) с сервером; если задан `tls.sni` — выбирает случайный домен при каждом connect
 3. Клиент открывает единственный QUIC stream
-4. Если `obfuscation: true`, клиент генерирует 8-байт nonce и отправляет его первыми байтами stream'а
-5. Клиент отправляет `ClientHello` (с XOR-обфускацией length prefix если obfuscation включён)
-6. Сервер отвечает `ServerHello` (с XOR-обфускацией)
+4. После handshake обе стороны вычисляют 8-байт nonce через TLS Exporter (`ExportKeyingMaterial("kvn-obfuscation", nil, 8)`) — 0 байт на wire
+5. Клиент отправляет `ClientHello` с XOR-обфускацией всего payload (не только length prefix)
+6. Сервер отвечает `ServerHello` (XOR всего payload)
 7. Клиент настраивает TUN-интерфейс с полученным IP
 8. Routing engine начинает обработку пакетов
 
@@ -117,11 +118,11 @@ flowchart TB
 
 1. Приложение на клиенте отправляет пакет в TUN-интерфейс
 2. Routing engine проверяет правила (ordered): direct или tunnel
-3. Для tunnel: пакет инкапсулируется в фрейм (length-prefix + payload), опционально шифруется
-4. Если `transport: quic` с `obfuscation: true`, length prefix XOR'ится с nonce перед отправкой
-5. Сервер получает фрейм, расшифровывает при необходимости, извлекает пакет
+3. Для tunnel: пакет инкапсулируется в фрейм (length-prefix + payload), опционально шифруется; для WS транспорта с `padding.enabled: true` — фрейм оборачивается в `[4B длина][payload][random padding]` с выравниванием до `padding.size`
+4. Если `transport: quic` с `obfuscation: true`, весь payload XOR'ится с nonce от TLS Exporter (не только length prefix)
+5. Сервер получает фрейм, отбрасывает WS padding если включён, расшифровывает при необходимости, извлекает пакет
 6. Сервер применяет NAT (MASQUERADE) и пересылает пакет получателю
-7. Ответ следует обратным путём: сервер получает → инкапсулирует → отправляет (с XOR-обфускацией если включена) → клиент извлекает → инжектирует в TUN
+7. Ответ следует обратным путём: сервер получает → инкапсулирует → отправляет (с XOR всего payload если включена обфускация) → клиент извлекает → инжектирует в TUN
 
 ### Keepalive
 

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/auth"
@@ -27,6 +28,24 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 		return
 	}
 	s.handleStream(r.Context(), wsConn, wsCfg.MTU, r.RemoteAddr)
+}
+
+// @sk-task whitelist-obfuscation#T2.2: WS path allowlist check (AC-003)
+func (s *Server) allowedWSPath(path string) bool {
+	for _, p := range s.cfg.WSPaths {
+		if p == path {
+			return true
+		}
+	}
+	return false
+}
+
+// @sk-task whitelist-obfuscation#T3.2: padding size default helper (AC-005)
+func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
+	if oc != nil && oc.Padding != nil && oc.Padding.Size > 0 {
+		return oc.Padding.Size
+	}
+	return 512
 }
 
 // @sk-task quic-transport#T3.1: shared stream handler for WS and QUIC (AC-001)

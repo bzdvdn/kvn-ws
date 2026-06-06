@@ -641,54 +641,6 @@ func TestBatchWriterCoalescing(t *testing.T) {
 	}
 }
 
-// @sk-test performance-and-polish#T3.3: TestWSCompression (AC-006)
-func TestWSCompression(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		cfg := WSConfig{Compression: true}
-		conn, err := Accept(w, r, nopLogger, cfg)
-		if err != nil {
-			t.Errorf("Accept: %v", err)
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		_, msg, err := conn.Underlying().ReadMessage()
-		if err != nil {
-			t.Errorf("read: %v", err)
-			return
-		}
-		if err := conn.Underlying().WriteMessage(websocket.BinaryMessage, msg); err != nil {
-			t.Errorf("write: %v", err)
-		}
-	})
-
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	wsURL := "ws" + server.URL[len("http"):] + "/ws"
-
-	wsCfg := WSConfig{Compression: true}
-	conn, err := Dial(wsURL, nil, nopLogger, wsCfg)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	payload := []byte("compressible data with repeated patterns " + string(make([]byte, 100)))
-	if err := conn.WriteMessage(payload); err != nil {
-		t.Fatalf("WriteMessage: %v", err)
-	}
-
-	msg, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatalf("ReadMessage: %v", err)
-	}
-
-	if !bytes.Equal(msg, payload) {
-		t.Errorf("echo = %s, want %s", msg, payload)
-	}
-}
-
 // @sk-test performance-and-polish#T3.4: TestWSMultiplexSubprotocol (AC-007)
 func TestWSMultiplexSubprotocol(t *testing.T) {
 	mux := http.NewServeMux()
@@ -841,6 +793,162 @@ func TestWSReadLimit(t *testing.T) {
 	payload := []byte("test read limit")
 	if err := conn.WriteMessage(payload); err != nil {
 		t.Fatalf("WriteMessage: %v", err)
+	}
+}
+
+// @sk-test whitelist-obfuscation#T5.3: WS padding roundtrip (AC-005)
+func TestWSPaddingRoundtrip(t *testing.T) {
+	payload := []byte("padding test payload with some data")
+	padSize := 64
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		srvCfg := WSConfig{PaddingEnabled: true, PaddingSize: padSize}
+		conn, err := Accept(w, r, nopLogger, srvCfg)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+		defer conn.Close()
+		msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		_ = conn.WriteMessage(msg)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+	wsCfg := WSConfig{PaddingEnabled: true, PaddingSize: padSize}
+	conn, err := Dial(wsURL, nil, nopLogger, wsCfg)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteMessage(payload); err != nil {
+		t.Fatalf("WriteMessage: %v", err)
+	}
+
+	msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage: %v", err)
+	}
+
+	if !bytes.Equal(msg, payload) {
+		t.Fatalf("roundtrip mismatch: got %q, want %q", msg, payload)
+	}
+}
+
+// @sk-test whitelist-obfuscation#T5.3: WS padding various sizes (AC-005)
+func TestWSPaddingSizes(t *testing.T) {
+	sizes := []int{0, 1, 63, 64, 65, 127, 128, 255}
+	for _, size := range sizes {
+		t.Run(padSizeName(size), func(t *testing.T) {
+			payload := make([]byte, size)
+			for i := range payload {
+				payload[i] = byte(i % 251)
+			}
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+				srvCfg := WSConfig{PaddingEnabled: true, PaddingSize: 64}
+				conn, err := Accept(w, r, nopLogger, srvCfg)
+				if err != nil {
+					t.Errorf("Accept: %v", err)
+					return
+				}
+				defer conn.Close()
+				msg, err := conn.ReadMessage()
+				if err != nil {
+					return
+				}
+				_ = conn.WriteMessage(msg)
+			})
+
+			server := httptest.NewServer(mux)
+			defer server.Close()
+
+			wsURL := "ws" + server.URL[len("http"):] + "/ws"
+			wsCfg := WSConfig{PaddingEnabled: true, PaddingSize: 64}
+			conn, err := Dial(wsURL, nil, nopLogger, wsCfg)
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer conn.Close()
+
+			if err := conn.WriteMessage(payload); err != nil {
+				t.Fatalf("WriteMessage: %v", err)
+			}
+
+			msg, err := conn.ReadMessage()
+			if err != nil {
+				t.Fatalf("ReadMessage: %v", err)
+			}
+
+			if !bytes.Equal(msg, payload) {
+				t.Fatalf("roundtrip mismatch for size %d", size)
+			}
+		})
+	}
+}
+
+// @sk-test whitelist-obfuscation#T5.3: WS padding disabled = no framing overhead (AC-005)
+func TestWSPaddingDisabled(t *testing.T) {
+	payload := []byte("no padding test")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		srvCfg := WSConfig{}
+		conn, err := Accept(w, r, nopLogger, srvCfg)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+		defer conn.Close()
+		msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		_ = conn.WriteMessage(msg)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+	wsCfg := WSConfig{}
+	conn, err := Dial(wsURL, nil, nopLogger, wsCfg)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteMessage(payload); err != nil {
+		t.Fatalf("WriteMessage: %v", err)
+	}
+
+	msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage: %v", err)
+	}
+
+	if !bytes.Equal(msg, payload) {
+		t.Fatalf("no-padding roundtrip mismatch: got %q, want %q", msg, payload)
+	}
+}
+
+func padSizeName(n int) string {
+	switch {
+	case n == 0:
+		return "zero"
+	case n < 64:
+		return "small"
+	case n < 128:
+		return "medium"
+	default:
+		return "large"
 	}
 }
 

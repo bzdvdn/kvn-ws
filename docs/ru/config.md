@@ -40,9 +40,14 @@ kvn-ws использует YAML-файлы конфигурации для се
 | `admin.token` | string | `""` | Токен аутентификации Admin API |
 | `acl.deny_cidrs` | []string | `[]` | CIDR deny список (проверяется перед allow) |
 | `acl.allow_cidrs` | []string | `[]` | CIDR allow список (пусто = все разрешены) |
+| `ws_paths` | []string | `["/tunnel"]` | Разрешённые пути WebSocket endpoint (404 если не в списке) |
 | `transport` | string | `""` | Транспорт: `quic` или пусто (TCP/WebSocket) |
-| `obfuscation` | bool | `false` | Включить обфускацию QUIC стрима (anti-DPI) |
-| `compression` | bool | `false` | Включить сжатие WebSocket per-message |
+| `obfuscation` | object | — | Настройки обфускации (anti-DPI). См. таблицу сервера |
+| `obfuscation.enabled` | bool | `false` | Включить обфускацию |
+| `obfuscation.utls.enabled` | bool | `false` | Включить uTLS (Chrome JA3 fingerprint) для WS |
+| `obfuscation.utls.fallback` | bool | `true` | При ошибке uTLS — crypto/tls |
+| `obfuscation.padding.enabled` | bool | `false` | Включить padding WS (фиксированный размер фреймов) |
+| `obfuscation.padding.size` | int | `512` | Размер выравнивания padding |
 | `multiplex` | bool | `false` | Включить мультиплексирование WebSocket |
 | `mtu` | int | `1400` | MTU TUN-интерфейса |
 | `crypto.enabled` | bool | `false` | Включить шифрование AES-256-GCM |
@@ -54,6 +59,14 @@ kvn-ws использует YAML-файлы конфигурации для се
 
 ```yaml
 listen: :443
+ws_paths:
+  - /tunnel
+  - /api/v1/events
+obfuscation:
+  enabled: true
+  padding:
+    enabled: true
+    size: 512
 tls:
   cert: /etc/kvn-ws/cert.pem
   key: /etc/kvn-ws/key.pem
@@ -81,15 +94,20 @@ logging:
 | `server` | string | — | URL WebSocket-сервера (например `wss://example.com/tunnel`) |
 | `mode` | string | `tun` | Режим клиента: `tun` (VPN) или `proxy` (локальный SOCKS5/HTTP прокси) |
 | `transport` | string | `""` | Транспорт: `quic` или пусто (TCP/WebSocket) |
-| `obfuscation` | bool | `false` | Включить обфускацию QUIC стрима (anti-DPI) |
+| `obfuscation` | object | — | Настройки обфускации (anti-DPI). См. таблицу сервера |
+| `obfuscation.enabled` | bool | `false` | Включить обфускацию |
+| `obfuscation.utls.enabled` | bool | `false` | Включить uTLS (Chrome JA3 fingerprint) для WS |
+| `obfuscation.utls.fallback` | bool | `true` | При ошибке uTLS — crypto/tls |
+| `obfuscation.padding.enabled` | bool | `false` | Включить padding WS (фиксированный размер фреймов) |
+| `obfuscation.padding.size` | int | `512` | Размер выравнивания padding |
 | `auth.token` | string | — | Токен аутентификации (должен совпадать с серверным) |
-| `tls.verify_mode` | string | `verify` | Режим проверки TLS: `verify`, `skip` |
+| `tls.verify_mode` | string | `verify` | Режим проверки TLS: `verify`, `insecure` |
 | `tls.ca_file` | string | `""` | Файл CA-сертификата (опционально) |
 | `tls.server_name` | string | `""` | TLS SNI имя сервера (опционально) |
+| `tls.sni` | []string | — | Список SNI доменов (случайный выбор при connect, требуется `verify_mode: insecure`) |
 | `mtu` | int | `1400` | MTU TUN-интерфейса |
 | `ipv6` | bool | `false` | Включить поддержку IPv6 |
 | `auto_reconnect` | bool | `true` | Автоматическое переподключение при разрыве |
-| `compression` | bool | `false` | Включить сжатие WebSocket per-message |
 | `multiplex` | bool | `false` | Включить мультиплексирование WebSocket |
 | `crypto.enabled` | bool | `false` | Включить шифрование AES-256-GCM |
 | `crypto.key` | string | `""` | 256-битный мастер-ключ, 64 hex символа (должен совпадать с серверным) |
@@ -111,11 +129,22 @@ logging:
 ### Пример конфигурации клиента
 
 ```yaml
-server: wss://vpn.example.com/tunnel
+server: wss://vpn.example.com/api/v1/events
 auth:
   token: your-token-here
+obfuscation:
+  enabled: true
+  utls:
+    enabled: true
+    fallback: true
+  padding:
+    enabled: true
+    size: 512
 tls:
-  verify_mode: verify
+  verify_mode: insecure
+  sni:
+    - www.cloudflare.com
+    - www.google.com
 mtu: 1400
 ipv6: false
 auto_reconnect: true

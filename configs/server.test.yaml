@@ -1,4 +1,9 @@
 listen: :443
+ws_paths:
+  - /tunnel
+  - /api/v1/test
+obfuscation:
+  enabled: true
 tls:
   cert: ""
   key: ""

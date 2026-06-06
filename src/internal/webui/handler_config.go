@@ -34,7 +34,7 @@ func defaultConfig() *config.ClientConfig {
 		Log:           config.LogConfig{Level: "info"},
 		Mode:          "proxy",
 		Transport:     "quic",
-		Obfuscation:   true,
+		Obfuscation:   &config.ObfuscationCfg{Enabled: true},
 		TLS:           config.ClientTLSCfg{VerifyMode: "verify"},
 		Routing: &config.RoutingCfg{
 			DefaultRoute:  "server",

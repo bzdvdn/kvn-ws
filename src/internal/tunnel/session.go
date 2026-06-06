@@ -192,11 +192,12 @@ func (s *Session) wsToTun(ctx context.Context) error {
 			} else {
 				tcpConn, err := net.DialTimeout("tcp", dst, 10*time.Second)
 				if err != nil {
-					s.logger.Warn("proxy dial failed", zap.String("dst", dst), zap.Error(err))
+					s.logger.Warn("proxy dial failed", zap.String("dst", dst), zap.String("ip", dst), zap.Error(err))
 					f.Release()
 					continue
 				}
 				s.proxyStreams.Store(streamID, tcpConn)
+				s.logger.Info("proxy tunnel", zap.String("dst", dst), zap.String("ip", dst))
 				if len(data) > 0 {
 					_, _ = tcpConn.Write(data)
 				}

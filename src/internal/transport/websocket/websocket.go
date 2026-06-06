@@ -6,7 +6,11 @@ package websocket
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/binary"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -15,16 +19,23 @@ import (
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+
+	wtls "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 )
 
 const MultiplexSubprotocol = "kvn-ws-mux"
 const DefaultPongTimeout = 45 * time.Second
 
 // @sk-task performance-and-polish#T1.1: WSConfig for Dial/Accept options (AC-004, AC-006, AC-007)
+// @sk-task whitelist-obfuscation#T2.1: add UTLS field (AC-001)
+// @sk-task whitelist-obfuscation#T3.2: add Padding fields (AC-005)
 type WSConfig struct {
-	Compression bool
-	Multiplex   bool
-	MTU         int
+	Multiplex      bool
+	MTU            int
+	UTLS           bool
+	UTLSFallback   bool
+	PaddingEnabled bool
+	PaddingSize    int
 }
 
 // @sk-task core-tunnel-mvp#T2.1: WebSocket connection wrapper (AC-002)
@@ -121,14 +132,49 @@ func (c *WSConn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+// @sk-task whitelist-obfuscation#T3.2: padding frame unwrap in ReadMessage (AC-005)
 func (c *WSConn) ReadMessage() ([]byte, error) {
 	_, msg, err := c.conn.ReadMessage()
-	return msg, err
+	if err != nil {
+		return nil, err
+	}
+	if c.cfg.PaddingEnabled {
+		if len(msg) < 4 {
+			return nil, errors.New("padding frame too short")
+		}
+		payloadLen := int(binary.BigEndian.Uint32(msg[:4]))
+		if payloadLen < 0 || payloadLen > len(msg)-4 {
+			return nil, errors.New("invalid padding frame payload length")
+		}
+		return msg[4 : 4+payloadLen], nil
+	}
+	return msg, nil
 }
 
+// @sk-task whitelist-obfuscation#T3.2: padding frame wrap in WriteMessage (AC-005)
 func (c *WSConn) WriteMessage(data []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+
+	if c.cfg.PaddingEnabled {
+		payloadLen := len(data)
+		totalLen := 4 + payloadLen
+
+		padSize := c.cfg.PaddingSize
+		if padSize <= 0 {
+			padSize = 512
+		}
+		padding := (padSize - totalLen%padSize) % padSize
+
+		msg := make([]byte, totalLen+padding)
+		binary.BigEndian.PutUint32(msg[:4], uint32(payloadLen))
+		copy(msg[4:], data)
+		if padding > 0 {
+			_, _ = rand.Read(msg[totalLen:])
+		}
+		return c.conn.WriteMessage(websocket.BinaryMessage, msg)
+	}
+
 	return c.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
@@ -181,20 +227,26 @@ func (c *WSConn) SetPingHandler(h func(string) error) {
 
 // @sk-task performance-and-polish#T2.2: TCP_NODELAY via NetDial (AC-002)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+// @sk-task whitelist-obfuscation#T2.1: uTLS support via NetDialTLSContext (AC-001)
 func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WSConfig) (*WSConn, error) {
 	var wsCfg WSConfig
 	if len(cfg) > 0 {
 		wsCfg = cfg[0]
 	}
 	d := websocket.Dialer{
-		TLSClientConfig:   tlsConfig,
 		HandshakeTimeout:  10 * time.Second,
-		EnableCompression: wsCfg.Compression,
 	}
 	if wsCfg.Multiplex {
 		d.Subprotocols = []string{MultiplexSubprotocol}
 	}
-	d.NetDial = func(network, addr string) (net.Conn, error) {
+	if wsCfg.UTLS {
+		d.NetDialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return wtls.DialWithUTLS(network, addr, tlsConfig, wsCfg.UTLSFallback)
+		}
+	} else {
+		d.TLSClientConfig = tlsConfig
+	}
+	d.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		conn, err := net.Dial(network, addr)
 		if err != nil {
 			return conn, err
@@ -207,9 +259,6 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 	conn, _, err := d.Dial(serverURL, nil)
 	if err != nil {
 		return nil, err
-	}
-	if wsCfg.Compression {
-		_ = conn.SetCompressionLevel(4)
 	}
 	// @sk-task post-hardening#T2.1: cap incoming message size (AC-005)
 	conn.SetReadLimit(1 << 20) // 1MB
@@ -279,7 +328,6 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 
 	upgrader := websocket.Upgrader{
 		CheckOrigin:       checkOrigin,
-		EnableCompression: cfg.Compression,
 	}
 	if cfg.Multiplex {
 		upgrader.Subprotocols = []string{MultiplexSubprotocol}
@@ -290,9 +338,6 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	}
 	if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
 		_ = tcpConn.SetNoDelay(true)
-	}
-	if cfg.Compression {
-		_ = conn.SetCompressionLevel(4)
 	}
 	wsConn := &WSConn{conn: conn, cfg: cfg, logger: logger}
 	wsConn.SetPingHandler(func(appData string) error {

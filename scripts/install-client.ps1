@@ -157,7 +157,14 @@ mode: proxy
 proxy_listen: ${ProxyListen}
 server: ${Server}
 transport: quic
-obfuscation: true
+obfuscation:
+  enabled: true
+  utls:
+    enabled: true
+    fallback: true
+  padding:
+    enabled: true
+    size: 512
 auth:
   token: ${Token}
 tls:

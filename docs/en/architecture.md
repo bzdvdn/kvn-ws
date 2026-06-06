@@ -71,7 +71,8 @@ flowchart TB
 | TUN Interface | `src/internal/tun/` | Virtual network interface abstraction |
 | Routing Engine | `src/internal/routing/` | RuleSet engine: server/direct, CIDR, domain, IP matching |
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT proxy for local traffic |
-| WebSocket Dialer | `src/internal/transport/websocket/` | WebSocket client connection |
+| WebSocket Dialer | `src/internal/transport/websocket/` | WebSocket client connection with optional padding |
+| uTLS Dialer | `src/internal/transport/tls/` | Browser-like TLS (uTLS, Chrome JA3), custom SNI selection |
 | QUIC Dialer | `src/internal/transport/quic/` | QUIC (UDP) dial + ObfuscatedQUICConn |
 | DNS Resolver | `src/internal/dns/` | DNS resolution with TTL caching |
 | Crypto | `src/internal/crypto/` | App-layer encryption (AES-256-GCM, per-session key) |
@@ -95,9 +96,9 @@ Transport is selected by the `transport` config field:
 
 #### WebSocket (TCP)
 1. Client reads config from `client.yaml`
-2. Client establishes TLS 1.3 connection to server URL
-3. Client sends WebSocket upgrade request with `/ws` path
-4. Server accepts WebSocket connection, upgrades to binary mode
+2. Client establishes TLS 1.3 connection to server URL; if `uTLS.enabled` — uses Chrome JA3 fingerprint via `utls.HelloChrome_Auto`; if `tls.sni` is set — picks a random domain per-connect
+3. Client sends WebSocket upgrade request with path from URL (e.g. `/api/v1/events`, not hardcoded `/ws`)
+4. Server validates path against `ws_paths` allowlist (404 if unknown), accepts WebSocket upgrade to binary mode
 5. Client sends `ClientHello` frame (protocol version, supported features)
 6. Server responds with `ServerHello` (session ID, assigned IP, capabilities)
 7. Client configures TUN interface with assigned IP
@@ -105,11 +106,11 @@ Transport is selected by the `transport` config field:
 
 #### QUIC (UDP)
 1. Client reads config from `client.yaml`
-2. Client opens QUIC connection (built-in TLS 1.3 handshake) to the server
+2. Client opens QUIC connection (built-in TLS 1.3 handshake) to the server; if `tls.sni` is set — picks a random domain per-connect
 3. Client opens a single QUIC stream
-4. If `obfuscation: true`, client generates an 8-byte nonce and sends it as the first bytes of the stream
-5. Client sends `ClientHello` (with XOR-obfuscated length prefix if obfuscation enabled)
-6. Server responds with `ServerHello` (with XOR-obfuscation)
+4. After handshake, both sides derive an 8-byte nonce via TLS Exporter (`ExportKeyingMaterial("kvn-obfuscation", nil, 8)`) — 0 bytes on wire
+5. Client sends `ClientHello` with full payload XOR-obfuscated (not just length prefix)
+6. Server responds with `ServerHello` (full payload XOR-obfuscated)
 7. Client configures TUN interface with assigned IP
 8. Client routing engine starts processing packets
 
@@ -117,11 +118,11 @@ Transport is selected by the `transport` config field:
 
 1. Application on client sends packet to TUN interface
 2. Client routing engine evaluates rules (ordered): direct or tunnel
-3. For tunnel: packet is encapsulated in a frame (length-prefix + payload), optionally encrypted
-4. If `transport: quic` with `obfuscation: true`, the length prefix is XOR'd with the nonce before sending
-5. Server receives frame, decrypts if needed, extracts packet
+3. For tunnel: packet is encapsulated in a frame (length-prefix + payload), optionally encrypted; for WS transport with `padding.enabled: true` — frame is wrapped in `[4B length][payload][random padding]` aligned to `padding.size`
+4. If `transport: quic` with `obfuscation: true`, the full payload is XOR'd with the TLS Exporter nonce before sending (not just length prefix)
+5. Server receives frame, strips WS padding if enabled, decrypts if needed, extracts packet
 6. Server applies NAT (MASQUERADE) and forwards to target
-7. Response follows reverse path: server receives → encapsulates → sends (with XOR-obfuscation if enabled) → client extracts → injects to TUN
+7. Response follows reverse path: server receives → encapsulates → sends (with full XOR-obfuscation if enabled) → client extracts → injects to TUN
 
 ### Keepalive
 

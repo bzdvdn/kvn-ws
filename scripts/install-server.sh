@@ -171,7 +171,18 @@ if [ ! -f "$CONFDIR/server.yaml" ]; then
   cat > "$CONFDIR/server.yaml" <<EOF
 listen: ${LISTEN}
 transport: quic
-obfuscation: true
+ws_paths:
+  - ws/
+  - /api/v1/events
+  - /tunel
+obfuscation:
+  enabled: true
+  utls:
+    enabled: true
+    fallback: true
+  padding:
+    enabled: true
+    size: 512
 tls:
   cert: ${CONFDIR}/certs/cert.pem
   key: ${CONFDIR}/certs/key.pem
@@ -287,6 +298,14 @@ echo "       systemctl enable --now kvn-server"
 echo "  4. Check logs:"
 echo "       journalctl -u kvn-server -f"
 echo "  5. Client config (auth token: ${TOKEN}):"
-echo "       server: wss://YOUR_SERVER_IP:443/tunnel"
+echo "       server: wss://YOUR_SERVER_IP/api/v1/events"
 echo "       auth.token: ${TOKEN}"
+echo "       obfuscation:"
+echo "         enabled: true"
+echo "         utls:"
+echo "           enabled: true"
+echo "           fallback: true"
+echo "         padding:"
+echo "           enabled: true"
+echo "           size: 512"
 echo ""

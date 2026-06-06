@@ -321,7 +321,7 @@ All client settings (server, auth, TLS, routing, proxy, advanced) are available 
 | Connection | Server, Token, Mode (proxy/TUN), Proxy Listen/Auth |
 | TLS | Verify Mode, Server Name (SNI), CA File |
 | Routing | Default Route, CIDR Include/Exclude, IP Include/Exclude |
-| Advanced | MTU, Log Level, IPv6, Auto Reconnect, Compression, Multiplex |
+| Advanced | MTU, Log Level, IPv6, Auto Reconnect, Multiplex |
 | Kill Switch & Reconnect | Kill Switch toggle, Min/Max Backoff |
 | Encryption | App-Layer Encryption toggle, Key |
 

@@ -1,10 +1,21 @@
 server: wss://example.com/tunnel
 auth:
   token: your-token-here
+obfuscation:
+  enabled: true
+  utls:
+    enabled: true
+    fallback: true
+  padding:
+    enabled: true
+    size: 512
 tls:
   verify_mode: verify
   ca_file: ""
   server_name: example.com
+  sni:
+    - www.cloudflare.com
+    - www.google.com
 mtu: 1400
 ipv6: false
 auto_reconnect: true

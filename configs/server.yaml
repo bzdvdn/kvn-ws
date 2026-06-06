@@ -1,4 +1,12 @@
 listen: :443
+ws_paths:
+  - /tunnel
+  - /api/v1/events
+obfuscation:
+  enabled: true
+  padding:
+    enabled: true
+    size: 512
 tls:
   cert: cert.pem
   key: key.pem

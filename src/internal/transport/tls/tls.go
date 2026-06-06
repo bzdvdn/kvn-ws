@@ -7,7 +7,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"math/rand"
+	"net"
 	"os"
+
+	utls "github.com/refraction-networking/utls"
 )
 
 // @sk-task core-tunnel-mvp#T2.2: TLS 1.3 config (AC-003)
@@ -120,4 +124,40 @@ func NewClientTLSConfigFromSettings(settings ClientTLSSettings) (*tls.Config, er
 	}
 
 	return cfg, nil
+}
+
+// @sk-task whitelist-obfuscation#T2.1: uTLS dial wrapper (AC-001)
+// DialWithUTLS establishes a TLS connection using uTLS with Chrome fingerprint.
+// Falls back to crypto/tls on any error if fallback is true.
+func DialWithUTLS(network, addr string, tlsCfg *tls.Config, fallback bool) (net.Conn, error) {
+	rawConn, err := net.Dial(network, addr)
+	if err != nil {
+		return nil, fmt.Errorf("tcp dial: %w", err)
+	}
+
+	utlsCfg := &utls.Config{
+		ServerName:         tlsCfg.ServerName,
+		InsecureSkipVerify: tlsCfg.InsecureSkipVerify,
+		RootCAs:            tlsCfg.RootCAs,
+		MinVersion:         tlsCfg.MinVersion,
+	}
+
+	uconn := utls.UClient(rawConn, utlsCfg, utls.HelloChrome_Auto)
+	if err := uconn.Handshake(); err != nil {
+		rawConn.Close()
+		if fallback {
+			return tls.Dial(network, addr, tlsCfg)
+		}
+		return nil, fmt.Errorf("utls handshake: %w", err)
+	}
+	return uconn, nil
+}
+
+// @sk-task whitelist-obfuscation#T3.1: random SNI selection (AC-004)
+// SelectSNI picks a random domain from the list. Returns empty string if list is empty.
+func SelectSNI(list []string) string {
+	if len(list) == 0 {
+		return ""
+	}
+	return list[rand.Intn(len(list))]
 }

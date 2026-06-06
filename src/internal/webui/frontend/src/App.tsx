@@ -6,17 +6,20 @@ interface ClientConfig {
   server?: string;
   auth?: { token?: string };
   transport?: string;
-  obfuscation?: boolean;
+  obfuscation?: {
+    enabled?: boolean;
+    utls?: { enabled?: boolean; fallback?: boolean };
+    padding?: { enabled?: boolean; size?: number };
+  };
   mode?: string;
   mtu?: number;
   ipv6?: boolean;
   auto_reconnect?: boolean;
-  compression?: boolean;
   multiplex?: boolean;
   proxy_listen?: string;
   proxy_auth?: { username?: string; password?: string };
   log?: { level?: string };
-  tls?: { verify_mode?: string; server_name?: string; ca_file?: string };
+  tls?: { verify_mode?: string; server_name?: string; ca_file?: string; sni?: string[] };
   kill_switch?: { enabled?: boolean };
   crypto?: { enabled?: boolean; key?: string };
   routing?: {
@@ -67,6 +70,8 @@ function App() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
+  const [logFilter, setLogFilter] = useState<Record<string, boolean>>({ debug: true, info: true, warn: true, error: true });
+  const [logSearch, setLogSearch] = useState("");
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -89,6 +94,11 @@ function App() {
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
 
+  const filteredLogs = logs.filter((e) => {
+    if (logSearch && !e.line.toLowerCase().includes(logSearch.toLowerCase()) && !(e.ip || "").toLowerCase().includes(logSearch.toLowerCase())) return false;
+    return logFilter[e.level] ?? true;
+  });
+
   const saveConfig = useCallback(async () => {
     setSaving(true);
     try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) }); } finally { setSaving(false); }
@@ -104,6 +114,8 @@ function App() {
   const update = <K extends keyof ClientConfig>(key: K, value: ClientConfig[K]) => setConfig((prev) => ({ ...prev, [key]: value }));
   const nest = (parent: string, key: string, value: any) =>
     setConfig((prev) => ({ ...prev, [parent]: { ...((prev as any)[parent] || {}), [key]: value } }));
+  const nest2 = (parent: string, child: string, key: string, value: any) =>
+    setConfig((prev) => ({ ...prev, [parent]: { ...((prev as any)[parent] || {}), [child]: { ...((((prev as any)[parent] || {}) as any)[child] || {}), [key]: value } } }));
 
   const sc = status === "connected" ? "#4caf50" : status === "error" ? "#f44336" : status === "connecting" ? "#ff9800" : "#666";
 
@@ -192,6 +204,8 @@ function App() {
             <label style={lbl}>CA File
               <input style={inp} placeholder="/path/to/ca.pem" value={config.tls?.ca_file || ""} onChange={(e) => nest("tls", "ca_file", e.target.value)} />
             </label>
+            {/* @sk-task whitelist-obfuscation#T3.3: SNI chip list (AC-004) */}
+            <ChipList label="Custom SNI (random on connect)" values={config.tls?.sni} onChange={(v) => nest("tls", "sni", v)} />
           </Section>
 
           <Section title="Advanced">
@@ -206,13 +220,26 @@ function App() {
                   <option value="warn">Warn</option>
                   <option value="error">Error</option>
                 </select>
+                <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>Client log level (file/terminal). Live Log filter below.</div>
               </label>
             </div>
             <Checkbox checked={config.ipv6 ?? false} onChange={(v) => update("ipv6", v)} label="Enable IPv6" />
             <Checkbox checked={config.auto_reconnect ?? true} onChange={(v) => update("auto_reconnect", v)} label="Auto Reconnect" />
-            <Checkbox checked={config.compression ?? false} onChange={(v) => update("compression", v)} label="Compression" />
             <Checkbox checked={config.multiplex ?? false} onChange={(v) => update("multiplex", v)} label="Multiplex" />
-            <Checkbox checked={config.obfuscation ?? false} onChange={(v) => update("obfuscation", v)} label="QUIC Obfuscation (anti-DPI)" />
+            {/* @sk-task whitelist-obfuscation#T3.3: obfuscation sub-settings (AC-005) */}
+            <Checkbox checked={config.obfuscation?.enabled ?? false} onChange={(v) => nest("obfuscation", "enabled", v)} label="Obfuscation (anti-DPI)" />
+            {config.obfuscation?.enabled && <div style={{ marginLeft: 16, marginTop: 4, padding: "6px 8px", borderLeft: "2px solid #333" }}>
+              <Checkbox checked={config.obfuscation?.utls?.enabled ?? false} onChange={(v) => nest2("obfuscation", "utls", "enabled", v)} label="uTLS (Chrome JA3 fingerprint)" />
+              {config.obfuscation?.utls?.enabled && <div style={{ marginLeft: 16 }}>
+                <Checkbox checked={config.obfuscation?.utls?.fallback ?? true} onChange={(v) => nest2("obfuscation", "utls", "fallback", v)} label="uTLS Fallback (crypto/tls on error)" />
+              </div>}
+              <Checkbox checked={config.obfuscation?.padding?.enabled ?? false} onChange={(v) => nest2("obfuscation", "padding", "enabled", v)} label="WS Padding (fixed packet size)" />
+              {config.obfuscation?.padding?.enabled && <div style={{ marginLeft: 16 }}>
+                <label style={lbl}>Padding Size
+                  <input type="number" style={inp} value={config.obfuscation?.padding?.size ?? 512} onChange={(e) => nest2("obfuscation", "padding", "size", parseInt(e.target.value) || 512)} />
+                </label>
+              </div>}
+            </div>}
           </Section>
 
           <Section title="Routing">
@@ -255,12 +282,22 @@ function App() {
 
       {/* Right: Logs */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ padding: "10px 16px", borderBottom: "1px solid #2a2a2a", fontSize: 12, fontWeight: 600, color: "#666", letterSpacing: "0.5px" }}>
-          LIVE LOG
+        <div style={{ padding: "6px 12px", borderBottom: "1px solid #2a2a2a", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "#666", letterSpacing: "0.5px" }}>LIVE LOG</span>
+          {["debug", "info", "warn", "error"].map((lvl) => (
+            <label key={lvl} style={{ fontSize: 11, color: "#888", cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
+              <input type="checkbox" checked={logFilter[lvl] ?? true} onChange={(e) => setLogFilter((p) => ({ ...p, [lvl]: e.target.checked }))}
+                style={{ cursor: "pointer" }} />
+              <span style={{ color: lvl === "error" ? "#f44336" : lvl === "warn" ? "#ff9800" : lvl === "info" ? "#c0c0c0" : "#666" }}>{lvl}</span>
+            </label>
+          ))}
+          <input style={{ flex: 1, minWidth: 100, padding: "3px 6px", border: "1px solid #444", background: "#222", color: "#e0e0e0", borderRadius: 4, fontSize: 11 }}
+            placeholder="Filter IP or text..." value={logSearch} onChange={(e) => setLogSearch(e.target.value)} />
+          {filteredLogs.length !== logs.length && <span style={{ fontSize: 10, color: "#555" }}>{filteredLogs.length}/{logs.length}</span>}
         </div>
         <pre style={{ flex: 1, margin: 0, padding: 12, overflowY: "auto", background: "#0d0d0d", color: "#c0c0c0", fontSize: 12, lineHeight: 1.6, fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace" }}>
-          {logs.length === 0 && <span style={{ color: "#444" }}>No entries yet. Connect to see logs.</span>}
-          {logs.map((entry, i) => (
+          {filteredLogs.length === 0 && <span style={{ color: "#444" }}>No entries yet. Connect to see logs.</span>}
+          {filteredLogs.map((entry, i) => (
             <div key={i} style={{ color: entry.level === "error" ? "#f44336" : entry.level === "warn" ? "#ff9800" : "#c0c0c0" }}>
               {entry.ts && <span style={{ color: "#666" }}>{entry.ts} </span>}
               <span>{entry.line}</span>

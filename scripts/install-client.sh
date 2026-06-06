@@ -135,7 +135,14 @@ if [ -n "$SERVER" ] && [ -n "$TOKEN" ]; then
     cat > "$CONFIG_FILE" <<EOF
 server: ${SERVER}
 transport: quic
-obfuscation: true
+obfuscation:
+  enabled: true
+  utls:
+    enabled: true
+    fallback: true
+  padding:
+    enabled: true
+    size: 512
 auth:
   token: ${TOKEN}
 mode: ${MODE}

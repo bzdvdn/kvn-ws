@@ -1,6 +1,8 @@
 server: https://kvn-server:443/ws
 auth:
   token: test-token
+obfuscation:
+  enabled: true
 mtu: 1400
 ipv6: false
 auto_reconnect: true

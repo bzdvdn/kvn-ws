@@ -1,24 +1,28 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/spf13/viper"
 	"go.yaml.in/yaml/v3"
 )
 
 // @sk-task foundation#T2.3: client config struct (AC-006)
-// @sk-task performance-and-polish#T1.1: add Compression, Multiplex fields (AC-006, AC-007)
+// @sk-task performance-and-polish#T1.1: add Multiplex fields (AC-006, AC-007)
 // @sk-task local-proxy-mode#T1.1: add Mode, ProxyListen, ProxyAuth fields (AC-003, AC-004)
 // @sk-task app-crypto#T3: add Crypto config (AC-006)
 // @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
 // @sk-task quic-obfuscation#T2.1: add Obfuscation field (AC-001)
+// @sk-task whitelist-obfuscation#T1.1: Obfuscation bool → struct (AC-001)
 type ClientConfig struct {
 	Server        string         `json:"server" mapstructure:"server"`
 	Transport     string         `json:"transport" mapstructure:"transport"`
-	Obfuscation   bool           `json:"obfuscation" mapstructure:"obfuscation"`
+	Obfuscation   *ObfuscationCfg `json:"obfuscation,omitempty" mapstructure:"obfuscation"`
 	Auth          AuthCfg        `json:"auth" mapstructure:"auth"`
 	TLS           ClientTLSCfg   `json:"tls" mapstructure:"tls"`
 	MTU           int            `json:"mtu" mapstructure:"mtu"`
@@ -28,7 +32,6 @@ type ClientConfig struct {
 	Routing       *RoutingCfg    `json:"routing" mapstructure:"routing"`
 	KillSwitch    *KillSwitchCfg `json:"kill_switch" mapstructure:"kill_switch"`
 	Reconnect     *ReconnectCfg  `json:"reconnect" mapstructure:"reconnect"`
-	Compression   bool           `json:"compression" mapstructure:"compression"`
 	Multiplex     bool           `json:"multiplex" mapstructure:"multiplex"`
 	Mode          string         `json:"mode" mapstructure:"mode"`
 	ProxyListen   string         `json:"proxy_listen" mapstructure:"proxy_listen"`
@@ -36,11 +39,29 @@ type ClientConfig struct {
 	Crypto        CryptoCfg      `json:"crypto" mapstructure:"crypto"`
 }
 
+type ObfuscationCfg struct {
+	Enabled bool       `json:"enabled" mapstructure:"enabled"`
+	UTLS    *UTLSCfg   `json:"utls,omitempty" mapstructure:"utls"`
+	Padding *PaddingCfg `json:"padding,omitempty" mapstructure:"padding"`
+}
+
+type UTLSCfg struct {
+	Enabled  bool `json:"enabled" mapstructure:"enabled"`
+	Fallback bool `json:"fallback" mapstructure:"fallback"`
+}
+
+type PaddingCfg struct {
+	Enabled bool `json:"enabled" mapstructure:"enabled"`
+	Size    int  `json:"size" mapstructure:"size"`
+}
+
 // @sk-task production-gap#T1.1: explicit client TLS trust surface (AC-001)
+// @sk-task whitelist-obfuscation#T1.1: add SNI list (AC-004)
 type ClientTLSCfg struct {
-	CAFile     string `json:"ca_file" mapstructure:"ca_file"`
-	ServerName string `json:"server_name" mapstructure:"server_name"`
-	VerifyMode string `json:"verify_mode" mapstructure:"verify_mode"`
+	CAFile     string   `json:"ca_file" mapstructure:"ca_file"`
+	ServerName string   `json:"server_name" mapstructure:"server_name"`
+	VerifyMode string   `json:"verify_mode" mapstructure:"verify_mode"`
+	SNI        []string `json:"sni,omitempty" mapstructure:"sni"`
 }
 
 type ProxyAuthCfg struct {
@@ -76,10 +97,30 @@ type AuthCfg struct {
 
 // @sk-task routing-split-tunnel#T2.1: load config with routing defaults (AC-009)
 // @sk-task production-readiness-gap#T1: secrets management — warn when secrets in YAML (AC-001)
+// @sk-task whitelist-obfuscation#T1.2: obfuscation backward compat decoder (AC-001)
 func LoadClientConfig(path string) (*ClientConfig, error) {
+	v := viper.New()
+	v.SetConfigFile(path)
+	v.SetEnvPrefix("KVN_CLIENT")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	envPrefixForWarning = "KVN_CLIENT"
+
+	if err := v.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("read config %s: %w", path, err)
+	}
+
+	// backward compat: obfuscation: true → {enabled: true}
+	if raw := v.Get("obfuscation"); raw != nil {
+		if _, ok := raw.(bool); ok {
+			v.Set("obfuscation", map[string]interface{}{"enabled": raw})
+		}
+	}
+
 	cfg := &ClientConfig{}
-	if err := load(path, "KVN_CLIENT", cfg); err != nil {
-		return nil, err
+	if err := v.Unmarshal(cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal config %s: %w", path, err)
 	}
 	if cfg.MTU == 0 {
 		cfg.MTU = 1400

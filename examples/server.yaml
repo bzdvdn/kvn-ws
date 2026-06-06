@@ -2,7 +2,15 @@
 <!-- @sk-task production-gap#T2.3: server example reads runtime-generated cert material (AC-003) -->
 listen: :443
 transport: quic
-obfuscation: true
+ws_paths:
+  - /tunnel
+  - /api/v1/events
+  - /ws/chat
+obfuscation:
+  enabled: true
+  padding:
+    enabled: true
+    size: 512
 tls:
   cert: /etc/kvn-ws/certs/server.pem
   key: /etc/kvn-ws/certs/server-key.pem

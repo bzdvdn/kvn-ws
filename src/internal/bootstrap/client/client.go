@@ -87,6 +87,14 @@ func New() (*Client, error) {
 	}, nil
 }
 
+// @sk-task whitelist-obfuscation#T3.2: padding size default helper (AC-005)
+func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
+	if oc != nil && oc.Padding != nil && oc.Padding.Size > 0 {
+		return oc.Padding.Size
+	}
+	return 512
+}
+
 func (c *Client) Run(ctx context.Context) error {
 	defer c.logger.Info("client stopped")
 

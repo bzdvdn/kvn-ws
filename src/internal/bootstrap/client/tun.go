@@ -23,6 +23,8 @@ import (
 )
 
 // @sk-task quic-obfuscation#T2.2: wrap QUICConn after dial if obfuscation (AC-001, AC-002)
+// @sk-task whitelist-obfuscation#T3.2: padding config propagation (AC-005)
+// @sk-task whitelist-obfuscation#T4.1: QUIC isClient param removed (AC-006)
 func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 	minBackoff := 1 * time.Second
 	maxBackoff := 30 * time.Second
@@ -42,6 +44,11 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 	})
 	if err != nil {
 		c.logger.Fatal("client tls config", zap.Error(err))
+	}
+
+	// @sk-task whitelist-obfuscation#T3.1: random SNI for each connection (AC-004)
+	if sni := tls.SelectSNI(c.cfg.TLS.SNI); sni != "" {
+		tlsCfg.ServerName = sni
 	}
 
 	backoff := minBackoff
@@ -77,10 +84,10 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
 				transport = "tcp"
 			} else {
-				if c.cfg.Obfuscation {
+				if c.cfg.Obfuscation != nil && c.cfg.Obfuscation.Enabled {
 					c.logger.Info("QUIC obfuscation enabled")
 					var obfErr error
-					stream, obfErr = quictp.NewObfuscatedQUICConn(quicConn, true)
+					stream, obfErr = quictp.NewObfuscatedQUICConn(quicConn)
 					if obfErr != nil {
 						c.logger.Warn("QUIC obfuscation init failed, falling back to TCP", zap.Error(obfErr))
 						transport = "tcp"
@@ -92,10 +99,14 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 		}
 
 		if transport != "quic" {
+			paddingEnabled := c.cfg.Obfuscation != nil && c.cfg.Obfuscation.Padding != nil && c.cfg.Obfuscation.Padding.Enabled
 			wsCfg := websocket.WSConfig{
-				Compression: c.cfg.Compression,
-				Multiplex:   c.cfg.Multiplex,
-				MTU:         c.cfg.MTU,
+				Multiplex:      c.cfg.Multiplex,
+				MTU:            c.cfg.MTU,
+				UTLS:           c.cfg.Obfuscation != nil && c.cfg.Obfuscation.UTLS != nil && c.cfg.Obfuscation.UTLS.Enabled,
+				UTLSFallback:   c.cfg.Obfuscation != nil && c.cfg.Obfuscation.UTLS != nil && c.cfg.Obfuscation.UTLS.Fallback,
+				PaddingEnabled: paddingEnabled,
+				PaddingSize:    paddingSizeOrDefault(c.cfg.Obfuscation),
 			}
 			wsConn, err := websocket.Dial(c.cfg.Server, tlsCfg, c.logger, wsCfg)
 			if err != nil {

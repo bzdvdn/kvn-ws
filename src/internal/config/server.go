@@ -10,28 +10,29 @@ import (
 
 // @sk-task foundation#T2.3: server config struct (AC-007)
 // @sk-task security-acl#T1: TokenCfg structured config
-// @sk-task performance-and-polish#T1.1: add Compression, Multiplex, MTU fields (AC-004, AC-006, AC-007)
+// @sk-task performance-and-polish#T1.1: add Multiplex, MTU fields (AC-004, AC-006, AC-007)
 // @sk-task app-crypto#T3: add Crypto config (AC-006)
 // @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
 // @sk-task quic-obfuscation#T2.1: add Obfuscation field (AC-001)
+// @sk-task whitelist-obfuscation#T1.3: add WSPaths field (AC-003)
 type ServerConfig struct {
-	Listen       string       `mapstructure:"listen"`
-	Transport    string       `mapstructure:"transport"`
-	Obfuscation  bool         `mapstructure:"obfuscation"`
-	TLS          TLSCfg       `mapstructure:"tls"`
-	Network      NetworkCfg   `mapstructure:"network"`
-	Session      SessionCfg   `mapstructure:"session"`
-	Auth         ServerAuth   `mapstructure:"auth"`
-	Logging      LogConfig    `mapstructure:"logging"`
-	RateLimiting RateLimitCfg `mapstructure:"rate_limiting"`
-	BoltDBPath   string       `mapstructure:"bolt_db_path"`
-	ACL          ACLCfg       `mapstructure:"acl"`
-	Origin       OriginCfg    `mapstructure:"origin"`
-	Admin        AdminCfg     `mapstructure:"admin"`
-	Compression  bool         `mapstructure:"compression"`
-	Multiplex    bool         `mapstructure:"multiplex"`
-	MTU          int          `mapstructure:"mtu"`
-	Crypto       CryptoCfg    `mapstructure:"crypto"`
+	Listen       string          `mapstructure:"listen"`
+	Transport    string          `mapstructure:"transport"`
+	Obfuscation  *ObfuscationCfg `mapstructure:"obfuscation"`
+	WSPaths      []string        `mapstructure:"ws_paths"`
+	TLS          TLSCfg          `mapstructure:"tls"`
+	Network      NetworkCfg      `mapstructure:"network"`
+	Session      SessionCfg      `mapstructure:"session"`
+	Auth         ServerAuth      `mapstructure:"auth"`
+	Logging      LogConfig       `mapstructure:"logging"`
+	RateLimiting RateLimitCfg    `mapstructure:"rate_limiting"`
+	BoltDBPath   string          `mapstructure:"bolt_db_path"`
+	ACL          ACLCfg          `mapstructure:"acl"`
+	Origin       OriginCfg       `mapstructure:"origin"`
+	Admin        AdminCfg        `mapstructure:"admin"`
+	Multiplex    bool            `mapstructure:"multiplex"`
+	MTU          int             `mapstructure:"mtu"`
+	Crypto       CryptoCfg       `mapstructure:"crypto"`
 }
 
 type CryptoCfg struct {
@@ -169,6 +170,7 @@ func convertRawTokens(raw interface{}) []TokenCfg {
 }
 
 // @sk-task production-readiness-gap#T1: secrets management — env override with YAML warning (AC-001)
+// @sk-task whitelist-obfuscation#T1.3: obfuscation backward compat + WSPaths default (AC-003)
 func LoadServerConfig(path string) (*ServerConfig, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
@@ -182,10 +184,22 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
+	// backward compat: obfuscation: true → {enabled: true}
+	if raw := v.Get("obfuscation"); raw != nil {
+		if _, ok := raw.(bool); ok {
+			v.Set("obfuscation", map[string]interface{}{"enabled": raw})
+		}
+	}
+
 	cfg := &ServerConfig{}
 
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config %s: %w", path, err)
+	}
+
+	// default ws_paths
+	if cfg.WSPaths == nil {
+		cfg.WSPaths = []string{"/tunnel"}
 	}
 
 	if rawTokens, ok := v.Get("auth.tokens").([]interface{}); ok && len(cfg.Auth.Tokens) == 0 {

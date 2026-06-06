@@ -265,10 +265,16 @@ func New(configPath string) (*Server, error) {
 	return s, nil
 }
 
+// @sk-task whitelist-obfuscation#T3.2: padding config in WSConfig (AC-005)
 func (s *Server) buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	tunnelHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// @sk-task whitelist-obfuscation#T2.2: WS path allowlist check (AC-003)
+		if !s.allowedWSPath(r.URL.Path) {
+			http.Error(w, "404 not found", http.StatusNotFound)
+			return
+		}
 		if !s.rl.Allow(r.RemoteAddr) {
 			pkglog.Audit(s.logger, zapcore.WarnLevel, "auth rate limited",
 				zap.String("remote_addr", r.RemoteAddr),
@@ -277,10 +283,12 @@ func (s *Server) buildMux() *http.ServeMux {
 			http.Error(w, "429 too many requests", http.StatusTooManyRequests)
 			return
 		}
+		paddingEnabled := s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Padding != nil && s.cfg.Obfuscation.Padding.Enabled
 		wsCfg := websocket.WSConfig{
-			Compression: s.cfg.Compression,
-			Multiplex:   s.cfg.Multiplex,
-			MTU:         s.cfg.MTU,
+			Multiplex:      s.cfg.Multiplex,
+			MTU:            s.cfg.MTU,
+			PaddingEnabled: paddingEnabled,
+			PaddingSize:    paddingSizeOrDefault(s.cfg.Obfuscation),
 		}
 		s.handleTunnel(w, r, wsCfg)
 	})
@@ -304,7 +312,7 @@ func (s *Server) buildMux() *http.ServeMux {
 		})
 	}
 
-	mux.Handle("/tunnel", cidrMiddleware(tunnelHandler))
+	mux.Handle("/", cidrMiddleware(tunnelHandler))
 	mux.HandleFunc("/livez", s.handleLivez)
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.HandleFunc("/health", s.handleHealth)
@@ -353,6 +361,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // @sk-task quic-obfuscation#T2.3: wrap QUICConn after Accept if obfuscation (AC-001, AC-002)
+// @sk-task whitelist-obfuscation#T4.1: QUIC isClient param removed (AC-006)
 func (s *Server) Run(ctx context.Context) error {
 	defer s.logger.Info("server stopped")
 
@@ -421,9 +430,9 @@ func (s *Server) Run(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("quic accept: %w", err)
 				}
-				if s.cfg.Obfuscation {
+				if s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Enabled {
 					s.logger.Debug("quic obfuscation enabled, wrapping connection")
-					obfConn, obfErr := quictp.NewObfuscatedQUICConn(quicConn, false)
+					obfConn, obfErr := quictp.NewObfuscatedQUICConn(quicConn)
 					if obfErr != nil {
 						s.logger.Error("quic obfuscation init failed, closing connection", zap.Error(obfErr))
 						_ = quicConn.Close()

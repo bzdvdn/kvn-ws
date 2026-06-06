@@ -40,9 +40,14 @@ kvn-ws uses YAML configuration files for both server and client.
 | `admin.token` | string | `""` | Admin API authentication token |
 | `acl.deny_cidrs` | []string | `[]` | CIDR deny list (denied before allow check) |
 | `acl.allow_cidrs` | []string | `[]` | CIDR allow list (empty = allow all) |
+| `ws_paths` | []string | `["/tunnel"]` | Allowed WebSocket endpoint paths (404 if not in list) |
 | `transport` | string | `""` | Transport: `quic` or empty (TCP/WebSocket) |
-| `obfuscation` | bool | `false` | Enable QUIC stream obfuscation (anti-DPI) |
-| `compression` | bool | `false` | Enable WebSocket per-message compression |
+| `obfuscation` | object | — | Obfuscation settings (anti-DPI). See below |
+| `obfuscation.enabled` | bool | `false` | Enable obfuscation |
+| `obfuscation.utls.enabled` | bool | `false` | Enable uTLS (Chrome JA3 fingerprint) for WS |
+| `obfuscation.utls.fallback` | bool | `true` | Fallback to crypto/tls on uTLS error |
+| `obfuscation.padding.enabled` | bool | `false` | Enable WS padding (fixed-size frames) |
+| `obfuscation.padding.size` | int | `512` | Padding alignment size |
 | `multiplex` | bool | `false` | Enable WebSocket multiplexing |
 | `mtu` | int | `1400` | TUN interface MTU |
 | `crypto.enabled` | bool | `false` | Enable app-layer AES-256-GCM encryption |
@@ -54,6 +59,14 @@ kvn-ws uses YAML configuration files for both server and client.
 
 ```yaml
 listen: :443
+ws_paths:
+  - /tunnel
+  - /api/v1/events
+obfuscation:
+  enabled: true
+  padding:
+    enabled: true
+    size: 512
 tls:
   cert: /etc/kvn-ws/cert.pem
   key: /etc/kvn-ws/key.pem
@@ -81,15 +94,20 @@ logging:
 | `server` | string | — | WebSocket server URL (e.g. `wss://example.com/tunnel`) |
 | `mode` | string | `tun` | Client mode: `tun` (VPN tunnel) or `proxy` (local SOCKS5/HTTP proxy) |
 | `transport` | string | `""` | Transport: `quic` or empty (TCP/WebSocket) |
-| `obfuscation` | bool | `false` | Enable QUIC stream obfuscation (anti-DPI) |
+| `obfuscation` | object | — | Obfuscation settings (anti-DPI). See server table |
+| `obfuscation.enabled` | bool | `false` | Enable obfuscation |
+| `obfuscation.utls.enabled` | bool | `false` | Enable uTLS (Chrome JA3 fingerprint) for WS |
+| `obfuscation.utls.fallback` | bool | `true` | Fallback to crypto/tls on uTLS error |
+| `obfuscation.padding.enabled` | bool | `false` | Enable WS padding (fixed-size frames) |
+| `obfuscation.padding.size` | int | `512` | Padding alignment size |
 | `auth.token` | string | — | Authentication token matching server config |
-| `tls.verify_mode` | string | `verify` | TLS verification mode: `verify`, `skip` |
+| `tls.verify_mode` | string | `verify` | TLS verification mode: `verify`, `insecure` |
 | `tls.ca_file` | string | `""` | Custom CA certificate file (optional) |
 | `tls.server_name` | string | `""` | TLS SNI server name (optional) |
+| `tls.sni` | []string | — | Custom SNI domains (random pick on connect, requires `verify_mode: insecure`) |
 | `mtu` | int | `1400` | TUN interface MTU |
 | `ipv6` | bool | `false` | Enable IPv6 support |
 | `auto_reconnect` | bool | `true` | Automatically reconnect on disconnect |
-| `compression` | bool | `false` | Enable WebSocket per-message compression |
 | `multiplex` | bool | `false` | Enable WebSocket multiplexing |
 | `crypto.enabled` | bool | `false` | Enable app-layer AES-256-GCM encryption |
 | `crypto.key` | string | `""` | 256-bit master key as 64 hex chars (must match server) |
@@ -111,11 +129,22 @@ logging:
 ### Client example
 
 ```yaml
-server: wss://vpn.example.com/tunnel
+server: wss://vpn.example.com/api/v1/events
 auth:
   token: your-token-here
+obfuscation:
+  enabled: true
+  utls:
+    enabled: true
+    fallback: true
+  padding:
+    enabled: true
+    size: 512
 tls:
-  verify_mode: verify
+  verify_mode: insecure
+  sni:
+    - www.cloudflare.com
+    - www.google.com
 mtu: 1400
 ipv6: false
 auto_reconnect: true

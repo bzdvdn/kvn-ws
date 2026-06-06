@@ -24,6 +24,8 @@ import (
 
 // @sk-task quic-proxy-mode#T2.2: transport selection in runProxyMode (AC-001, AC-002, AC-003)
 // @sk-task quic-obfuscation#T2.2: wrap QUICConn after dial if obfuscation (AC-001, AC-002)
+// @sk-task whitelist-obfuscation#T3.2: padding config propagation (AC-005)
+// @sk-task whitelist-obfuscation#T4.1: QUIC isClient param removed (AC-006)
 func (c *Client) runProxyMode(ctx context.Context) {
 	tlsCfg, err := tls.NewClientTLSConfigFromSettings(tls.ClientTLSSettings{
 		CAFile:     c.cfg.TLS.CAFile,
@@ -32,6 +34,11 @@ func (c *Client) runProxyMode(ctx context.Context) {
 	})
 	if err != nil {
 		c.logger.Fatal("proxy tls config", zap.Error(err))
+	}
+
+	// @sk-task whitelist-obfuscation#T3.1: random SNI for each connection (AC-004)
+	if sni := tls.SelectSNI(c.cfg.TLS.SNI); sni != "" {
+		tlsCfg.ServerName = sni
 	}
 
 	minBackoff := 1 * time.Second
@@ -77,10 +84,10 @@ func (c *Client) runProxyMode(ctx context.Context) {
 				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
 				transport = "tcp"
 			} else {
-				if c.cfg.Obfuscation {
+				if c.cfg.Obfuscation != nil && c.cfg.Obfuscation.Enabled {
 					c.logger.Info("QUIC obfuscation enabled")
 					var obfErr error
-					stream, obfErr = quictp.NewObfuscatedQUICConn(quicConn, true)
+					stream, obfErr = quictp.NewObfuscatedQUICConn(quicConn)
 					if obfErr != nil {
 						c.logger.Warn("QUIC obfuscation init failed, falling back to TCP", zap.Error(obfErr))
 						transport = "tcp"
@@ -92,10 +99,14 @@ func (c *Client) runProxyMode(ctx context.Context) {
 		}
 
 		if transport != "quic" {
+			paddingEnabled := c.cfg.Obfuscation != nil && c.cfg.Obfuscation.Padding != nil && c.cfg.Obfuscation.Padding.Enabled
 			wsCfg := websocket.WSConfig{
-				Compression: c.cfg.Compression,
-				Multiplex:   c.cfg.Multiplex,
-				MTU:         c.cfg.MTU,
+				Multiplex:      c.cfg.Multiplex,
+				MTU:            c.cfg.MTU,
+				UTLS:           c.cfg.Obfuscation != nil && c.cfg.Obfuscation.UTLS != nil && c.cfg.Obfuscation.UTLS.Enabled,
+				UTLSFallback:   c.cfg.Obfuscation != nil && c.cfg.Obfuscation.UTLS != nil && c.cfg.Obfuscation.UTLS.Fallback,
+				PaddingEnabled: paddingEnabled,
+				PaddingSize:    paddingSizeOrDefault(c.cfg.Obfuscation),
 			}
 			wsConn, err := websocket.Dial(c.cfg.Server, tlsCfg, c.logger, wsCfg)
 			if err != nil {
@@ -195,7 +206,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 			}
 			// @sk-task dns-routing#T6.1: check suffix domains first (AC-001, AC-002)
 			if action := routeSet.MatchDomain(host); action == routing.RouteDirect {
-				c.logger.Debug("proxy domain direct", zap.String("dst", dst))
+				c.logger.Info("proxy domain direct", zap.String("dst", dst), zap.String("ip", dst))
 				go func() {
 					defer func() { _ = client.Close() }()
 					target, err := net.Dial("tcp", dst)
@@ -226,7 +237,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 				}
 			}
 			if nip.IsValid() && routeSet.Route(nip) == routing.RouteDirect {
-				c.logger.Debug("proxy direct", zap.String("dst", dst))
+				c.logger.Info("proxy direct", zap.String("dst", dst), zap.String("ip", dst))
 				go func() {
 					defer func() { _ = client.Close() }()
 					target, err := net.Dial("tcp", dst)

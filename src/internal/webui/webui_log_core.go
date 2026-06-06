@@ -36,7 +36,7 @@ func (c *uiLogCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 }
 
 func (c *uiLogCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
-	if c.Enabled(entry.Level) {
+	if entry.Level >= zapcore.DebugLevel {
 		return ce.AddCore(entry, c)
 	}
 	return ce

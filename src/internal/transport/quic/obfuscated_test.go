@@ -1,4 +1,4 @@
-// @sk-test quic-obfuscation#T1.2: XOR roundtrip test (AC-003)
+// @sk-test whitelist-obfuscation#T4.1: XOR roundtrip test (AC-006)
 package quic
 
 import (
@@ -12,6 +12,12 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
+// @sk-test whitelist-obfuscation#T5.4: shared nonce for test pair (AC-006)
+func sharedNonce() [8]byte {
+	return [8]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+}
+
+// @sk-test whitelist-obfuscation#T5.4: obfuscated roundtrip with SetNonce (AC-006)
 func TestObfuscatedRoundtrip(t *testing.T) {
 	toServer := &memBuf{}
 	toClient := &memBuf{}
@@ -22,15 +28,17 @@ func TestObfuscatedRoundtrip(t *testing.T) {
 	clientConn := NewQUICConn(nil, clientStream)
 	serverConn := NewQUICConn(nil, serverStream)
 
-	clientObf, err := NewObfuscatedQUICConn(clientConn, true)
+	clientObf, err := NewObfuscatedQUICConn(clientConn)
 	if err != nil {
 		t.Fatalf("NewObfuscatedQUICConn(client): %v", err)
 	}
+	clientObf.SetNonce(sharedNonce())
 
-	serverObf, err := NewObfuscatedQUICConn(serverConn, false)
+	serverObf, err := NewObfuscatedQUICConn(serverConn)
 	if err != nil {
 		t.Fatalf("NewObfuscatedQUICConn(server): %v", err)
 	}
+	serverObf.SetNonce(sharedNonce())
 
 	payload := []byte("hello obfuscated world")
 	if err := clientObf.WriteMessage(payload); err != nil {
@@ -64,15 +72,17 @@ func TestObfuscatedNoCorruption(t *testing.T) {
 			clientConn := NewQUICConn(nil, clientStream)
 			serverConn := NewQUICConn(nil, serverStream)
 
-			clientObf, err := NewObfuscatedQUICConn(clientConn, true)
+			clientObf, err := NewObfuscatedQUICConn(clientConn)
 			if err != nil {
 				t.Fatalf("NewObfuscatedQUICConn(client): %v", err)
 			}
+			clientObf.SetNonce(sharedNonce())
 
-			serverObf, err := NewObfuscatedQUICConn(serverConn, false)
+			serverObf, err := NewObfuscatedQUICConn(serverConn)
 			if err != nil {
 				t.Fatalf("NewObfuscatedQUICConn(server): %v", err)
 			}
+			serverObf.SetNonce(sharedNonce())
 
 			payload := make([]byte, size)
 			for i := range payload {
