@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,8 +15,10 @@ import (
 // @sk-task routing-split-tunnel#T3.1: domain matcher (AC-005)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 // @sk-task prod-issue#T1.2: add local cache to avoid per-packet DNS lookups (AC-002)
+// @sk-task dns-routing#T1.1: suffix domain support (AC-001, AC-002)
 type DomainMatcher struct {
 	domains       []string
+	suffixes      []string
 	resolver      dns.Resolver
 	logger        *zap.Logger
 	mu            sync.RWMutex
@@ -27,14 +30,38 @@ type DomainMatcher struct {
 // @sk-task routing-split-tunnel#T3.1: new domain matcher (AC-005)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 // @sk-task prod-issue#T1.2: init local cache (AC-002)
+// @sk-task dns-routing#T1.1: split exact/suffix domains (AC-001, AC-002)
 func NewDomainMatcher(domains []string, resolver dns.Resolver, logger *zap.Logger) *DomainMatcher {
+	var exacts, suffixes []string
+	for _, d := range domains {
+		if strings.HasPrefix(d, ".") {
+			suffixes = append(suffixes, d)
+		} else {
+			exacts = append(exacts, d)
+		}
+	}
 	return &DomainMatcher{
-		domains:       domains,
+		domains:       exacts,
+		suffixes:      suffixes,
 		resolver:      resolver,
 		logger:        logger,
 		resolved:      make(map[string][]netip.Addr),
 		refreshPeriod: 30 * time.Second,
 	}
+}
+
+// @sk-task routing-split-tunnel#T3.1: domain match (AC-005)
+// @sk-task production-readiness-hardening#T2.6: log.Printf → zap (AC-006)
+// @sk-task production-readiness-hardening#T3.2: DNS context timeout (AC-008)
+// @sk-task prod-issue#T1.2: use local cache, DNS lookup only on refresh (AC-002)
+// @sk-task dns-routing#T1.1: MatchDomain suffix check (AC-001, AC-002)
+func (m *DomainMatcher) MatchDomain(domain string) bool {
+	for _, suffix := range m.suffixes {
+		if strings.HasSuffix(domain, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // @sk-task routing-split-tunnel#T3.1: domain match (AC-005)

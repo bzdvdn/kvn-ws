@@ -38,7 +38,7 @@ func defaultConfig() *config.ClientConfig {
 		TLS:           config.ClientTLSCfg{VerifyMode: "verify"},
 		Routing: &config.RoutingCfg{
 			DefaultRoute:  "server",
-			ExcludeRanges: config.DefaultExcludeRanges,
+			ExcludeRanges: append([]string{}, config.DefaultExcludeRanges...),
 		},
 	}
 }

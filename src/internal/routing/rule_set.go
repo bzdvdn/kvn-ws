@@ -3,6 +3,7 @@ package routing
 import (
 	"fmt"
 	"net/netip"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -12,11 +13,13 @@ import (
 
 // @sk-task routing-split-tunnel#T2.2: ruleset struct (AC-006)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+// @sk-task dns-routing#T3.1: suffixDomains map (AC-001, AC-002)
 type RuleSet struct {
 	rules          []Rule
 	defaultAction  RouteAction
 	domainResolver dns.Resolver
 	logger         *zap.Logger
+	suffixDomains  map[RouteAction][]string
 }
 
 // @sk-task routing-split-tunnel#T2.2: new ruleset from config (AC-006)
@@ -27,11 +30,16 @@ func NewRuleSet(cfg *config.RoutingCfg, logger *zap.Logger) (*RuleSet, error) {
 
 // @sk-task routing-split-tunnel#T3.1: new ruleset with dns resolver (AC-005)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+// @sk-task dns-routing#T3.1: init suffixDomains map (AC-001, AC-002)
 func NewRuleSetWithResolver(cfg *config.RoutingCfg, resolver dns.Resolver, logger *zap.Logger) (*RuleSet, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("routing config is nil")
 	}
-	rs := &RuleSet{domainResolver: resolver, logger: logger}
+	rs := &RuleSet{
+		domainResolver: resolver,
+		logger:         logger,
+		suffixDomains:  make(map[RouteAction][]string),
+	}
 
 	// exclude rules (checked first)
 	if err := rs.addRules(cfg.ExcludeRanges, cfg.ExcludeIPs, cfg.ExcludeDomains, RouteDirect); err != nil {
@@ -68,12 +76,37 @@ func (rs *RuleSet) addRules(cidrs, ips, domains []string, action RouteAction) er
 		}
 		rs.rules = append(rs.rules, Rule{Matcher: m, Action: action})
 	}
+	// @sk-task dns-routing#T3.1: suffix domain matching (AC-001, AC-002)
+	if len(domains) > 0 {
+		var suffixes []string
+		for _, d := range domains {
+			if strings.HasPrefix(d, ".") {
+				suffixes = append(suffixes, d)
+			}
+		}
+		if len(suffixes) > 0 {
+			rs.suffixDomains[action] = append(rs.suffixDomains[action], suffixes...)
+		}
+	}
 	// @sk-task routing-split-tunnel#T3.1: domain matcher integration (AC-005)
 	if len(domains) > 0 && rs.domainResolver != nil {
 		m := NewDomainMatcher(domains, rs.domainResolver, rs.logger)
 		rs.rules = append(rs.rules, Rule{Matcher: m, Action: action})
 	}
 	return nil
+}
+
+// @sk-task dns-routing#T3.1: domain match for suffix rules (AC-001, AC-002)
+func (rs *RuleSet) MatchDomain(domain string) RouteAction {
+	for action, suffixes := range rs.suffixDomains {
+		for _, suffix := range suffixes {
+			if strings.HasSuffix(domain, suffix) {
+				rs.logger.Debug("domain matched", zap.String("domain", domain), zap.String("suffix", suffix), zap.Int("action", int(action)))
+				return action
+			}
+		}
+	}
+	return RouteNone
 }
 
 // @sk-task routing-split-tunnel#T2.2: route decision (AC-001)

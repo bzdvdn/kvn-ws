@@ -36,6 +36,74 @@ func TestDomainMatcherMatch(t *testing.T) {
 	}
 }
 
+// @sk-test dns-routing#T7.1: MatchDomain suffix .ru (AC-001)
+func TestMatchDomainSuffixRu(t *testing.T) {
+	resolver := &mockDomainResolver{}
+	m := NewDomainMatcher([]string{".ru"}, resolver, zap.NewNop())
+
+	if !m.MatchDomain("hh.ru") {
+		t.Error("expected match for hh.ru with suffix .ru")
+	}
+	if !m.MatchDomain("mail.ru") {
+		t.Error("expected match for mail.ru with suffix .ru")
+	}
+	if m.MatchDomain("google.com") {
+		t.Error("expected no match for google.com with suffix .ru")
+	}
+}
+
+// @sk-test dns-routing#T7.1: MatchDomain suffix .ozon.ru (AC-002)
+func TestMatchDomainSuffixOzon(t *testing.T) {
+	resolver := &mockDomainResolver{}
+	m := NewDomainMatcher([]string{".ozon.ru"}, resolver, zap.NewNop())
+
+	if !m.MatchDomain("api.ozon.ru") {
+		t.Error("expected match for api.ozon.ru with suffix .ozon.ru")
+	}
+	if !m.MatchDomain("www.ozon.ru") {
+		t.Error("expected match for www.ozon.ru with suffix .ozon.ru")
+	}
+	if m.MatchDomain("ozon.com") {
+		t.Error("expected no match for ozon.com with suffix .ozon.ru")
+	}
+}
+
+// @sk-test dns-routing#T7.1: MatchDomain bare ru — no match (AC-003)
+func TestMatchDomainBareRu(t *testing.T) {
+	resolver := &mockDomainResolver{}
+	m := NewDomainMatcher([]string{".ru"}, resolver, zap.NewNop())
+
+	if m.MatchDomain("ru") {
+		t.Error("expected no match for bare 'ru' with suffix .ru")
+	}
+}
+
+// @sk-test dns-routing#T7.1: MatchDomain exact domain without dot (AC-003)
+func TestMatchDomainExactWithoutDot(t *testing.T) {
+	resolver := &mockDomainResolver{}
+	m := NewDomainMatcher([]string{"example.com"}, resolver, zap.NewNop())
+
+	if m.MatchDomain("sub.example.com") {
+		t.Error("expected no match for sub.example.com with exact example.com")
+	}
+	if m.MatchDomain("example.com") {
+		t.Error("expected no match for example.com via MatchDomain (exact domains use Match not MatchDomain)")
+	}
+}
+
+// @sk-test dns-routing#T7.1: NewDomainMatcher splits exact and suffix domains (AC-001, AC-002)
+func TestNewDomainMatcherSplit(t *testing.T) {
+	resolver := &mockDomainResolver{}
+	m := NewDomainMatcher([]string{".ru", ".ozon.ru", "example.com"}, resolver, zap.NewNop())
+
+	if len(m.domains) != 1 || m.domains[0] != "example.com" {
+		t.Errorf("expected 1 exact domain [example.com], got %v", m.domains)
+	}
+	if len(m.suffixes) != 2 {
+		t.Errorf("expected 2 suffix domains, got %v", m.suffixes)
+	}
+}
+
 // @sk-test prod-issue#T1.2: domain matcher cache — resolver called once per domain (AC-002)
 func TestDomainMatcherCacheHit(t *testing.T) {
 	resolver := &mockDomainResolver{ips: []netip.Addr{netip.MustParseAddr("10.10.10.10")}}

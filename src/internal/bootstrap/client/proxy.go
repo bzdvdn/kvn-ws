@@ -193,6 +193,23 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 			if err != nil {
 				host = dst
 			}
+			// @sk-task dns-routing#T6.1: check suffix domains first (AC-001, AC-002)
+			if action := routeSet.MatchDomain(host); action == routing.RouteDirect {
+				c.logger.Debug("proxy domain direct", zap.String("dst", dst))
+				go func() {
+					defer func() { _ = client.Close() }()
+					target, err := net.Dial("tcp", dst)
+					if err != nil {
+						return
+					}
+					defer func() { _ = target.Close() }()
+					errc := make(chan error, 2)
+					go func() { _, err := io.Copy(target, client); errc <- err }()
+					go func() { _, err := io.Copy(client, target); errc <- err }()
+					<-errc
+				}()
+				return
+			}
 			ipAddr := net.ParseIP(host)
 			if ipAddr == nil {
 				addrs, _ := net.DefaultResolver.LookupHost(context.Background(), host)

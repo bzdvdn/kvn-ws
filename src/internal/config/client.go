@@ -106,16 +106,22 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	} else if cfg.Routing.DefaultRoute == "" {
 		cfg.Routing.DefaultRoute = "server"
 	}
+	// deduplicate and ensure all DefaultExcludeRanges are present
+	unique := make([]string, 0, len(cfg.Routing.ExcludeRanges)+len(DefaultExcludeRanges))
 	seen := make(map[string]bool, len(cfg.Routing.ExcludeRanges))
 	for _, r := range cfg.Routing.ExcludeRanges {
-		seen[r] = true
+		if !seen[r] {
+			unique = append(unique, r)
+			seen[r] = true
+		}
 	}
 	for _, d := range DefaultExcludeRanges {
 		if !seen[d] {
-			cfg.Routing.ExcludeRanges = append([]string{d}, cfg.Routing.ExcludeRanges...)
+			unique = append([]string{d}, unique...)
 			seen[d] = true
 		}
 	}
+	cfg.Routing.ExcludeRanges = unique
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		cfg.Crypto.Enabled = false
 	}
@@ -145,16 +151,22 @@ func SaveClientConfig(path string, cfg *ClientConfig) error {
 			ExcludeRanges: DefaultExcludeRanges,
 		}
 	} else {
+		// deduplicate and ensure all DefaultExcludeRanges are present
+		unique := make([]string, 0, len(cfg.Routing.ExcludeRanges)+len(DefaultExcludeRanges))
 		seen := make(map[string]bool, len(cfg.Routing.ExcludeRanges))
 		for _, r := range cfg.Routing.ExcludeRanges {
-			seen[r] = true
+			if !seen[r] {
+				unique = append(unique, r)
+				seen[r] = true
+			}
 		}
 		for _, d := range DefaultExcludeRanges {
 			if !seen[d] {
-				cfg.Routing.ExcludeRanges = append([]string{d}, cfg.Routing.ExcludeRanges...)
+				unique = append([]string{d}, unique...)
 				seen[d] = true
 			}
 		}
+		cfg.Routing.ExcludeRanges = unique
 	}
 
 	var m map[string]interface{}

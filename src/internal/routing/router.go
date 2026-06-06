@@ -44,14 +44,23 @@ func (r *TunRouter) SetDNSOverride(enabled bool) {
 // @sk-task routing-split-tunnel#T3.3: dns override route (AC-008)
 // @sk-task ipv6-dual-stack#T3.1: dual-stack routing dispatch (AC-005)
 // @sk-task production-readiness-hardening#T2.6: log.Printf → zap (AC-006)
+// @sk-task dns-routing#T5.1: domain-based DNS intercept (AC-001, AC-002)
 func (r *TunRouter) RoutePacket(packet []byte) error {
 	if len(packet) < 1 {
 		return r.sendDirect(packet)
 	}
 	ipVersion := packet[0] >> 4
-	if r.dnsOverride && ipVersion == 4 && isDNSQuery(packet) {
-		r.logger.Debug("dns override: routing through tunnel")
-		return r.sendTunnel(packet)
+	if ipVersion == 4 && isDNSQuery(packet) {
+		if r.dnsOverride {
+			r.logger.Debug("dns override: routing through tunnel")
+			return r.sendTunnel(packet)
+		}
+		if action := r.routeDNSQuery(packet); action != RouteNone {
+			if action == RouteServer {
+				return r.sendTunnel(packet)
+			}
+			return r.sendDirect(packet)
+		}
 	}
 	switch ipVersion {
 	case 4:
@@ -71,6 +80,19 @@ func (r *TunRouter) RoutePacket(packet []byte) error {
 	default:
 		return r.sendDirect(packet)
 	}
+}
+
+// @sk-task dns-routing#T5.1: domain-based DNS query routing (AC-001, AC-002)
+func (r *TunRouter) routeDNSQuery(packet []byte) RouteAction {
+	if r.ruleSet == nil {
+		return RouteNone
+	}
+	qname, ok := ParseDNSQuestion(packet)
+	if !ok {
+		return RouteNone
+	}
+	r.logger.Debug("dns query domain", zap.String("qname", qname))
+	return r.ruleSet.MatchDomain(qname)
 }
 
 func (r *TunRouter) routeByRule(dstIP netip.Addr, packet []byte) error {

@@ -197,6 +197,62 @@ func TestBothExcludeAndInclude(t *testing.T) {
 	}
 }
 
+// @sk-test dns-routing#T7.2: RuleSet MatchDomain exclude (AC-001)
+func TestRuleSetMatchDomainExclude(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:  "server",
+		ExcludeDomains: []string{".ru", ".ozon.ru"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if action := rs.MatchDomain("hh.ru"); action != RouteDirect {
+		t.Errorf("expected RouteDirect for hh.ru, got %d", action)
+	}
+	if action := rs.MatchDomain("api.ozon.ru"); action != RouteDirect {
+		t.Errorf("expected RouteDirect for api.ozon.ru, got %d", action)
+	}
+	if action := rs.MatchDomain("google.com"); action != RouteNone {
+		t.Errorf("expected RouteNone for google.com, got %d", action)
+	}
+}
+
+// @sk-test dns-routing#T7.2: RuleSet MatchDomain include (AC-002)
+func TestRuleSetMatchDomainInclude(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:  "direct",
+		IncludeDomains: []string{".corp"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if action := rs.MatchDomain("internal.corp"); action != RouteServer {
+		t.Errorf("expected RouteServer for internal.corp, got %d", action)
+	}
+	if action := rs.MatchDomain("google.com"); action != RouteNone {
+		t.Errorf("expected RouteNone for google.com, got %d", action)
+	}
+}
+
+// @sk-test dns-routing#T7.2: RuleSet MatchDomain no suffix domains (AC-003)
+func TestRuleSetMatchDomainEmpty(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute: "server",
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if action := rs.MatchDomain("hh.ru"); action != RouteNone {
+		t.Errorf("expected RouteNone for empty suffix rules, got %d", action)
+	}
+}
+
 // @sk-test routing-split-tunnel#T4.2: TestIsDNSQuery (AC-008)
 func TestIsDNSQuery(t *testing.T) {
 	// Build a minimal IPv4 UDP packet to port 53

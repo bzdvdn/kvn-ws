@@ -7,10 +7,12 @@ import (
 )
 
 // @sk-task routing-split-tunnel#T1.1: route action type (AC-001)
+// @sk-task dns-routing#T2.1: RouteNone sentinel (AC-001)
 type RouteAction int
 
 const (
-	RouteServer RouteAction = iota + 1
+	RouteNone   RouteAction = iota
+	RouteServer
 	RouteDirect
 )
 
