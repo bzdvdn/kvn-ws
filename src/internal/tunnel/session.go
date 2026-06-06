@@ -193,6 +193,16 @@ func (s *Session) wsToTun(ctx context.Context) error {
 				tcpConn, err := net.DialTimeout("tcp", dst, 10*time.Second)
 				if err != nil {
 					s.logger.Warn("proxy dial failed", zap.String("dst", dst), zap.String("ip", dst), zap.Error(err))
+					closeFrame := framing.Frame{
+						Type:    framing.FrameTypeProxy,
+						Payload: make([]byte, 6),
+					}
+					binary.BigEndian.PutUint32(closeFrame.Payload[0:4], streamID)
+					binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
+					if encoded, encErr := closeFrame.Encode(); encErr == nil {
+						_ = s.stream.WriteMessage(encoded)
+						framing.ReturnBuffer(encoded)
+					}
 					f.Release()
 					continue
 				}
@@ -217,6 +227,16 @@ func (s *Session) wsToTun(ctx context.Context) error {
 						<-s.proxySem
 						_ = tcp.Close()
 						streams.Delete(sid)
+						closeFrame := framing.Frame{
+							Type:    framing.FrameTypeProxy,
+							Payload: make([]byte, 6),
+						}
+						binary.BigEndian.PutUint32(closeFrame.Payload[0:4], sid)
+						binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
+						if encoded, encErr := closeFrame.Encode(); encErr == nil {
+							_ = stream.WriteMessage(encoded)
+							framing.ReturnBuffer(encoded)
+						}
 					}()
 					buf := make([]byte, 4096)
 					for {

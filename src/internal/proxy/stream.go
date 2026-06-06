@@ -155,5 +155,12 @@ func (m *Manager) HandleIncomingFrame(f *framing.Frame) {
 	if s == nil {
 		return
 	}
+
+	if len(data) == 0 {
+		m.Remove(streamID)
+		_ = s.Local.Close()
+		return
+	}
+
 	_, _ = s.Local.Write(data)
 }

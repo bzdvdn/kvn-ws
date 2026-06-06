@@ -292,6 +292,9 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 			}
 			data, err := stream.ReadMessage()
 			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
 				c.logger.Warn("stream read error in proxy mode", zap.Error(err))
 				return err
 			}
