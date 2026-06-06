@@ -51,9 +51,8 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pushLog := s.state.PushLog
-	hookLogger := baseLogger.WithOptions(zap.Hooks(func(entry zapcore.Entry) error {
-		pushLog(LogEntry{Line: entry.Message, Level: entry.Level.String()})
-		return nil
+	hookLogger := baseLogger.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
+		return &uiLogCore{Core: core, pushLog: pushLog}
 	}))
 	cl.SetLogger(hookLogger)
 

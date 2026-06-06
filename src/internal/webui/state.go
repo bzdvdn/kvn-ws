@@ -18,8 +18,11 @@ const (
 )
 
 type LogEntry struct {
-	Line  string `json:"line"`
-	Level string `json:"level"`
+	Line   string `json:"line"`
+	Level  string `json:"level"`
+	Action int    `json:"action,omitempty"`
+	IP     string `json:"ip,omitempty"`
+	TS     string `json:"ts,omitempty"`
 }
 
 type AppState struct {

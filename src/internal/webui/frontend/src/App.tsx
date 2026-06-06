@@ -34,6 +34,9 @@ interface ClientConfig {
 interface LogEntry {
   line: string;
   level: string;
+  action?: number;
+  ip?: string;
+  ts?: string;
 }
 
 const inp: React.CSSProperties = {
@@ -259,7 +262,10 @@ function App() {
           {logs.length === 0 && <span style={{ color: "#444" }}>No entries yet. Connect to see logs.</span>}
           {logs.map((entry, i) => (
             <div key={i} style={{ color: entry.level === "error" ? "#f44336" : entry.level === "warn" ? "#ff9800" : "#c0c0c0" }}>
-              {entry.line}
+              {entry.ts && <span style={{ color: "#666" }}>{entry.ts} </span>}
+              <span>{entry.line}</span>
+              {entry.action !== undefined && <span style={{ color: "#888" }}> action:{entry.action}</span>}
+              {entry.ip && <span style={{ color: "#888" }}> ip:{entry.ip}</span>}
             </div>
           ))}
           <div ref={logEndRef} />
