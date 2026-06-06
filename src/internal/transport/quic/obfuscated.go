@@ -53,6 +53,7 @@ func xorBytes(dst, src []byte, nonce []byte) {
 }
 
 // @sk-task whitelist-obfuscation#T4.1: full payload XOR in ReadMessage (AC-006)
+// @sk-task arch-refactoring#T2.1: add MaxMessageSize limit (AC-001, AC-002)
 func (oc *ObfuscatedQUICConn) ReadMessage() ([]byte, error) {
 	if err := oc.initNonce(); err != nil {
 		return nil, err
@@ -63,6 +64,9 @@ func (oc *ObfuscatedQUICConn) ReadMessage() ([]byte, error) {
 	}
 	xorBytes(lenBuf[:], lenBuf[:], oc.nonce[:])
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
+	if msgLen > uint32(oc.maxMessageSize) {
+		return nil, ErrMessageTooLarge
+	}
 	buf := make([]byte, msgLen)
 	if _, err := io.ReadFull(oc.stream, buf); err != nil {
 		return nil, err

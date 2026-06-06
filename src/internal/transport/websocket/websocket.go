@@ -25,6 +25,7 @@ import (
 
 const MultiplexSubprotocol = "kvn-ws-mux"
 const DefaultPongTimeout = 45 * time.Second
+const wsReadLimit = 1 << 20 // 1MB
 
 // @sk-task performance-and-polish#T1.1: WSConfig for Dial/Accept options (AC-004, AC-006, AC-007)
 // @sk-task whitelist-obfuscation#T2.1: add UTLS field (AC-001)
@@ -261,7 +262,7 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 		return nil, err
 	}
 	// @sk-task post-hardening#T2.1: cap incoming message size (AC-005)
-	conn.SetReadLimit(1 << 20) // 1MB
+	conn.SetReadLimit(wsReadLimit)
 	return &WSConn{conn: conn, cfg: wsCfg, logger: logger}, nil
 }
 

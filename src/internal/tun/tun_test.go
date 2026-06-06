@@ -128,6 +128,19 @@ func (m *MockTunDevice) Clear() {
 
 var _ TunDevice = (*MockTunDevice)(nil)
 
+// @sk-test arch-refactoring#T4.1: netlink conformance — verify functions compile (AC-007)
+func TestNetlinkCompile(t *testing.T) {
+	// This test verifies that netlink functions used in tun.go compile and link.
+	// Runtime tests require CAP_NET_ADMIN, skipped here.
+	n, _, err := SaveDefaultRoute()
+	if err != nil {
+		// May fail in containers without default route; that's OK.
+		t.Logf("SaveDefaultRoute (expected in some envs): gw=%v err=%v", n, err)
+	} else {
+		t.Logf("SaveDefaultRoute: gw=%v", n)
+	}
+}
+
 func TestMockTunInjectAndRead(t *testing.T) {
 	m := NewMockTunDevice()
 	if err := m.Open(); err != nil {

@@ -76,6 +76,72 @@ tls:
 	}
 }
 
+// @sk-test arch-refactoring#T4.1: defaults for MaxMessageSize, TunnelTimeout, ProxyMaxConcurrency (AC-006)
+func TestNewFieldsDefaults(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.MaxMessageSize != 10*1024*1024 {
+		t.Fatalf("MaxMessageSize = %d, want %d", cfg.MaxMessageSize, 10*1024*1024)
+	}
+	if cfg.TunnelTimeout != 30 {
+		t.Fatalf("TunnelTimeout = %d, want 30", cfg.TunnelTimeout)
+	}
+	if cfg.ProxyMaxConcurrency != 1000 {
+		t.Fatalf("ProxyMaxConcurrency = %d, want 1000", cfg.ProxyMaxConcurrency)
+	}
+}
+
+// @sk-test arch-refactoring#T4.1: custom MaxMessageSize, TunnelTimeout, ProxyMaxConcurrency (AC-006)
+func TestNewFieldsCustom(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+max_message_size: 5242880
+tunnel_timeout: 60
+proxy_max_concurrency: 500
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.MaxMessageSize != 5*1024*1024 {
+		t.Fatalf("MaxMessageSize = %d, want %d", cfg.MaxMessageSize, 5*1024*1024)
+	}
+	if cfg.TunnelTimeout != 60 {
+		t.Fatalf("TunnelTimeout = %d, want 60", cfg.TunnelTimeout)
+	}
+	if cfg.ProxyMaxConcurrency != 500 {
+		t.Fatalf("ProxyMaxConcurrency = %d, want 500", cfg.ProxyMaxConcurrency)
+	}
+}
+
+// @sk-test arch-refactoring#T4.1: zero values fallback to defaults (AC-006)
+func TestNewFieldsZeroDefaults(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+max_message_size: 0
+tunnel_timeout: 0
+proxy_max_concurrency: 0
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.MaxMessageSize != 10*1024*1024 {
+		t.Fatalf("MaxMessageSize = %d, want %d", cfg.MaxMessageSize, 10*1024*1024)
+	}
+	if cfg.TunnelTimeout != 30 {
+		t.Fatalf("TunnelTimeout = %d, want 30", cfg.TunnelTimeout)
+	}
+	if cfg.ProxyMaxConcurrency != 1000 {
+		t.Fatalf("ProxyMaxConcurrency = %d, want 1000", cfg.ProxyMaxConcurrency)
+	}
+}
+
 func TestObfuscationMissingDefaults(t *testing.T) {
 	path := writeConfig(t, `
 server: wss://example.com/tunnel

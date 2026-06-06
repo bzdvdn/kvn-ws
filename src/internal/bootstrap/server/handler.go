@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -170,7 +171,8 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	s.sm.SetCancel(sess.ID, sessionCancel)
 	sessionStreams := proxy.NewSessionStreams()
 
-	tunSess := tunnel.NewSession(s.tunDev, stream, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams)
+	tunSess := tunnel.NewSession(s.tunDev, stream, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams,
+		30*time.Second, 1000)
 	if err := tunSess.Run(sessionCtx); err != nil {
 		s.logger.Info("session ended",
 			zap.String("session", sess.ID),

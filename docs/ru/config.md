@@ -121,6 +121,9 @@ logging:
 | `routing.exclude_ips` | []string | `[]` | Конкретные IP для исключения из VPN |
 | `routing.include_domains` | []string | `[]` | Домены для маршрутизации через VPN |
 | `routing.exclude_domains` | []string | `[]` | Домены для исключения из VPN |
+| `max_message_size` | int | `10485760` | Максимальный размер QUIC-сообщения в байтах (10 MB). Защита от OOM. 0 = по умолчанию |
+| `tunnel_timeout` | int | `30` | Таймаут бездействия туннеля в секундах (0 = по умолчанию) |
+| `proxy_max_concurrency` | int | `1000` | Максимум одновременных прокси-соединений (только mode=proxy, 0 = по умолч.) |
 | `kill_switch.enabled` | bool | `false` | Блокировать весь трафик при разрыве (nftables) |
 | `reconnect.min_backoff_sec` | int | `1` | Минимальная задержка переподключения в секундах |
 | `reconnect.max_backoff_sec` | int | `30` | Максимальная задержка переподключения в секундах |
@@ -156,6 +159,9 @@ routing:
     - 10.0.0.0/8
   exclude_domains:
     - example.com
+max_message_size: 10485760
+tunnel_timeout: 30
+proxy_max_concurrency: 1000
 ```
 
 ## Переменные окружения

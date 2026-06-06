@@ -28,14 +28,17 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 func defaultConfig() *config.ClientConfig {
 	autoReconnect := true
 	return &config.ClientConfig{
-		MTU:           1400,
-		ProxyListen:   "127.0.0.1:2310",
-		AutoReconnect: &autoReconnect,
-		Log:           config.LogConfig{Level: "info"},
-		Mode:          "proxy",
-		Transport:     "quic",
-		Obfuscation:   &config.ObfuscationCfg{Enabled: true},
-		TLS:           config.ClientTLSCfg{VerifyMode: "verify"},
+		MTU:                 1400,
+		ProxyListen:         "127.0.0.1:2310",
+		AutoReconnect:       &autoReconnect,
+		Log:                 config.LogConfig{Level: "info"},
+		Mode:                "proxy",
+		Transport:           "quic",
+		Obfuscation:         &config.ObfuscationCfg{Enabled: true},
+		TLS:                 config.ClientTLSCfg{VerifyMode: "verify"},
+		MaxMessageSize:      10 * 1024 * 1024,
+		TunnelTimeout:       30,
+		ProxyMaxConcurrency: 1000,
 		Routing: &config.RoutingCfg{
 			DefaultRoute:  "server",
 			ExcludeRanges: append([]string{}, config.DefaultExcludeRanges...),

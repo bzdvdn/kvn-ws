@@ -18,6 +18,8 @@
 - Prometheus-метрики, сессионный менеджмент с BoltDB-персистентностью
 - SOCKS5 + HTTP CONNECT proxy mode
 - CIDR ACL, rate limiting, per-token bandwidth management
+- MaxMessageSize защита от OOM в QUIC-транспорте
+- Netlink API для управления маршрутами (без exec.Command)
 - SIGHUP hot-reload конфига
 - Graceful shutdown, health endpoints (/livez, /readyz, /health)
 

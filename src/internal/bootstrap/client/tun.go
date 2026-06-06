@@ -10,27 +10,16 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
-	"github.com/bzdvdn/kvn-ws/src/internal/protocol/control"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
-	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
-	"github.com/quic-go/quic-go"
 )
 
-// @sk-task quic-obfuscation#T2.2: wrap QUICConn after dial if obfuscation (AC-001, AC-002)
-// @sk-task whitelist-obfuscation#T3.2: padding config propagation (AC-005)
-// @sk-task whitelist-obfuscation#T4.1: QUIC isClient param removed (AC-006)
+// @sk-task arch-refactoring#T3.1: use common dialStream (AC-004)
 func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 	minBackoff, maxBackoff := parseBackoff(c.cfg.Reconnect)
-
-	tlsCfg, err := clientTLSConfig(c.cfg)
-	if err != nil {
-		c.logger.Fatal("client tls config", zap.Error(err))
-	}
 
 	backoff := minBackoff
 	attempt := 0
@@ -45,60 +34,13 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 		attempt++
 		c.logger.Info("connecting", zap.Int("attempt", attempt), zap.Duration("backoff", backoff))
 
-		var stream tunnel.StreamConn
-		transport := c.cfg.Transport
-		if transport == "" {
-			transport = "tcp"
-		}
-
-		if transport == "quic" {
-			c.logger.Info("dialing with QUIC transport")
-			quicAddr := c.cfg.Server
-			if u, parseErr := url.Parse(quicAddr); parseErr == nil && u.Host != "" {
-				quicAddr = u.Host
-			}
-			quicCfg := &quic.Config{
-				KeepAlivePeriod: 15 * time.Second,
-			}
-			quicConn, err := quictp.Dial(ctx, quicAddr, tlsCfg, quicCfg)
-			if err != nil {
-				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
-				transport = "tcp"
-			} else {
-				if c.cfg.Obfuscation != nil && c.cfg.Obfuscation.Enabled {
-					c.logger.Info("QUIC obfuscation enabled")
-					var obfErr error
-					stream, obfErr = quictp.NewObfuscatedQUICConn(quicConn)
-					if obfErr != nil {
-						c.logger.Warn("QUIC obfuscation init failed, falling back to TCP", zap.Error(obfErr))
-						transport = "tcp"
-					}
-				} else {
-					stream = quicConn
-				}
-			}
-		}
-
-		if transport != "quic" {
-			paddingEnabled := c.cfg.Obfuscation != nil && c.cfg.Obfuscation.Padding != nil && c.cfg.Obfuscation.Padding.Enabled
-			wsCfg := websocket.WSConfig{
-				Multiplex:      c.cfg.Multiplex,
-				MTU:            c.cfg.MTU,
-				UTLS:           c.cfg.Obfuscation != nil && c.cfg.Obfuscation.UTLS != nil && c.cfg.Obfuscation.UTLS.Enabled,
-				UTLSFallback:   c.cfg.Obfuscation != nil && c.cfg.Obfuscation.UTLS != nil && c.cfg.Obfuscation.UTLS.Fallback,
-				PaddingEnabled: paddingEnabled,
-				PaddingSize:    paddingSizeOrDefault(c.cfg.Obfuscation),
-			}
-			wsConn, err := websocket.Dial(c.cfg.Server, tlsCfg, c.logger, wsCfg)
-			if err != nil {
-				c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
-				applyKillSwitch(c.cfg, c.logger)
-				sleepWithContext(ctx, backoff)
-				backoff = nextBackoff(backoff, minBackoff, maxBackoff)
-				continue
-			}
-			wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
-			stream = wsConn
+		stream, err := dialStream(ctx, c.cfg, c.logger)
+		if err != nil {
+			c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
+			applyKillSwitch(c.cfg, c.logger)
+			sleepWithContext(ctx, backoff)
+			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
+			continue
 		}
 
 		removeKillSwitch(c.cfg, c.logger)
@@ -164,7 +106,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 		)
 		mask := &net.IPNet{
 			IP:   serverHello.AssignedIP,
-			Mask: net.CIDRMask(24, 32),
+			Mask: net.CIDRMask(tun.CIDRMaskV4Bits, tun.CIDRMaskV4Total),
 		}
 		if err := tunDev.SetIP(serverHello.AssignedIP, mask); err != nil {
 			c.logger.Error("set tun ip", zap.Error(err))
@@ -174,7 +116,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 			c.logger.Info("assigned IPv6", zap.String("ip6", serverHello.AssignedIPv6.String()))
 			v6Mask := &net.IPNet{
 				IP:   serverHello.AssignedIPv6,
-				Mask: net.CIDRMask(112, 128),
+				Mask: net.CIDRMask(tun.CIDRMaskV6Bits, tun.CIDRMaskV6Total),
 			}
 			if err := tunDev.SetIP(serverHello.AssignedIPv6, v6Mask); err != nil {
 				c.logger.Error("set tun ipv6", zap.Error(err))
@@ -306,7 +248,8 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 		}
 	}
 
-	tunSess := tunnel.NewSession(tunDev, stream, nil, sessionID, "", nil, nil, nil, c.logger, sessionCipher, nil)
+	tunSess := tunnel.NewSession(tunDev, stream, nil, sessionID, "", nil, nil, nil, c.logger, sessionCipher, nil,
+		time.Duration(c.cfg.TunnelTimeout)*time.Second, c.cfg.ProxyMaxConcurrency)
 	if tunRouter != nil {
 		tunSess.SetTunRouter(tunRouter)
 	}

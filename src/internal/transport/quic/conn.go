@@ -1,8 +1,10 @@
 // @sk-task quic-transport#T2.1: QUICConn wrapper implementing StreamConn (AC-001)
+// @sk-task arch-refactoring#T2.1: add MaxMessageSize limit (AC-001)
 package quic
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"sync"
@@ -11,14 +13,27 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
+var ErrMessageTooLarge = errors.New("message too large")
+
 type QUICConn struct {
-	mu     sync.Mutex
-	conn   quic.Connection
-	stream quic.Stream
+	mu             sync.Mutex
+	conn           quic.Connection
+	stream         quic.Stream
+	maxMessageSize int
 }
 
 func NewQUICConn(conn quic.Connection, stream quic.Stream) *QUICConn {
-	return &QUICConn{conn: conn, stream: stream}
+	return &QUICConn{
+		conn:           conn,
+		stream:         stream,
+		maxMessageSize: 10 * 1024 * 1024,
+	}
+}
+
+func (c *QUICConn) SetMaxMessageSize(size int) {
+	if size > 0 {
+		c.maxMessageSize = size
+	}
 }
 
 func (c *QUICConn) ReadMessage() ([]byte, error) {
@@ -27,6 +42,9 @@ func (c *QUICConn) ReadMessage() ([]byte, error) {
 		return nil, err
 	}
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
+	if msgLen > uint32(c.maxMessageSize) {
+		return nil, ErrMessageTooLarge
+	}
 	buf := make([]byte, msgLen)
 	if _, err := io.ReadFull(c.stream, buf); err != nil {
 		return nil, err

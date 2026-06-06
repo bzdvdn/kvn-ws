@@ -19,24 +19,28 @@ import (
 // @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
 // @sk-task quic-obfuscation#T2.1: add Obfuscation field (AC-001)
 // @sk-task whitelist-obfuscation#T1.1: Obfuscation bool → struct (AC-001)
+// @sk-task arch-refactoring#T1.1: add MaxMessageSize, TunnelTimeout, ProxyMaxConcurrency fields (AC-006)
 type ClientConfig struct {
-	Server        string         `json:"server" mapstructure:"server"`
-	Transport     string         `json:"transport" mapstructure:"transport"`
-	Obfuscation   *ObfuscationCfg `json:"obfuscation,omitempty" mapstructure:"obfuscation"`
-	Auth          AuthCfg        `json:"auth" mapstructure:"auth"`
-	TLS           ClientTLSCfg   `json:"tls" mapstructure:"tls"`
-	MTU           int            `json:"mtu" mapstructure:"mtu"`
-	IPv6          bool           `json:"ipv6" mapstructure:"ipv6"`
-	AutoReconnect *bool          `json:"auto_reconnect" mapstructure:"auto_reconnect"`
-	Log           LogConfig      `json:"log" mapstructure:"log"`
-	Routing       *RoutingCfg    `json:"routing" mapstructure:"routing"`
-	KillSwitch    *KillSwitchCfg `json:"kill_switch" mapstructure:"kill_switch"`
-	Reconnect     *ReconnectCfg  `json:"reconnect" mapstructure:"reconnect"`
-	Multiplex     bool           `json:"multiplex" mapstructure:"multiplex"`
-	Mode          string         `json:"mode" mapstructure:"mode"`
-	ProxyListen   string         `json:"proxy_listen" mapstructure:"proxy_listen"`
-	ProxyAuth     *ProxyAuthCfg  `json:"proxy_auth" mapstructure:"proxy_auth"`
-	Crypto        CryptoCfg      `json:"crypto" mapstructure:"crypto"`
+	Server              string         `json:"server" mapstructure:"server"`
+	Transport           string         `json:"transport" mapstructure:"transport"`
+	Obfuscation         *ObfuscationCfg `json:"obfuscation,omitempty" mapstructure:"obfuscation"`
+	Auth                AuthCfg        `json:"auth" mapstructure:"auth"`
+	TLS                 ClientTLSCfg   `json:"tls" mapstructure:"tls"`
+	MTU                 int            `json:"mtu" mapstructure:"mtu"`
+	IPv6                bool           `json:"ipv6" mapstructure:"ipv6"`
+	AutoReconnect       *bool          `json:"auto_reconnect" mapstructure:"auto_reconnect"`
+	Log                 LogConfig      `json:"log" mapstructure:"log"`
+	Routing             *RoutingCfg    `json:"routing" mapstructure:"routing"`
+	KillSwitch          *KillSwitchCfg `json:"kill_switch" mapstructure:"kill_switch"`
+	Reconnect           *ReconnectCfg  `json:"reconnect" mapstructure:"reconnect"`
+	Multiplex           bool           `json:"multiplex" mapstructure:"multiplex"`
+	Mode                string         `json:"mode" mapstructure:"mode"`
+	ProxyListen         string         `json:"proxy_listen" mapstructure:"proxy_listen"`
+	ProxyAuth           *ProxyAuthCfg  `json:"proxy_auth" mapstructure:"proxy_auth"`
+	Crypto              CryptoCfg      `json:"crypto" mapstructure:"crypto"`
+	MaxMessageSize      int            `json:"max_message_size" mapstructure:"max_message_size"`
+	TunnelTimeout       int            `json:"tunnel_timeout" mapstructure:"tunnel_timeout"`
+	ProxyMaxConcurrency int            `json:"proxy_max_concurrency" mapstructure:"proxy_max_concurrency"`
 }
 
 type ObfuscationCfg struct {
@@ -163,6 +167,16 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	cfg.Routing.ExcludeRanges = unique
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		cfg.Crypto.Enabled = false
+	}
+	// @sk-task arch-refactoring#T1.1: defaults for MaxMessageSize, TunnelTimeout, ProxyMaxConcurrency (AC-006)
+	if cfg.MaxMessageSize <= 0 {
+		cfg.MaxMessageSize = 10 * 1024 * 1024
+	}
+	if cfg.TunnelTimeout <= 0 {
+		cfg.TunnelTimeout = 30
+	}
+	if cfg.ProxyMaxConcurrency <= 0 {
+		cfg.ProxyMaxConcurrency = 1000
 	}
 
 	// @sk-task production-readiness-gap#T1: warn when secrets come from config file (AC-001)

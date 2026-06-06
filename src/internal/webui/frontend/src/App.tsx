@@ -18,6 +18,7 @@ interface ClientConfig {
   ipv6?: boolean;
   auto_reconnect?: boolean;
   multiplex?: boolean;
+  max_message_size?: number;
   proxy_listen?: string;
   proxy_auth?: { username?: string; password?: string };
   log?: { level?: string };
@@ -351,6 +352,10 @@ function App() {
                 <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>Client log level (file/terminal). Live Log filter below.</div>
               </label>
             </div>
+            <label style={lbl}>Max Message Size (bytes)
+              <input type="number" style={inp} value={config.max_message_size ?? 10485760} onChange={(e) => update("max_message_size", e.target.value ? parseInt(e.target.value) : 10485760)} />
+              <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>Max QUIC/WS message size (default 10MB).</div>
+            </label>
             <Checkbox checked={config.ipv6 ?? false} onChange={(v) => update("ipv6", v)} label="Enable IPv6" />
             <Checkbox checked={config.auto_reconnect ?? true} onChange={(v) => update("auto_reconnect", v)} label="Auto Reconnect" />
             <Checkbox checked={config.multiplex ?? false} onChange={(v) => update("multiplex", v)} label="Multiplex" />

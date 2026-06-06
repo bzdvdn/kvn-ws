@@ -312,7 +312,7 @@ Get-Service KVNWeb
 | Connection | Server, Token, Mode (proxy/TUN), Proxy Listen/Auth |
 | TLS | Verify Mode, Server Name (SNI), CA File |
 | Routing | Default Route, CIDR Include/Exclude, IP Include/Exclude |
-| Advanced | MTU, Log Level, IPv6, Auto Reconnect, Multiplex |
+| Advanced | MTU, Log Level, IPv6, Auto Reconnect, Multiplex, Max Message Size |
 | Kill Switch & Reconnect | Kill Switch toggle, Min/Max Backoff |
 | Encryption | App-Layer Encryption toggle, Key |
 
@@ -350,6 +350,8 @@ log:
   level: info
 crypto:
   enabled: false
+max_message_size: 10485760
+tunnel_timeout: 30
 routing:
   default_route: server
   exclude_ranges:
@@ -358,7 +360,6 @@ routing:
     - 192.168.0.0/16
   exclude_domains:
     - example.com
-```
 
 #### 3. Запустите как systemd-сервис
 

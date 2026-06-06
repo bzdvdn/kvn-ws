@@ -36,6 +36,7 @@ type ProxyAuth struct {
 	Password string
 }
 
+// @sk-task arch-refactoring#T3.5: defaultProxyConcurrency removed → Listener field (AC-006)
 const defaultProxyConcurrency = 1000
 
 type Listener struct {
@@ -46,15 +47,20 @@ type Listener struct {
 	sem    chan struct{}
 }
 
-func NewListener(addr string, auth *ProxyAuth, onConn func(net.Conn, string)) *Listener {
+// @sk-task arch-refactoring#T3.5: NewListener accepts optional concurrency param (AC-006)
+func NewListener(addr string, auth *ProxyAuth, onConn func(net.Conn, string), proxyConcurrency ...int) *Listener {
 	if addr == "" {
 		addr = "127.0.0.1:2310"
+	}
+	maxConcurrency := defaultProxyConcurrency
+	if len(proxyConcurrency) > 0 && proxyConcurrency[0] > 0 {
+		maxConcurrency = proxyConcurrency[0]
 	}
 	return &Listener{
 		addr:   addr,
 		auth:   auth,
 		onConn: onConn,
-		sem:    make(chan struct{}, defaultProxyConcurrency),
+		sem:    make(chan struct{}, maxConcurrency),
 	}
 }
 

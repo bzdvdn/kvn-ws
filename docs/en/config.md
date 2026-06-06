@@ -121,6 +121,9 @@ logging:
 | `routing.exclude_ips` | []string | `[]` | Specific IPs to exclude from VPN routing |
 | `routing.include_domains` | []string | `[]` | Domains to route through VPN |
 | `routing.exclude_domains` | []string | `[]` | Domains to exclude from VPN routing |
+| `max_message_size` | int | `10485760` | Max QUIC message size in bytes (10 MB). Protects against OOM. 0 = default |
+| `tunnel_timeout` | int | `30` | Tunnel idle timeout in seconds (0 = default) |
+| `proxy_max_concurrency` | int | `1000` | Max concurrent proxy connections (proxy mode only, 0 = default) |
 | `kill_switch.enabled` | bool | `false` | Block all non-tunnel traffic on disconnect (nftables) |
 | `reconnect.min_backoff_sec` | int | `1` | Minimum reconnect backoff in seconds |
 | `reconnect.max_backoff_sec` | int | `30` | Maximum reconnect backoff in seconds |
@@ -156,6 +159,9 @@ routing:
     - 10.0.0.0/8
   exclude_domains:
     - example.com
+max_message_size: 10485760
+tunnel_timeout: 30
+proxy_max_concurrency: 1000
 ```
 
 ## Environment variables

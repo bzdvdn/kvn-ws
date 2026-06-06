@@ -3,6 +3,9 @@
 // @sk-task tun-data-path#T2.1: single-buf Read (AC-002)
 // @sk-task tun-data-path#T2.2: Write offset=12 virtioNetHdrLen (AC-001)
 // @sk-task tun-data-path#T6.1: SetIP fix — use ip/mask not subnet/mask (AC-003)
+// @sk-task arch-refactoring#T3.4: netlink for addr/link, exec.Command for routes (AC-007)
+// Route management uses exec.Command("ip") because netlink.RouteDel partial matching
+// can delete the physical default route instead of the TUN route.
 
 package tun
 
@@ -10,9 +13,9 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
-	"strconv"
 	"strings"
 
+	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -74,6 +77,7 @@ func (t *tunDevice) Read(buf []byte) (int, error) {
 	return sizes[0], nil
 }
 
+// @sk-task arch-refactoring#T3.4: exec.Command add default route (AC-007)
 func addDefaultRoute(iface string, gateway net.IP) error {
 	cmd := exec.Command("ip", "route", "replace", "default", "via", gateway.String(), "dev", iface) // #nosec G204
 	out, err := cmd.CombinedOutput()
@@ -83,6 +87,7 @@ func addDefaultRoute(iface string, gateway net.IP) error {
 	return nil
 }
 
+// @sk-task arch-refactoring#T3.4: exec.Command remove default route (AC-007)
 func removeDefaultRoute(iface string, gateway net.IP) error {
 	cmd := exec.Command("ip", "route", "del", "default", "via", gateway.String(), "dev", iface) // #nosec G204
 	out, err := cmd.CombinedOutput()
@@ -95,6 +100,11 @@ func removeDefaultRoute(iface string, gateway net.IP) error {
 const virtioNetHdrLen = 12
 const writeHeadroom = virtioNetHdrLen
 
+const CIDRMaskV4Bits = 24
+const CIDRMaskV4Total = 32
+const CIDRMaskV6Bits = 112
+const CIDRMaskV6Total = 128
+
 func (t *tunDevice) Write(buf []byte) (int, error) {
 	padded := make([]byte, writeHeadroom+len(buf))
 	copy(padded[writeHeadroom:], buf)
@@ -105,25 +115,48 @@ func (t *tunDevice) Write(buf []byte) (int, error) {
 	return len(buf), nil
 }
 
-func (t *tunDevice) SetIP(ip net.IP, mask *net.IPNet) error {
-	flush := exec.Command("ip", "-4", "addr", "flush", "dev", t.name) // #nosec G204
-	_ = flush.Run()
-	cidr := &net.IPNet{IP: ip, Mask: mask.Mask}
-	ipCmd := exec.Command("ip", "addr", "add", cidr.String(), "dev", t.name) // #nosec G204 — whitelisted ip binary for TUN
-	if out, err := ipCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("set ip %s on %s: %w: %s", mask, t.name, err, string(out))
+// @sk-task arch-refactoring#T3.4: netlink AddrList+AddrDel (AC-007)
+func flushV4Addrs(link netlink.Link) error {
+	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return err
 	}
-	link := exec.Command("ip", "link", "set", "dev", t.name, "up") // #nosec G204 — whitelisted ip binary for TUN
-	if out, err := link.CombinedOutput(); err != nil {
-		return fmt.Errorf("link up %s: %w: %s", t.name, err, string(out))
+	for _, a := range addrs {
+		if err := netlink.AddrDel(link, &a); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
+// @sk-task arch-refactoring#T3.4: netlink AddrAdd+LinkSetUp (AC-007)
+func (t *tunDevice) SetIP(ip net.IP, mask *net.IPNet) error {
+	link, err := netlink.LinkByName(t.name)
+	if err != nil {
+		return fmt.Errorf("get link %s: %w", t.name, err)
+	}
+	if err := flushV4Addrs(link); err != nil {
+		return fmt.Errorf("flush addr on %s: %w", t.name, err)
+	}
+	cidr := &net.IPNet{IP: ip, Mask: mask.Mask}
+	addr := &netlink.Addr{IPNet: cidr}
+	if err := netlink.AddrAdd(link, addr); err != nil {
+		return fmt.Errorf("set ip %s on %s: %w", mask, t.name, err)
+	}
+	if err := netlink.LinkSetUp(link); err != nil {
+		return fmt.Errorf("link up %s: %w", t.name, err)
+	}
+	return nil
+}
+
+// @sk-task arch-refactoring#T3.4: netlink LinkSetMTU (AC-007)
 func (t *tunDevice) SetMTU(mtu int) error {
-	cmd := exec.Command("ip", "link", "set", "dev", t.name, "mtu", strconv.Itoa(mtu)) // #nosec G204 — whitelisted ip binary for TUN
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("set mtu %d on %s: %w: %s", mtu, t.name, err, string(out))
+	link, err := netlink.LinkByName(t.name)
+	if err != nil {
+		return fmt.Errorf("get link %s: %w", t.name, err)
+	}
+	if err := netlink.LinkSetMTU(link, mtu); err != nil {
+		return fmt.Errorf("set mtu %d on %s: %w", mtu, t.name, err)
 	}
 	return nil
 }
@@ -136,14 +169,14 @@ func (t *tunDevice) RemoveGateway(gateway net.IP) error {
 	return removeDefaultRoute(t.name, gateway)
 }
 
+// @sk-task arch-refactoring#T3.4: exec.Command add exclude route (AC-007)
 func (t *tunDevice) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return fmt.Errorf("parse cidr %s: %w", cidr, err)
 	}
-	is6 := ipNet.IP.To4() == nil
-	if is6 {
-		return nil // skip IPv6 routes — kernel handles link-local/multicast natively
+	if ipNet.IP.To4() == nil {
+		return nil
 	}
 	cmd := exec.Command("ip", "route", "replace", cidr, "via", phyGateway.String(), "dev", phyIface) // #nosec G204
 	out, err := cmd.CombinedOutput()
@@ -153,14 +186,14 @@ func (t *tunDevice) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface str
 	return nil
 }
 
+// @sk-task arch-refactoring#T3.4: exec.Command remove exclude route (AC-007)
 func (t *tunDevice) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return fmt.Errorf("parse cidr %s: %w", cidr, err)
 	}
-	is6 := ipNet.IP.To4() == nil
-	if is6 {
-		return nil // skip IPv6 — kernel handles natively
+	if ipNet.IP.To4() == nil {
+		return nil
 	}
 	cmd := exec.Command("ip", "route", "del", cidr, "via", phyGateway.String(), "dev", phyIface) // #nosec G204
 	out, err := cmd.CombinedOutput()
@@ -171,8 +204,6 @@ func (t *tunDevice) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface 
 }
 
 func (t *tunDevice) DisableGSO() error {
-	// Disable TUN driver offloading via ioctl (the definitive fix).
-	// This undoes the TUNSETOFFLOAD that tun.CreateTUN enables.
 	if t.device != nil {
 		f := t.device.File()
 		if f != nil {
@@ -184,21 +215,16 @@ func (t *tunDevice) DisableGSO() error {
 			}
 		}
 	}
-
-	// Also try via ip link (best-effort, unsupported on some kernels)
-	for _, opt := range []string{"gso", "gro"} {
-		_ = exec.Command("ip", "link", "set", "dev", t.name, opt, "off").Run() // #nosec G204
-	}
 	return nil
 }
 
 // SaveDefaultRoute returns the current default route's gateway and interface.
+// @sk-task arch-refactoring#T3.4: exec.Command save default route (AC-007)
 func SaveDefaultRoute() (net.IP, string, error) {
 	out, err := exec.Command("ip", "route", "show", "default").Output() // #nosec G204
 	if err != nil {
 		return nil, "", fmt.Errorf("get default route: %w", err)
 	}
-	// Parse: "default via 192.168.1.1 dev eno1 proto dhcp metric 100"
 	fields := strings.Fields(string(out))
 	if len(fields) < 3 || fields[0] != "default" {
 		return nil, "", fmt.Errorf("unexpected default route format: %s", strings.TrimSpace(string(out)))

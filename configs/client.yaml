@@ -21,6 +21,9 @@ ipv6: false
 auto_reconnect: true
 log:
   level: info
+max_message_size: 10485760
+tunnel_timeout: 30
+proxy_max_concurrency: 1000
 crypto:
   enabled: false
   key: ""

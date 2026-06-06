@@ -6,6 +6,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — 2026-06-07
+
+### Added
+
+- **MaxMessageSize limit** (`ClientConfig`) — новый параметр для защиты от OOM в QUIC-транспорте.
+  По умолчанию 10 MB. При превышении возвращается `ErrMessageTooLarge`, соединение закрывается.
+  Доступен в Web UI как поле "Max Message Size (bytes)".
+- **TunnelTimeout** (`ClientConfig`) — таймаут бездействия туннеля в секундах (default: 30).
+- **ProxyMaxConcurrency** (`ClientConfig`) — максимальное количество одновременных прокси-соединений
+  (default: 1000, только для mode=proxy).
+- **netlink migration** (partial) — `SetIP`/`SetMTU`/`DisableGSO` переведены на
+  `github.com/vishvananda/netlink`. Управление маршрутами (`addDefaultRoute`,
+  `removeDefaultRoute`, `AddExcludeRoute`, `RemoveExcludeRoute`, `SaveDefaultRoute`)
+  оставлено на `exec.Command("ip")` — netlink.RouteDel с частичным совпадением
+  может удалить физический default route вместо TUN-маршрута.
+
+### Changed
+
+- **internal/transport/transport.go** — единый `StreamConn` interface; дублирующие объявления
+  удалены из tunnel/ и proxy/.
+- **internal/bootstrap/client/dial.go** — общая функция `dialStream` для tun- и proxy-режимов,
+  устранено дублирование.
+- **internal/tunnel/session.go** — wsToTun декомпозирован на handler-методы
+  (`handleDataFrame`, `handleCloseFrame`, `handleProxyFrame`).
+- **Магические числа** — заменены на конфигурируемые поля, именованные константы
+  (`wsReadLimit`, `CIDRMaskV4Bits`, `CIDRMaskV6Bits`).
+
+### Removed
+
+- **exec.Command("ip")** из tun.go — все манипуляции с TUN через netlink API.
+- **Зависимость от os/exec, strconv, strings** в tun.go.
+- **Дублирующиеся StreamConn interface** в tunnel/stream.go и proxy/stream.go.
+
 ## [0.3.0] — 2026-06-05
 
 ### Changed

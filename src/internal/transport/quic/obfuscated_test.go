@@ -4,6 +4,8 @@ package quic
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -56,6 +58,51 @@ func TestObfuscatedRoundtrip(t *testing.T) {
 	data, err := serverObf.ReadMessage()
 	if err == nil {
 		t.Fatalf("expected EOF, got data len=%d", len(data))
+	}
+}
+
+// @sk-test arch-refactoring#T4.1: obfuscated oversize after XOR → error (AC-002)
+func TestObfuscatedReadMessageOversize(t *testing.T) {
+	toServer := &memBuf{}
+	toClient := &memBuf{}
+	clientStream := &memStream{r: toClient, w: toServer}
+	serverStream := &memStream{r: toServer, w: toClient}
+
+	clientConn := NewQUICConn(nil, clientStream)
+	serverConn := NewQUICConn(nil, serverStream)
+	clientConn.SetMaxMessageSize(1024)
+	serverConn.SetMaxMessageSize(1024)
+
+	clientObf, err := NewObfuscatedQUICConn(clientConn)
+	if err != nil {
+		t.Fatalf("NewObfuscatedQUICConn: %v", err)
+	}
+	clientObf.SetNonce(sharedNonce())
+
+	serverObf, err := NewObfuscatedQUICConn(serverConn)
+	if err != nil {
+		t.Fatalf("NewObfuscatedQUICConn(server): %v", err)
+	}
+	serverObf.SetNonce(sharedNonce())
+
+	// XOR the length with nonce before writing it (simulate wire data)
+	nonce := sharedNonce()
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], 1025)
+	for i := range lenBuf {
+		lenBuf[i] ^= nonce[i%len(nonce)]
+	}
+	if _, err := toServer.Write(lenBuf[:]); err != nil {
+		t.Fatalf("write len: %v", err)
+	}
+	payload := make([]byte, 1025)
+	if _, err := toServer.Write(payload); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+
+	_, err = serverObf.ReadMessage()
+	if !errors.Is(err, ErrMessageTooLarge) {
+		t.Fatalf("expected ErrMessageTooLarge after XOR, got %v", err)
 	}
 }
 

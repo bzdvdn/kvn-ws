@@ -7,21 +7,16 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"time"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
 // @sk-task quic-proxy-mode#T2.1: local StreamConn for cycle avoidance (AC-001, AC-003)
+// @sk-task arch-refactoring#T2.2: type alias to transport.StreamConn (AC-003)
 // StreamConn is the minimal interface needed by Manager/ForwardToStream.
 // Implemented by websocket.WSConn and quic.QUICConn.
-type StreamConn interface {
-	ReadMessage() ([]byte, error)
-	WriteMessage([]byte) error
-	SetReadDeadline(t time.Time) error
-	SetWriteDeadline(t time.Time) error
-	Close() error
-}
+type StreamConn = transport.StreamConn
 
 // @sk-task post-hardening#T3.4: per-session proxy stream container (AC-012)
 type SessionStreams struct {
