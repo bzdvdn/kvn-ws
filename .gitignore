@@ -31,7 +31,6 @@ __pycache__/
 dist/
 coverage/
 tmp/
-.opencode
 
 # Node.js / React
 node_modules/
@@ -42,3 +41,4 @@ src/internal/webui/frontend/dist/
 # >>> speckeep: skills checkouts >>>
 .speckeep/skills/checkouts/
 # <<< speckeep: skills checkouts <<<
+server.lock.json

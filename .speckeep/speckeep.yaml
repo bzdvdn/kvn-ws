@@ -17,6 +17,8 @@ language:
 agents:
     update_agents_md: true
     agents_file: AGENTS.md
+    targets:
+        - opencode
 templates:
     spec: spec.md
     plan: plan.md
