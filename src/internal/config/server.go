@@ -178,8 +178,6 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	envPrefixForWarning = "KVN_SERVER"
-
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
@@ -232,7 +230,7 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 	// @sk-task production-readiness-gap#T1: warn when secrets come from config file (AC-001)
 	secretKeys := []string{"auth.tokens", "crypto.key", "admin.token"}
-	if warnSecretInFile(secretKeys) {
+	if warnSecretInFile("KVN_SERVER", secretKeys) {
 		log.Println("[config] WARNING: secrets (auth.tokens, crypto.key, admin.token) loaded from config file. Use environment variables KVN_SERVER_* for production.")
 	}
 	return cfg, nil

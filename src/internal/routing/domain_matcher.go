@@ -25,6 +25,7 @@ type DomainMatcher struct {
 	resolved      map[string][]netip.Addr
 	lastRefresh   time.Time
 	refreshPeriod time.Duration
+	baseCtx       context.Context
 }
 
 // @sk-task routing-split-tunnel#T3.1: new domain matcher (AC-005)
@@ -47,6 +48,7 @@ func NewDomainMatcher(domains []string, resolver dns.Resolver, logger *zap.Logge
 		logger:        logger,
 		resolved:      make(map[string][]netip.Addr),
 		refreshPeriod: 30 * time.Second,
+		baseCtx:       context.Background(),
 	}
 }
 
@@ -86,6 +88,13 @@ func (m *DomainMatcher) Match(ip netip.Addr) bool {
 	return false
 }
 
+// @sk-task fix-critical-leaks#T2.2: DNS ctx propagation (AC-005)
+func (m *DomainMatcher) SetCtx(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.baseCtx = ctx
+}
+
 // @sk-task prod-issue#T1.2: refresh domain resolution cache periodically (AC-002)
 func (m *DomainMatcher) refreshCache() {
 	m.mu.RLock()
@@ -100,7 +109,7 @@ func (m *DomainMatcher) refreshCache() {
 		return
 	}
 	for _, d := range m.domains {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(m.baseCtx, 10*time.Second)
 		ips, err := m.resolver.Lookup(ctx, d)
 		cancel()
 		if err != nil {

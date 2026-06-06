@@ -20,10 +20,13 @@ func nextBackoff(current, minBackoff, maxBackoff time.Duration) time.Duration {
 	return next
 }
 
+// @sk-task fix-critical-leaks#T1.2: fix time.After leak (AC-008)
 func sleepWithContext(ctx context.Context, d time.Duration) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-	case <-time.After(d):
+	case <-timer.C:
 	}
 }
 

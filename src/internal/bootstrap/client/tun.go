@@ -14,7 +14,6 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
@@ -26,29 +25,11 @@ import (
 // @sk-task whitelist-obfuscation#T3.2: padding config propagation (AC-005)
 // @sk-task whitelist-obfuscation#T4.1: QUIC isClient param removed (AC-006)
 func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
-	minBackoff := 1 * time.Second
-	maxBackoff := 30 * time.Second
-	if c.cfg.Reconnect != nil {
-		if c.cfg.Reconnect.MinBackoffSec > 0 {
-			minBackoff = time.Duration(c.cfg.Reconnect.MinBackoffSec) * time.Second
-		}
-		if c.cfg.Reconnect.MaxBackoffSec > 0 {
-			maxBackoff = time.Duration(c.cfg.Reconnect.MaxBackoffSec) * time.Second
-		}
-	}
+	minBackoff, maxBackoff := parseBackoff(c.cfg.Reconnect)
 
-	tlsCfg, err := tls.NewClientTLSConfigFromSettings(tls.ClientTLSSettings{
-		CAFile:     c.cfg.TLS.CAFile,
-		ServerName: c.cfg.TLS.ServerName,
-		VerifyMode: c.cfg.TLS.VerifyMode,
-	})
+	tlsCfg, err := clientTLSConfig(c.cfg)
 	if err != nil {
 		c.logger.Fatal("client tls config", zap.Error(err))
-	}
-
-	// @sk-task whitelist-obfuscation#T3.1: random SNI for each connection (AC-004)
-	if sni := tls.SelectSNI(c.cfg.TLS.SNI); sni != "" {
-		tlsCfg.ServerName = sni
 	}
 
 	backoff := minBackoff
@@ -79,7 +60,7 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 			quicCfg := &quic.Config{
 				KeepAlivePeriod: 15 * time.Second,
 			}
-			quicConn, err := quictp.Dial(quicAddr, tlsCfg, quicCfg)
+			quicConn, err := quictp.Dial(ctx, quicAddr, tlsCfg, quicCfg)
 			if err != nil {
 				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
 				transport = "tcp"
@@ -329,8 +310,6 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 	if tunRouter != nil {
 		tunSess.SetTunRouter(tunRouter)
 	}
-	tunSess.SetInterruptibleRead(true)
-
 	if err := tunSess.Run(ctx); err != nil {
 		c.logger.Info("session ended", zap.Error(err))
 	}

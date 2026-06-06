@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"math"
 	"net"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -23,26 +24,40 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
+// @sk-task fix-critical-leaks#T5.1: sync.Pool for 4KB proxy buffers (AC-013)
+var proxyBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 4096)
+		return b
+	},
+}
+
 const wsTunnelTimeout = 30 * time.Second
 const defaultProxyConcurrency = 1000
+
+type tunReadResult struct {
+	n   int
+	err error
+	buf []byte
+}
 
 // Session encapsulates bidirectional forwarding between a transport
 // stream (WebSocket or QUIC) and a TUN device.
 type Session struct {
-	tunDev         tun.TunDevice
-	stream         StreamConn
-	sm             *session.SessionManager
-	sessionID      string
-	tokenName      string
-	prl            *ratelimit.SessionPacketLimiter
-	bwMgr          *session.TokenBandwidthManager
-	collectors     *metrics.Collectors
-	logger         *zap.Logger
-	cipher         *crypto.SessionCipher
-	proxyStreams   *proxy.SessionStreams
-	proxySem       chan struct{}
-	tunRouter      *routing.TunRouter
-	interruptRead  bool
+	tunDev        tun.TunDevice
+	stream        StreamConn
+	sm            *session.SessionManager
+	sessionID     string
+	tokenName     string
+	prl           *ratelimit.SessionPacketLimiter
+	bwMgr         *session.TokenBandwidthManager
+	collectors    *metrics.Collectors
+	logger        *zap.Logger
+	cipher        *crypto.SessionCipher
+	proxyStreams  *proxy.SessionStreams
+	proxySem      chan struct{}
+	tunRouter     *routing.TunRouter
+	tunReaderCh   chan tunReadResult
 }
 
 func NewSession(
@@ -78,33 +93,29 @@ func (s *Session) SetTunRouter(tr *routing.TunRouter) {
 	s.tunRouter = tr
 }
 
-func (s *Session) SetInterruptibleRead(enabled bool) {
-	s.interruptRead = enabled
-}
-
-func (s *Session) tunReadInterruptible(ctx context.Context, buf []byte) (int, error) {
-	readBuf := make([]byte, len(buf))
-	type result struct {
-		n   int
-		err error
-	}
-	ch := make(chan result, 1)
+// @sk-task fix-critical-leaks#T3.1: TUN reader — permanent goroutine (AC-001)
+func (s *Session) startTunReader(ctx context.Context) {
+	s.tunReaderCh = make(chan tunReadResult, 1)
 	go func() {
-		n, err := s.tunDev.Read(readBuf)
-		ch <- result{n, err}
+		for {
+			buf := make([]byte, 1500)
+			n, err := s.tunDev.Read(buf)
+			select {
+			case s.tunReaderCh <- tunReadResult{n, err, buf}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
 	}()
-	select {
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	case r := <-ch:
-		copy(buf, readBuf[:r.n])
-		return r.n, r.err
-	}
 }
 
 // Run spawns the two forwarding goroutines (WS→TUN and TUN→WS) and
 // blocks until one fails or ctx is cancelled.
 func (s *Session) Run(ctx context.Context) error {
+	s.startTunReader(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return s.wsToTun(ctx) })
 	eg.Go(func() error { return s.tunToWS(ctx) })
@@ -200,7 +211,10 @@ func (s *Session) wsToTun(ctx context.Context) error {
 					binary.BigEndian.PutUint32(closeFrame.Payload[0:4], streamID)
 					binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
 					if encoded, encErr := closeFrame.Encode(); encErr == nil {
-						_ = s.stream.WriteMessage(encoded)
+						// @sk-task fix-critical-leaks#T1.3: log swallowed errors (AC-009)
+						if err := s.stream.WriteMessage(encoded); err != nil {
+							s.logger.Warn("write close frame failed", zap.Error(err))
+						}
 						framing.ReturnBuffer(encoded)
 					}
 					f.Release()
@@ -222,7 +236,7 @@ func (s *Session) wsToTun(ctx context.Context) error {
 					continue
 				}
 
-				go func(sid uint32, tcp net.Conn, stream StreamConn, streams *proxy.SessionStreams, parentCtx context.Context) {
+			go func(sid uint32, tcp net.Conn, stream StreamConn, streams *proxy.SessionStreams, parentCtx context.Context) {
 					defer func() {
 						<-s.proxySem
 						_ = tcp.Close()
@@ -238,7 +252,8 @@ func (s *Session) wsToTun(ctx context.Context) error {
 							framing.ReturnBuffer(encoded)
 						}
 					}()
-					buf := make([]byte, 4096)
+					buf := proxyBufPool.Get().([]byte)
+					defer proxyBufPool.Put(buf)
 					for {
 						if err := tcp.SetReadDeadline(time.Now().Add(wsTunnelTimeout)); err != nil {
 							return
@@ -255,16 +270,18 @@ func (s *Session) wsToTun(ctx context.Context) error {
 						if len(dst) > math.MaxUint16 {
 							return
 						}
+						payload := framing.GetBuffer(4 + 2 + len(dst) + n)
+						binary.BigEndian.PutUint32(payload[0:4], sid)
+						binary.BigEndian.PutUint16(payload[4:6], uint16(len(dst)))
+						copy(payload[6:], dst)
+						copy(payload[6+len(dst):], buf[:n])
 						frame := framing.Frame{
 							Type:    framing.FrameTypeProxy,
 							Flags:   framing.FrameFlagNone,
-							Payload: make([]byte, 4+2+len(dst)+n),
+							Payload: payload,
 						}
-						binary.BigEndian.PutUint32(frame.Payload[0:4], sid)
-						binary.BigEndian.PutUint16(frame.Payload[4:6], uint16(len(dst)))
-						copy(frame.Payload[6:], dst)
-						copy(frame.Payload[6+len(dst):], buf[:n])
 						encoded, err := frame.Encode()
+						frame.Release()
 						if err != nil {
 							return
 						}
@@ -282,29 +299,25 @@ func (s *Session) wsToTun(ctx context.Context) error {
 	}
 }
 
+// @sk-task fix-critical-leaks#T3.1: TUN reader — channel-based (AC-001)
 func (s *Session) tunToWS(ctx context.Context) error {
-	buf := make([]byte, 1500)
 	for {
+		var r tunReadResult
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		default:
+		case r = <-s.tunReaderCh:
 		}
-		var n int
-		var err error
-		if s.interruptRead {
-			n, err = s.tunReadInterruptible(ctx, buf)
-		} else {
-			n, err = s.tunDev.Read(buf)
+		if r.err != nil {
+			return r.err
 		}
-		if err != nil {
-			return err
-		}
+		n := r.n
+		payload := r.buf[:n]
 		if s.sm != nil {
 			s.sm.UpdateActivity(s.sessionID)
 		}
 		if s.tunRouter != nil {
-			if rerr := s.tunRouter.RoutePacket(buf[:n]); rerr != nil {
+			if rerr := s.tunRouter.RoutePacket(payload); rerr != nil {
 				s.logger.Debug("route packet error", zap.Error(rerr))
 			}
 			continue
@@ -318,7 +331,6 @@ func (s *Session) tunToWS(ctx context.Context) error {
 				time.Sleep(delay)
 			}
 		}
-		payload := buf[:n]
 		if s.cipher != nil {
 			encrypted, err := s.cipher.Encrypt(payload)
 			if err != nil {

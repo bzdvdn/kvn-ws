@@ -11,15 +11,16 @@ import (
 
 const DefaultDialTimeout = 10 * time.Second
 
-func Dial(addr string, tlsConf *tls.Config, quicConf *quic.Config) (*QUICConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultDialTimeout)
+// @sk-task fix-critical-leaks#T2.1: QUIC Dial ctx param (AC-004)
+func Dial(ctx context.Context, addr string, tlsConf *tls.Config, quicConf *quic.Config) (*QUICConn, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, DefaultDialTimeout)
 	defer cancel()
 
-	conn, err := quic.DialAddr(ctx, addr, tlsConf, quicConf)
+	conn, err := quic.DialAddr(dialCtx, addr, tlsConf, quicConf)
 	if err != nil {
 		return nil, err
 	}
-	stream, err := conn.OpenStreamSync(ctx)
+	stream, err := conn.OpenStreamSync(dialCtx)
 	if err != nil {
 		return nil, err
 	}

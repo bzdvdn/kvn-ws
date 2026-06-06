@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"go.etcd.io/bbolt"
 	"go.uber.org/zap"
@@ -16,9 +17,12 @@ type BoltStore struct {
 	logger *zap.Logger
 }
 
+// @sk-task fix-critical-leaks#T1.1: BoltDB timeout (AC-007)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 func NewBoltStore(path string, logger *zap.Logger) (*BoltStore, error) {
-	db, err := bbolt.Open(path, 0o600, nil)
+	opts := bbolt.DefaultOptions
+	opts.Timeout = 1 * time.Second
+	db, err := bbolt.Open(path, 0o600, opts)
 	if err != nil {
 		return nil, fmt.Errorf("open bolt db %s: %w", path, err)
 	}
@@ -37,10 +41,13 @@ func (s *BoltStore) Close() error {
 	return s.db.Close()
 }
 
+// @sk-task fix-critical-leaks#T1.1: BoltDB timeout (AC-007)
 // @sk-task ipv6-dual-stack#T1.2: bolt db store for IPv6 allocations (AC-002)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 func NewBoltStore6(path string, logger *zap.Logger) (*BoltStore, error) {
-	db, err := bbolt.Open(path, 0o600, nil)
+	opts := bbolt.DefaultOptions
+	opts.Timeout = 1 * time.Second
+	db, err := bbolt.Open(path, 0o600, opts)
 	if err != nil {
 		return nil, fmt.Errorf("open bolt db %s: %w", path, err)
 	}

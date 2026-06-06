@@ -27,8 +27,24 @@ func TestNewQUICConn(t *testing.T) {
 	}
 }
 
+// @sk-test fix-critical-leaks#T6.1: TestQUICDialContextCancel (AC-004)
+func TestQUICDialContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := Dial(ctx, "127.0.0.1:19999", &tls.Config{
+		InsecureSkipVerify: true,
+	}, nil)
+	if err == nil {
+		t.Fatal("expected dial to fail with cancelled context")
+	}
+	t.Logf("dial error with cancelled ctx: %v", err)
+}
+
 func TestQUICDialTimeout(t *testing.T) {
-	_, err := Dial("127.0.0.1:19999", &tls.Config{
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := Dial(ctx, "127.0.0.1:19999", &tls.Config{
 		InsecureSkipVerify: true,
 	}, nil)
 	if err == nil {

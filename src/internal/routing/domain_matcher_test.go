@@ -120,6 +120,31 @@ func TestDomainMatcherCacheHit(t *testing.T) {
 	}
 }
 
+// @sk-test fix-critical-leaks#T6.1: TestDNSContextPropagation (AC-005)
+func TestDNSContextPropagation(t *testing.T) {
+	resolver := &mockDomainResolver{ips: []netip.Addr{netip.MustParseAddr("10.10.10.10")}}
+	m := NewDomainMatcher([]string{"ctx.corp.ru"}, resolver, zap.NewNop())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.SetCtx(ctx)
+	cancel() // cancel before refresh
+
+	m.refreshPeriod = 0 // force refresh on next Match
+	// After ctx is cancelled, refreshCache should use the cancelled context
+	m.Match(netip.MustParseAddr("10.10.10.10"))
+	t.Log("DNS ctx propagation: SetCtx applied, no panic on cancelled ctx")
+}
+
+// @sk-test fix-critical-leaks#T6.1: TestDNSContextPropagation (AC-005)
+func TestDNSContextDefaultNotNil(t *testing.T) {
+	resolver := &mockDomainResolver{ips: []netip.Addr{netip.MustParseAddr("10.10.10.10")}}
+	m := NewDomainMatcher([]string{"default.corp.ru"}, resolver, zap.NewNop())
+
+	if m.baseCtx == nil {
+		t.Error("baseCtx should not be nil after NewDomainMatcher")
+	}
+}
+
 // @sk-test routing-split-tunnel#T3.2: TestDomainMatcherMultipleIPs (AC-005)
 func TestDomainMatcherMultipleIPs(t *testing.T) {
 	resolver := &mockDomainResolver{

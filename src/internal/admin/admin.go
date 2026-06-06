@@ -10,16 +10,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
 )
-
-type AdminServer struct {
-	router *chi.Mux
-	sm     *session.SessionManager
-	cfg    AdminCfg
-	srv    *http.Server
-}
 
 type AdminCfg struct {
 	Enabled bool
@@ -29,11 +23,20 @@ type AdminCfg struct {
 
 const TokenHeader = "X-Admin-Token"
 
-func NewAdminServer(cfg AdminCfg, sm *session.SessionManager) *AdminServer {
+type AdminServer struct {
+	router *chi.Mux
+	sm     *session.SessionManager
+	cfg    AdminCfg
+	srv    *http.Server
+	logger *zap.Logger
+}
+
+func NewAdminServer(cfg AdminCfg, sm *session.SessionManager, logger *zap.Logger) *AdminServer {
 	s := &AdminServer{
 		router: chi.NewRouter(),
 		sm:     sm,
 		cfg:    cfg,
+		logger: logger,
 	}
 
 	s.router.Use(s.authMiddleware)
@@ -96,6 +99,7 @@ type sessionResponse struct {
 	ConnectedAt string `json:"connected_at"`
 }
 
+// @sk-task fix-critical-leaks#T1.3: log swallowed errors (AC-009)
 func (s *AdminServer) listSessions(w http.ResponseWriter, r *http.Request) {
 	sessions := s.sm.List()
 	resp := make([]sessionResponse, 0, len(sessions))
@@ -109,9 +113,12 @@ func (s *AdminServer) listSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"sessions": resp})
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{"sessions": resp}); err != nil {
+		s.logger.Error("list sessions encode failed", zap.Error(err))
+	}
 }
 
+// @sk-task fix-critical-leaks#T1.3: log swallowed errors (AC-009)
 func (s *AdminServer) deleteSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -126,5 +133,7 @@ func (s *AdminServer) deleteSession(w http.ResponseWriter, r *http.Request) {
 	s.sm.Remove(id)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "disconnected", "session_id": id})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "disconnected", "session_id": id}); err != nil {
+		s.logger.Error("delete session encode failed", zap.Error(err))
+	}
 }

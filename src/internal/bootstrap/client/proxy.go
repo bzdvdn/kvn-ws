@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -16,7 +17,6 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/quic-go/quic-go"
@@ -27,30 +27,12 @@ import (
 // @sk-task whitelist-obfuscation#T3.2: padding config propagation (AC-005)
 // @sk-task whitelist-obfuscation#T4.1: QUIC isClient param removed (AC-006)
 func (c *Client) runProxyMode(ctx context.Context) {
-	tlsCfg, err := tls.NewClientTLSConfigFromSettings(tls.ClientTLSSettings{
-		CAFile:     c.cfg.TLS.CAFile,
-		ServerName: c.cfg.TLS.ServerName,
-		VerifyMode: c.cfg.TLS.VerifyMode,
-	})
+	tlsCfg, err := clientTLSConfig(c.cfg)
 	if err != nil {
 		c.logger.Fatal("proxy tls config", zap.Error(err))
 	}
 
-	// @sk-task whitelist-obfuscation#T3.1: random SNI for each connection (AC-004)
-	if sni := tls.SelectSNI(c.cfg.TLS.SNI); sni != "" {
-		tlsCfg.ServerName = sni
-	}
-
-	minBackoff := 1 * time.Second
-	maxBackoff := 30 * time.Second
-	if c.cfg.Reconnect != nil {
-		if c.cfg.Reconnect.MinBackoffSec > 0 {
-			minBackoff = time.Duration(c.cfg.Reconnect.MinBackoffSec) * time.Second
-		}
-		if c.cfg.Reconnect.MaxBackoffSec > 0 {
-			maxBackoff = time.Duration(c.cfg.Reconnect.MaxBackoffSec) * time.Second
-		}
-	}
+	minBackoff, maxBackoff := parseBackoff(c.cfg.Reconnect)
 
 	backoff := minBackoff
 	attempt := 0
@@ -79,7 +61,7 @@ func (c *Client) runProxyMode(ctx context.Context) {
 			quicCfg := &quic.Config{
 				KeepAlivePeriod: 15 * time.Second,
 			}
-			quicConn, err := quictp.Dial(quicAddr, tlsCfg, quicCfg)
+			quicConn, err := quictp.Dial(ctx, quicAddr, tlsCfg, quicCfg)
 			if err != nil {
 				c.logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
 				transport = "tcp"
@@ -205,6 +187,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 				host = dst
 			}
 			// @sk-task dns-routing#T6.1: check suffix domains first (AC-001, AC-002)
+			// @sk-task fix-critical-leaks#T3.3: RouteDirect lifecycle via errgroup (AC-003)
 			if action := routeSet.MatchDomain(host); action == routing.RouteDirect {
 				c.logger.Info("proxy domain direct", zap.String("dst", dst), zap.String("ip", dst))
 				go func() {
@@ -214,16 +197,28 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 						return
 					}
 					defer func() { _ = target.Close() }()
-					errc := make(chan error, 2)
-					go func() { _, err := io.Copy(target, client); errc <- err }()
-					go func() { _, err := io.Copy(client, target); errc <- err }()
-					<-errc
+					eg, gctx := errgroup.WithContext(ctx)
+					go func() {
+						<-gctx.Done()
+						target.Close()
+						client.Close()
+					}()
+					eg.Go(func() error {
+						_, err := io.Copy(target, client)
+						return err
+					})
+					eg.Go(func() error {
+						_, err := io.Copy(client, target)
+						return err
+					})
+					eg.Wait()
 				}()
 				return
 			}
 			ipAddr := net.ParseIP(host)
 			if ipAddr == nil {
-				addrs, _ := net.DefaultResolver.LookupHost(context.Background(), host)
+				// @sk-task fix-critical-leaks#T2.2: DNS ctx propagation (AC-005)
+			addrs, _ := net.DefaultResolver.LookupHost(ctx, host)
 				if len(addrs) > 0 {
 					ipAddr = net.ParseIP(addrs[0])
 				}
@@ -237,6 +232,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 				}
 			}
 			if nip.IsValid() && routeSet.Route(nip) == routing.RouteDirect {
+				// @sk-task fix-critical-leaks#T3.3: RouteDirect lifecycle via errgroup (AC-003)
 				c.logger.Info("proxy direct", zap.String("dst", dst), zap.String("ip", dst))
 				go func() {
 					defer func() { _ = client.Close() }()
@@ -245,10 +241,21 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 						return
 					}
 					defer func() { _ = target.Close() }()
-					errc := make(chan error, 2)
-					go func() { _, err := io.Copy(target, client); errc <- err }()
-					go func() { _, err := io.Copy(client, target); errc <- err }()
-					<-errc
+					eg, gctx := errgroup.WithContext(ctx)
+					go func() {
+						<-gctx.Done()
+						target.Close()
+						client.Close()
+					}()
+					eg.Go(func() error {
+						_, err := io.Copy(target, client)
+						return err
+					})
+					eg.Go(func() error {
+						_, err := io.Copy(client, target)
+						return err
+					})
+					eg.Wait()
 				}()
 				return
 			}
@@ -292,7 +299,9 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 			}
 			data, err := stream.ReadMessage()
 			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// @sk-task fix-critical-leaks#T1.4: errors.As for wrapped net.Error (AC-011)
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
 					continue
 				}
 				c.logger.Warn("stream read error in proxy mode", zap.Error(err))

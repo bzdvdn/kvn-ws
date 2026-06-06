@@ -36,18 +36,26 @@ type ProxyAuth struct {
 	Password string
 }
 
+const defaultProxyConcurrency = 1000
+
 type Listener struct {
 	addr   string
 	auth   *ProxyAuth
 	ln     net.Listener
 	onConn func(conn net.Conn, dst string)
+	sem    chan struct{}
 }
 
 func NewListener(addr string, auth *ProxyAuth, onConn func(net.Conn, string)) *Listener {
 	if addr == "" {
 		addr = "127.0.0.1:2310"
 	}
-	return &Listener{addr: addr, auth: auth, onConn: onConn}
+	return &Listener{
+		addr:   addr,
+		auth:   auth,
+		onConn: onConn,
+		sem:    make(chan struct{}, defaultProxyConcurrency),
+	}
 }
 
 func (l *Listener) Start() error {
@@ -74,17 +82,21 @@ func (l *Listener) Close() error {
 }
 
 // @sk-task local-proxy-mode#T3.1: detect SOCKS vs HTTP CONNECT (AC-002)
+// @sk-task fix-critical-leaks#T3.2: proxy semaphore (AC-002)
 func (l *Listener) AcceptLoop() error {
 	for {
 		client, err := l.ln.Accept()
 		if err != nil {
 			return err
 		}
+		l.sem <- struct{}{}
 		go l.handleClient(client)
 	}
 }
 
+// @sk-task fix-critical-leaks#T3.2: proxy semaphore (AC-002)
 func (l *Listener) handleClient(client net.Conn) {
+	defer func() { <-l.sem }()
 	handedOff := false
 	defer func() {
 		if !handedOff {

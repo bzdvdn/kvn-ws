@@ -2,6 +2,7 @@
 package session
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -250,6 +251,49 @@ func TestSessionManagerCreateGetRemove(t *testing.T) {
 	got = sm.Get("session-1")
 	if got != nil {
 		t.Error("Get after Remove returned non-nil")
+	}
+}
+
+// @sk-test fix-critical-leaks#T6.1: TestSessionManagerLockOrdering (AC-010)
+func TestSessionManagerLockOrdering(t *testing.T) {
+	pool := testPool(t)
+	sm := NewSessionManager(pool, zap.NewNop())
+	defer sm.Stop()
+
+	sm.Start(50*time.Millisecond, 0, 10*time.Millisecond)
+
+	// Create a session
+	sess, _, _, err := sm.Create("lock-test-1", "user1", "10.0.0.1:1234", 0, false)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, cancel := context.WithCancel(context.Background())
+	sm.SetCancel(sess.ID, cancel)
+
+	// Concurrently: expireIdle (holds sm.mu) and SetCancel (holds cancelFuncsMu)
+	done := make(chan struct{})
+	go func() {
+		sm.SetCancel(sess.ID, cancel) // uses cancelFuncsMu
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("SetCancel blocked — possible lock ordering deadlock")
+	}
+
+	// Verify the session can be removed without deadlock
+	done2 := make(chan struct{})
+	go func() {
+		sm.Remove(sess.ID)
+		close(done2)
+	}()
+	select {
+	case <-done2:
+	case <-time.After(time.Second):
+		t.Fatal("Remove blocked — possible lock ordering deadlock")
 	}
 }
 

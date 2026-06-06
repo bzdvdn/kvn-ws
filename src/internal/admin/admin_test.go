@@ -31,7 +31,7 @@ func newTestSM(t *testing.T) *session.SessionManager {
 func TestAdminListSessions(t *testing.T) {
 	sm := newTestSM(t)
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
-	srv := NewAdminServer(cfg, sm)
+	srv := NewAdminServer(cfg, sm, zap.NewNop())
 
 	_, _, _, err := sm.Create("sess-1", "user1", "10.0.0.1:1234", 0, false)
 	if err != nil {
@@ -68,7 +68,7 @@ func TestAdminListSessions(t *testing.T) {
 func TestAdminDeleteSession(t *testing.T) {
 	sm := newTestSM(t)
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
-	srv := NewAdminServer(cfg, sm)
+	srv := NewAdminServer(cfg, sm, zap.NewNop())
 
 	_, _, _, err := sm.Create("sess-del", "user1", "10.0.0.1:1234", 0, false)
 	if err != nil {
@@ -97,7 +97,7 @@ func TestAdminDeleteSession(t *testing.T) {
 func TestAdminNoAuth(t *testing.T) {
 	sm := newTestSM(t)
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
-	srv := NewAdminServer(cfg, sm)
+	srv := NewAdminServer(cfg, sm, zap.NewNop())
 
 	req := httptest.NewRequest("GET", "/admin/sessions", http.NoBody)
 	w := httptest.NewRecorder()
@@ -112,7 +112,7 @@ func TestAdminNoAuth(t *testing.T) {
 func TestAdminDeleteNotFound(t *testing.T) {
 	sm := newTestSM(t)
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
-	srv := NewAdminServer(cfg, sm)
+	srv := NewAdminServer(cfg, sm, zap.NewNop())
 
 	req := httptest.NewRequest("DELETE", "/admin/sessions/nonexistent", http.NoBody)
 	req.Header.Set(TokenHeader, "admin-tok")
@@ -128,7 +128,7 @@ func TestAdminDeleteNotFound(t *testing.T) {
 func TestAdminListEmpty(t *testing.T) {
 	sm := newTestSM(t)
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
-	srv := NewAdminServer(cfg, sm)
+	srv := NewAdminServer(cfg, sm, zap.NewNop())
 
 	req := httptest.NewRequest("GET", "/admin/sessions", http.NoBody)
 	req.Header.Set(TokenHeader, "admin-tok")
@@ -151,7 +151,7 @@ func TestAdminListEmpty(t *testing.T) {
 func TestAdminSessionFields(t *testing.T) {
 	sm := newTestSM(t)
 	cfg := AdminCfg{Enabled: true, Listen: "localhost:0", Token: "admin-tok"}
-	srv := NewAdminServer(cfg, sm)
+	srv := NewAdminServer(cfg, sm, zap.NewNop())
 
 	_, _, _, err := sm.Create("sess-fields", "test-user", "10.0.0.1:9999", 0, false)
 	if err != nil {

@@ -105,8 +105,6 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	envPrefixForWarning = "KVN_CLIENT"
-
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
@@ -172,7 +170,7 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	if cfg.ProxyAuth != nil {
 		secretKeys = append(secretKeys, "proxy_auth.username", "proxy_auth.password")
 	}
-	if warnSecretInFile(secretKeys) {
+	if warnSecretInFile("KVN_CLIENT", secretKeys) {
 		log.Println("[config] WARNING: secrets (auth.token, crypto.key) loaded from config file. Use environment variables KVN_CLIENT_* for production.")
 	}
 	return cfg, nil

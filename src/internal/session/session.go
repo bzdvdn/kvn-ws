@@ -212,17 +212,18 @@ type Session struct {
 // @sk-task ipv6-dual-stack#T2.1: add pool6 and AssignedIPv6 for dual-stack (AC-004)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type SessionManager struct {
-	mu          sync.Mutex
-	pool        *IPPool
-	pool6       *IPPool
-	sessions    map[string]*Session
-	sessionCnt  map[string]int
-	idleTimeout time.Duration
-	sessionTTL  time.Duration
-	stopCh      chan struct{}
-	logger      *zap.Logger
-	stopOnce    sync.Once
-	cancelFuncs map[string]context.CancelFunc
+	mu            sync.Mutex
+	cancelFuncsMu sync.Mutex
+	pool          *IPPool
+	pool6         *IPPool
+	sessions      map[string]*Session
+	sessionCnt    map[string]int
+	idleTimeout   time.Duration
+	sessionTTL    time.Duration
+	stopCh        chan struct{}
+	logger        *zap.Logger
+	stopOnce      sync.Once
+	cancelFuncs   map[string]context.CancelFunc
 }
 
 // @sk-task ipv6-dual-stack#T2.3: set IPv6 pool for dual-stack allocation (AC-004)
@@ -278,36 +279,49 @@ func (sm *SessionManager) reclaimLoop(interval time.Duration) {
 
 // @sk-task production-hardening#T2.1: expire idle sessions (AC-005)
 // @sk-task post-hardening#T1.2: cancel per-session on expiry (AC-002)
+// @sk-task fix-critical-leaks#T4.1: two-phase — collect IDs under mu, cancel after unlock (AC-010)
 func (sm *SessionManager) expireIdle() {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	now := time.Now()
+	var cancelIDs []string
 	for id, s := range sm.sessions {
 		if sm.idleTimeout > 0 && now.Sub(s.LastActivity) > sm.idleTimeout {
-			sm.cancelSession(id)
+			cancelIDs = append(cancelIDs, id)
 			delete(sm.sessions, id)
 			sm.pool.Release(id)
 		}
+	}
+	sm.mu.Unlock()
+	for _, id := range cancelIDs {
+		sm.cancelSession(id)
 	}
 }
 
 // @sk-task production-hardening#T2.1: expire ttl sessions (AC-005)
 // @sk-task post-hardening#T1.2: cancel per-session on expiry (AC-002)
+// @sk-task fix-critical-leaks#T4.1: two-phase — collect IDs under mu, cancel after unlock (AC-010)
 func (sm *SessionManager) expireTTL() {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	now := time.Now()
+	var cancelIDs []string
 	for id, s := range sm.sessions {
 		if sm.sessionTTL > 0 && now.Sub(s.ConnectedAt) > sm.sessionTTL {
-			sm.cancelSession(id)
+			cancelIDs = append(cancelIDs, id)
 			delete(sm.sessions, id)
 			sm.pool.Release(id)
 		}
 	}
+	sm.mu.Unlock()
+	for _, id := range cancelIDs {
+		sm.cancelSession(id)
+	}
 }
 
 // @sk-task post-hardening#T1.2: cancel per-session context (AC-002)
+// @sk-task fix-critical-leaks#T4.1: use cancelFuncsMu instead of mu (AC-010)
 func (sm *SessionManager) cancelSession(id string) {
+	sm.cancelFuncsMu.Lock()
+	defer sm.cancelFuncsMu.Unlock()
 	if cancel, ok := sm.cancelFuncs[id]; ok {
 		cancel()
 		delete(sm.cancelFuncs, id)
@@ -356,9 +370,9 @@ func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSes
 
 // @sk-task security-acl#T5: Remove decrements session count
 // @sk-task post-hardening#T1.2: cancel per-session on Remove (AC-002)
+// @sk-task fix-critical-leaks#T4.1: two-phase — mu operations first, cancelSession after unlock (AC-010)
 func (sm *SessionManager) Remove(sessionID string) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	s, ok := sm.sessions[sessionID]
 	if ok {
 		sm.sessionCnt[s.TokenName]--
@@ -368,13 +382,15 @@ func (sm *SessionManager) Remove(sessionID string) {
 	}
 	delete(sm.sessions, sessionID)
 	sm.pool.Release(sessionID)
+	sm.mu.Unlock()
 	sm.cancelSession(sessionID)
 }
 
 // @sk-task post-hardening#T1.2: set per-session cancel (AC-002)
+// @sk-task fix-critical-leaks#T4.1: use cancelFuncsMu instead of mu (AC-010)
 func (sm *SessionManager) SetCancel(sessionID string, cancel context.CancelFunc) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	sm.cancelFuncsMu.Lock()
+	defer sm.cancelFuncsMu.Unlock()
 	sm.cancelFuncs[sessionID] = cancel
 }
 

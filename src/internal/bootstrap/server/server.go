@@ -39,11 +39,11 @@ import (
 const shutdownTimeout = 5 * time.Second
 
 type Server struct {
-	cfg        *config.ServerConfig
-	cfgPath    string
-	cfgPtr     *config.AtomicConfig[config.ServerConfig]
-	logger     *zap.Logger
-	lvl        zap.AtomicLevel
+	cfg     *config.ServerConfig
+	cfgPath string
+	cfgPtr  *config.AtomicConfig[config.ServerConfig]
+	logger  *zap.Logger
+	lvl     zap.AtomicLevel
 
 	cidrMatcher   *acl.CIDRMatcher
 	gatewayIP     net.IP
@@ -330,14 +330,18 @@ func (s *Server) buildMux() *http.ServeMux {
 	return mux
 }
 
+// @sk-task fix-critical-leaks#T1.3: log swallowed errors (AC-009)
 func (s *Server) handleLivez(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":   "alive",
 		"uptime_s": time.Since(s.startTime).Seconds(),
-	})
+	}); err != nil {
+		s.logger.Error("livez encode failed", zap.Error(err))
+	}
 }
 
+// @sk-task fix-critical-leaks#T1.3: log swallowed errors (AC-009)
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	boltStatus := "disabled"
@@ -353,7 +357,9 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		"active_sessions": len(sessions),
 		"bolt":            boltStatus,
 	}
-	_ = json.NewEncoder(w).Encode(health)
+	if err := json.NewEncoder(w).Encode(health); err != nil {
+		s.logger.Error("readyz encode failed", zap.Error(err))
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -491,7 +497,7 @@ func (s *Server) startAdminAPI(ctx context.Context, eg *errgroup.Group) {
 		Listen:  s.cfg.Admin.Listen,
 		Token:   s.cfg.Admin.Token,
 	}
-	adminSrv := admin.NewAdminServer(adminCfg, s.sm)
+	adminSrv := admin.NewAdminServer(adminCfg, s.sm, s.logger)
 
 	if s.cfg.Admin.Token == "" {
 		s.logger.Warn("admin api token not set, disabling admin api")

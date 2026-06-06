@@ -34,9 +34,6 @@ func New(port int) (*Server, error) {
 	}
 
 	state := NewAppState()
-	bgCtx := context.Background()
-	go state.broadcastLogs(bgCtx)
-	go state.broadcastStatus(bgCtx)
 
 	s := &Server{
 		state:     state,
@@ -69,8 +66,12 @@ func New(port int) (*Server, error) {
 	return s, nil
 }
 
+// @sk-task fix-critical-leaks#T2.3: WebUI broadcast uses ctx from Serve (AC-006)
 func (s *Server) Serve(ctx context.Context) error {
 	s.baseCtx = ctx
+	go s.state.broadcastLogs(ctx)
+	go s.state.broadcastStatus(ctx)
+
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- s.httpServer.ListenAndServe()

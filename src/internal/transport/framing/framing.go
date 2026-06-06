@@ -34,6 +34,11 @@ func ReturnBuffer(buf []byte) {
 	bufferPool.Put(&buf)
 }
 
+// @sk-task fix-critical-leaks#T5.1: export GetBuffer from existing pool (AC-013)
+func GetBuffer(size int) []byte {
+	return getBuffer(size)
+}
+
 const (
 	FrameTypeData  = 0x01
 	FrameTypeHello = 0x02

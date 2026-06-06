@@ -12,8 +12,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-var envPrefixForWarning string
-
 type LogConfig struct {
 	Level string `json:"level" mapstructure:"level"`
 }
@@ -45,8 +43,6 @@ func load(path, prefix string, cfg interface{}) error {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	envPrefixForWarning = prefix
-
 	if err := v.ReadInConfig(); err != nil {
 		return fmt.Errorf("read config %s: %w", path, err)
 	}
@@ -57,16 +53,18 @@ func load(path, prefix string, cfg interface{}) error {
 }
 
 // @sk-task production-readiness-gap#T1: check if secret key is set via environment (AC-001)
-func secretFromEnv(key string) bool {
-	envKey := envPrefixForWarning + "_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+// @sk-task fix-critical-leaks#T4.3: prefix param instead of global (AC-012)
+func secretFromEnv(prefix, key string) bool {
+	envKey := prefix + "_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
 	return os.Getenv(envKey) != ""
 }
 
 // @sk-task production-readiness-gap#T1: warn when secrets are in config file (AC-001)
-func warnSecretInFile(keys []string) bool {
+// @sk-task fix-critical-leaks#T4.3: prefix param instead of global (AC-012)
+func warnSecretInFile(prefix string, keys []string) bool {
 	anyInFile := false
 	for _, key := range keys {
-		if !secretFromEnv(key) {
+		if !secretFromEnv(prefix, key) {
 			anyInFile = true
 		}
 	}
