@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+// @sk-task import-export--qr-config-ui#T3.1: QR code generation (AC-003)
+import QRCode from "qrcode";
 
 type Status = "disconnected" | "connecting" | "connected" | "error";
 
@@ -72,6 +74,18 @@ function App() {
   const [showToken, setShowToken] = useState(false);
   const [logFilter, setLogFilter] = useState<Record<string, boolean>>({ debug: true, info: true, warn: true, error: true });
   const [logSearch, setLogSearch] = useState("");
+  // @sk-task import-export--qr-config-ui#T2.1: import textarea state (AC-002)
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
+  // @sk-task import-export--qr-config-ui#T2.1: save button highlight on import (AC-002)
+  const [importDirty, setImportDirty] = useState(false);
+  // @sk-task import-export--qr-config-ui#T3.1: QR modal state (AC-003)
+  const [qrOpen, setQrOpen] = useState(false);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  // @sk-task import-export--qr-config-ui#T1.1: toast notification (AC-001)
+  const [toast, setToast] = useState("");
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>();
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -99,9 +113,58 @@ function App() {
     return logFilter[e.level] ?? true;
   });
 
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 2500);
+  }, []);
+
+  // @sk-task import-export--qr-config-ui#T1.1: export to clipboard (AC-001)
+  const exportConfig = useCallback(async () => {
+    const json = JSON.stringify(config);
+    try {
+      await navigator.clipboard.writeText(json);
+      showToast("Config copied to clipboard");
+    } catch {
+      showToast("Failed to copy");
+    }
+  }, [config, showToast]);
+
+  // @sk-task import-export--qr-config-ui#T2.1: import from JSON (AC-002)
+  const doImport = useCallback(() => {
+    setImportError("");
+    try {
+      const parsed = JSON.parse(importText);
+      if (typeof parsed !== "object" || parsed === null) throw new Error("not an object");
+      // @sk-task import-export--qr-config-ui#T4.1: merge, don't replace (AC-004)
+      setConfig((prev) => ({ ...prev, ...parsed }));
+      setImportOpen(false);
+      setImportText("");
+      setImportDirty(true);
+      showToast("Config imported — review and Save");
+    } catch (e: any) {
+      setImportError(e.message || "Invalid JSON");
+    }
+  }, [importText, showToast]);
+
+  // @sk-task import-export--qr-config-ui#T3.1: QR code generation (AC-003)
+  const openQr = useCallback(async () => {
+    setQrOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!qrOpen || !qrCanvasRef.current) return;
+    const json = JSON.stringify(config);
+    QRCode.toCanvas(qrCanvasRef.current, json, { width: 280, margin: 2 }, (err) => {
+      if (err) showToast("QR generation failed");
+    });
+  }, [qrOpen, config, showToast]);
+
+  const hasConfig = Object.keys(config).length > 0;
+
   const saveConfig = useCallback(async () => {
     setSaving(true);
-    try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) }); } finally { setSaving(false); }
+    try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) }); } finally { setSaving(false); setImportDirty(false); }
   }, [config]);
 
   const connect = useCallback(async () => {
@@ -134,7 +197,7 @@ function App() {
         </div>
 
         {/* Buttons */}
-        <div style={{ padding: "8px 12px", display: "flex", gap: 6, borderBottom: "1px solid #2a2a2a" }}>
+        <div style={{ padding: "8px 12px", display: "flex", gap: 6, borderBottom: "1px solid #2a2a2a", flexWrap: "wrap" }}>
           <button onClick={connect} disabled={status === "connecting" || status === "connected"}
             style={{ flex: 1, padding: "7px 0", background: "#2e7d32", border: "none", borderRadius: 4, color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600, opacity: status === "connected" || status === "connecting" ? 0.6 : 1 }}>
             Connect
@@ -144,10 +207,75 @@ function App() {
             Disconnect
           </button>
           <button onClick={saveConfig} disabled={saving}
-            style={{ padding: "7px 12px", background: "#1a5a9e", border: "none", borderRadius: 4, color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
-            {saving ? "..." : "Save"}
+            style={{ padding: "7px 12px", background: importDirty ? "#f57c00" : "#1a5a9e", border: "none", borderRadius: 4, color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
+            {saving ? "..." : importDirty ? "Save ⚡" : "Save"}
+          </button>
+          {/* @sk-task import-export--qr-config-ui#T1.1: Export button (AC-001) */}
+          <button onClick={exportConfig}
+            style={{ padding: "7px 10px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer" }}>
+            Export
+          </button>
+          {/* @sk-task import-export--qr-config-ui#T2.1: Import button (AC-002) */}
+          <button onClick={() => { setImportOpen(!importOpen); setImportError(""); }}
+            style={{ padding: "7px 10px", background: importOpen ? "#555" : "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer" }}>
+            Import
+          </button>
+          {/* @sk-task import-export--qr-config-ui#T3.1: QR button (AC-003) */}
+          <button onClick={openQr} disabled={!hasConfig}
+            style={{ padding: "7px 10px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer", opacity: hasConfig ? 1 : 0.4 }}>
+            QR
           </button>
         </div>
+
+        {/* @sk-task import-export--qr-config-ui#T2.1: Import textarea (AC-002) */}
+        {importOpen && (
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid #2a2a2a" }}>
+            <textarea style={{ ...inp, minHeight: 100, fontSize: 11, fontFamily: "monospace" }}
+              placeholder="Paste JSON config here..."
+              value={importText} onChange={(e) => setImportText(e.target.value)} />
+            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+              <button onClick={doImport}
+                style={{ padding: "5px 12px", background: "#1a5a9e", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, cursor: "pointer" }}>
+                Apply
+              </button>
+              <button onClick={() => { setImportOpen(false); setImportText(""); setImportError(""); }}
+                style={{ padding: "5px 12px", background: "#555", border: "none", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+            {importError && <div style={{ color: "#f44336", fontSize: 11, marginTop: 4 }}>{importError}</div>}
+          </div>
+        )}
+
+        {/* @sk-task import-export--qr-config-ui#T3.1: QR modal (AC-003) */}
+        {qrOpen && (
+          <div style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex",
+            alignItems: "center", justifyContent: "center", zIndex: 1000,
+          }} onClick={() => setQrOpen(false)}>
+            <div style={{
+              background: "#fff", padding: 24, borderRadius: 12, display: "flex",
+              flexDirection: "column", alignItems: "center", gap: 12,
+            }} onClick={(e) => e.stopPropagation()}>
+              <canvas ref={qrCanvasRef} />
+              <button onClick={() => { setQrOpen(false); navigator.clipboard.writeText(JSON.stringify(config)); showToast("Config copied"); }}
+                style={{ padding: "6px 16px", background: "#1a5a9e", border: "none", borderRadius: 4, color: "#fff", fontSize: 13, cursor: "pointer" }}>
+                Copy & Close
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* @sk-task import-export--qr-config-ui#T1.1: Toast notification (AC-001) */}
+        {toast && (
+          <div style={{
+            position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+            background: "#333", color: "#e0e0e0", padding: "8px 20px", borderRadius: 8,
+            fontSize: 13, zIndex: 1001, border: "1px solid #555",
+          }}>
+            {toast}
+          </div>
+        )}
 
         {/* Scrollable settings */}
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
