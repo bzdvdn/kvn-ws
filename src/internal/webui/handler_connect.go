@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"go.uber.org/zap"
@@ -56,10 +57,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}))
 	cl.SetLogger(hookLogger)
 
-	if cfg.Mode == "tun" && os.Geteuid() != 0 {
-		s.state.setStatus(StatusError)
-		s.state.PushLog(LogEntry{Line: "TUN mode requires root privileges (run with sudo or set CAP_NET_ADMIN)", Level: "error"})
-		return
+	if cfg.Mode == "tun" {
+		if runtime.GOOS != "linux" {
+			s.state.setStatus(StatusError)
+			s.state.PushLog(LogEntry{Line: "TUN mode is not supported on " + runtime.GOOS, Level: "error"})
+			return
+		}
+		if os.Geteuid() != 0 {
+			s.state.setStatus(StatusError)
+			s.state.PushLog(LogEntry{Line: "TUN mode requires root privileges (run with sudo or set CAP_NET_ADMIN)", Level: "error"})
+			return
+		}
 	}
 
 	ctx, cancel := context.WithCancel(s.baseCtx)

@@ -48,6 +48,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Session manager: lock ordering** — отдельный `cancelFuncsMu` для карты cancel-функций;
   двухфазное удаление (сбор ID под `mu`, отмена после unlock) — устранён potential deadlock.
 - **Admin server: логирование ошибок** — `listSessions`/`deleteSession` логируют ошибки `json.Encode`.
+- **kvn-web на Windows** — `internal/tun` разделён на linux/заглушку, `GET /api/platform`,
+  фронтенд скрывает TUN-mode на не-Linux. CI собирает kvn-web для всех платформ.
 
 ### Changed
 

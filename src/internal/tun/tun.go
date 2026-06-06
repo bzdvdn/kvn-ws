@@ -1,3 +1,5 @@
+//go:build linux
+
 // Route management uses exec.Command("ip") because netlink.RouteDel partial matching
 // can delete the physical default route instead of the TUN route.
 
@@ -12,22 +14,6 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/tun"
 )
-
-// @sk-task foundation#T1.3: internal stubs (AC-002)
-// @sk-task core-tunnel-mvp#T1.2: TunDevice interface (AC-001)
-type TunDevice interface {
-	Open() error
-	Close() error
-	Read([]byte) (int, error)
-	Write([]byte) (int, error)
-	SetIP(ip net.IP, mask *net.IPNet) error
-	SetMTU(mtu int) error
-	SetGateway(gateway net.IP) error
-	RemoveGateway(gateway net.IP) error
-	AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error
-	RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error
-	DisableGSO() error
-}
 
 type tunDevice struct {
 	name   string
@@ -95,11 +81,6 @@ func removeDefaultRoute(iface string, gateway net.IP) error {
 
 const virtioNetHdrLen = 12
 const writeHeadroom = virtioNetHdrLen
-
-const CIDRMaskV4Bits = 24
-const CIDRMaskV4Total = 32
-const CIDRMaskV6Bits = 112
-const CIDRMaskV6Total = 128
 
 // @sk-task tun-data-path#T2.2: Write offset=12 virtioNetHdrLen (AC-001)
 func (t *tunDevice) Write(buf []byte) (int, error) {

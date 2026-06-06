@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -46,6 +47,7 @@ func New(port int) (*Server, error) {
 	mux.HandleFunc("POST /api/connect", s.handleConnect)
 	mux.HandleFunc("POST /api/disconnect", s.handleDisconnect)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)
+	mux.HandleFunc("GET /api/platform", s.handlePlatform)
 
 	subFS, err := fs.Sub(reactDist, "frontend/dist")
 	if err != nil {
@@ -85,4 +87,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// @sk-task kvn-web#T2.5: platform info endpoint (AC-009)
+func (s *Server) handlePlatform(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"os": runtime.GOOS})
 }

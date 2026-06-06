@@ -70,6 +70,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function App() {
   const [config, setConfig] = useState<ClientConfig>({});
   const [status, setStatus] = useState<Status>("disconnected");
+  const [platform, setPlatform] = useState("linux");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -93,6 +94,10 @@ function App() {
     fetch("/api/config")
       .then((r) => r.json())
       .then((data) => { if (data.config) setConfig(data.config); })
+      .catch(() => {});
+    fetch("/api/platform")
+      .then((r) => r.json())
+      .then((data) => { if (data.os) setPlatform(data.os); })
       .catch(() => {});
   }, []);
 
@@ -296,8 +301,9 @@ function App() {
             <label style={lbl}>Mode
               <select style={inp} value={config.mode || "proxy"} onChange={(e) => update("mode", e.target.value)}>
                 <option value="proxy">Proxy (SOCKS5/HTTP)</option>
-                <option value="tun">TUN</option>
+                {platform === "linux" && <option value="tun">TUN</option>}
               </select>
+              {platform !== "linux" && <div style={{ color: "#888", fontSize: 10, marginTop: 2 }}>TUN mode not available on {platform}</div>}
             </label>
             <label style={lbl}>Transport
               <select style={inp} value={config.transport || "tcp"} onChange={(e) => update("transport", e.target.value)}>

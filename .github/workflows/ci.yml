@@ -121,12 +121,9 @@ jobs:
             GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
               go build -ldflags="-s -w" \
               -o "dist/kvn-$os-$arch/server${suffix}" ./src/cmd/server
-            # web — linux and darwin only (no frontend for windows)
-            if [ "$os" != "windows" ]; then
-              GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
-                go build -ldflags="-s -w" \
-                -o "dist/kvn-$os-$arch/kvn-web${suffix}" ./src/cmd/web
-            fi
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+              go build -ldflags="-s -w" \
+              -o "dist/kvn-$os-$arch/kvn-web${suffix}" ./src/cmd/web
           done
 
       - name: Copy install scripts to dist
