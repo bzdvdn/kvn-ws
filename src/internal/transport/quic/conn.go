@@ -1,5 +1,3 @@
-// @sk-task quic-transport#T2.1: QUICConn wrapper implementing StreamConn (AC-001)
-// @sk-task arch-refactoring#T2.1: add MaxMessageSize limit (AC-001)
 package quic
 
 import (
@@ -15,6 +13,8 @@ import (
 
 var ErrMessageTooLarge = errors.New("message too large")
 
+// @sk-task quic-transport#T2.1: QUICConn wrapper implementing StreamConn (AC-001)
+// @sk-task arch-refactoring#T2.1: add MaxMessageSize limit (AC-001)
 type QUICConn struct {
 	mu             sync.Mutex
 	conn           quic.Connection

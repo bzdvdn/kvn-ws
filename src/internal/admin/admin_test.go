@@ -1,4 +1,3 @@
-// @sk-test security-acl#T9: Admin API handler tests (AC-007, AC-008, AC-011)
 package admin
 
 import (
@@ -13,6 +12,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
 )
 
+// @sk-test security-acl#T9: Admin API handler tests (AC-007, AC-008, AC-011)
 func newTestSM(t *testing.T) *session.SessionManager {
 	t.Helper()
 	pool, err := session.NewIPPool(session.PoolCfg{

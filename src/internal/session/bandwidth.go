@@ -1,5 +1,3 @@
-// @sk-task security-acl#T6: Per-token bandwidth limiter
-// @sk-task post-hardening#T3.1: keep lock during AllowN (AC-008)
 package session
 
 import (
@@ -9,6 +7,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// @sk-task security-acl#T6: Per-token bandwidth limiter
+// @sk-task post-hardening#T3.1: keep lock during AllowN (AC-008)
 type TokenBandwidthManager struct {
 	mu       sync.Mutex
 	limiters map[string]*rate.Limiter

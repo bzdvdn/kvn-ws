@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.4.0] — 2026-06-07
+## [0.3.0] — 2026-06-07
 
 ### Added
 
@@ -16,30 +16,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **TunnelTimeout** (`ClientConfig`) — таймаут бездействия туннеля в секундах (default: 30).
 - **ProxyMaxConcurrency** (`ClientConfig`) — максимальное количество одновременных прокси-соединений
   (default: 1000, только для mode=proxy).
+- **QUIC proxy mode** — QUIC-транспорт теперь поддерживается не только в TUN-, но и в proxy-режиме.
+  `proxy.StreamConn` унифицирован под `transport.StreamConn`. При недоступности QUIC — fallback на TCP.
+- **QUIC obfuscation** — XOR-обфускация QUIC-трафика для обхода DPI: 8-байтовый nonce,
+  полный XOR полезной нагрузки. Nonce выводится через TLS `ExportKeyingMaterial`.
+  Конфигурация: `obfuscation.enabled`.
+- **DNS-роутинг** — маршрутизация DNS-запросов по суффиксу домена. Новый `DomainMatcher.MatchDomain()`,
+  `RuleSet.MatchDomain()`, `RouteNone` sentinel. Парсер DNS-вопросов (`ParseDNSQuestion`).
+  В proxy-режиме — прямой TCP-диал для `RouteDirect` доменов до резолва IP.
+- **uTLS (TLS fingerprint obfuscation)** — `DialWithUTLS()` с Chrome fingerprint `HelloChrome_Auto`,
+  опциональный fallback на `crypto/tls`. Конфигурация: `obfuscation.utls`.
+- **WebSocket padding** — дополнение WS-сообщений случайным padding-фреймом (4 байта длины + паддинг).
+  Конфигурация: `obfuscation.padding`.
+- **SNI rotation** — случайный SNI из списка `tls.sni` при каждом подключении (`SelectSNI`).
+- **WSPath whitelist** — конфигурируемый список разрешённых WS-путей на сервере (`ws_paths`, по умолчанию `["/tunnel"]`).
 - **netlink migration** (partial) — `SetIP`/`SetMTU`/`DisableGSO` переведены на
   `github.com/vishvananda/netlink`. Управление маршрутами (`addDefaultRoute`,
   `removeDefaultRoute`, `AddExcludeRoute`, `RemoveExcludeRoute`, `SaveDefaultRoute`)
   оставлено на `exec.Command("ip")` — netlink.RouteDel с частичным совпадением
   может удалить физический default route вместо TUN-маршрута.
-
-### Changed
-
-- **internal/transport/transport.go** — единый `StreamConn` interface; дублирующие объявления
-  удалены из tunnel/ и proxy/.
-- **internal/bootstrap/client/dial.go** — общая функция `dialStream` для tun- и proxy-режимов,
-  устранено дублирование.
-- **internal/tunnel/session.go** — wsToTun декомпозирован на handler-методы
-  (`handleDataFrame`, `handleCloseFrame`, `handleProxyFrame`).
-- **Магические числа** — заменены на конфигурируемые поля, именованные константы
-  (`wsReadLimit`, `CIDRMaskV4Bits`, `CIDRMaskV6Bits`).
-
-### Removed
-
-- **exec.Command("ip")** из tun.go — все манипуляции с TUN через netlink API.
-- **Зависимость от os/exec, strconv, strings** в tun.go.
-- **Дублирующиеся StreamConn interface** в tunnel/stream.go и proxy/stream.go.
-
-## [0.3.0] — 2026-06-05
+- **Import/Export QR UI** — экспорт конфига в JSON (буфер обмена), импорт через текстовое поле,
+  генерация QR-кода. Система toast-уведомлений.
+- **Web UI: uiLogCore** — `zapcore.Core`-обёртка для структурированной отправки логов в SSE:
+  извлечение `action`, `ip`, `ts` из полей лога. Фильтр по уровню, поиск по строке.
+  Автоматический скролл логов.
+- **Proxy semaphore** — ограничение одновременных прокси-соединений через `sem chan struct{}` (default: 1000).
+- **Permanent TUN reader** — выделенная goroutine с channel-based результатом (`tunReaderCh`),
+  устранены per-read goroutines.
+- **Sync.Pool для proxy-буферов** — `proxyBufPool` для 4KB буферов, устранено per-call выделение.
+- **BoltDB timeout** — `bbolt.Open` с `Timeout: 1s` для предотвращения зависания при заблокированной БД.
+- **Session manager: lock ordering** — отдельный `cancelFuncsMu` для карты cancel-функций;
+  двухфазное удаление (сбор ID под `mu`, отмена после unlock) — устранён potential deadlock.
+- **Admin server: логирование ошибок** — `listSessions`/`deleteSession` логируют ошибки `json.Encode`.
 
 ### Changed
 
@@ -47,30 +55,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   в `internal/bootstrap/client/` (client.go, tun.go, proxy.go, reconnect.go, killswitch.go).
 - **cmd/server/main.go** — сокращён с ~632 до 32 строк: вся логика вынесена
   в `internal/bootstrap/server/` (server.go, handler.go).
-- **internal/bootstrap/client/** — новый пакет: Client struct + New() + Run(),
-  TUN reconnectLoop с экспоненциальным backoff, runProxyMode с reconnect,
-  nftables kill-switch (apply/removeKillSwitch), computeGateway.
-- **internal/bootstrap/server/** — новый пакет: Server struct + New() + Run(),
-  buildMux(), startSighupHandler(), handleTunnel(), health endpoints.
-- **internal/tunnel/session.go** — извлечён из cmd/client; Session переиспользуется
-  и клиентом и сервером; nil-guards для sm/collectors/proxyStreams;
-  SetTunRouter, SetInterruptibleRead, tunReadInterruptible.
+- **internal/bootstrap/** — новые пакеты client (Client struct + New() + Run(),
+  TUN reconnectLoop с backoff, runProxyMode, kill-switch, computeGateway)
+  и server (Server struct + New() + Run(), buildMux(), startSighupHandler(),
+  handleTunnel(), health endpoints).
+- **internal/transport/transport.go** — единый `StreamConn` interface; дублирующие объявления
+  удалены из tunnel/ и proxy/.
+- **internal/bootstrap/client/dial.go** — общая функция `dialStream` для tun- и proxy-режимов,
+  устранено дублирование.
+- **internal/tunnel/session.go** — wsToTun декомпозирован на handler-методы
+  (`handleDataFrame`, `handleCloseFrame`, `handleProxyFrame`); Session переиспользуется
+  клиентом и сервером; параметры `tunnelTimeout` и `proxyConcurrency` из конфига.
+- **Магические числа** — заменены на конфигурируемые поля, именованные константы
+  (`wsReadLimit`, `CIDRMaskV4Bits`, `CIDRMaskV6Bits`).
+- **Obfuscation config** — `bool → *ObfuscationCfg` (struct с `Enabled`, `UTLS`, `Padding`);
+  обратная совместимость: `obfuscation: true` → `{enabled: true}`.
+- **QUIC obfuscation rewritten** — nonce через TLS Exporter вместо random; полный XOR payload
+  (не только длины); убран параметр `isClient`.
+- **Web UI: default transport** — изменён с `"tcp"` на `"quic"`, obfuscation по умолчанию включён.
+- **Server: tunnel handler** — перемещён с `/tunnel` на `/`; `allowedWSPath()` возвращает 404.
+- **QUICConn** — `WriteMessage` защищён mutex'ом; `Close()` закрывает и connection и stream.
+- **Proxy: ForwardToWS → ForwardToStream** — обобщено под `transport.StreamConn`.
+- **Proxy listener: NewListener** — опциональный variadic `proxyConcurrency`.
+- **Proxy goroutine nil-guard** — проверка proxyStreams в FrameTypeProxy handler.
+- **TUN: SetInterruptibleRead** — удалён (больше не нужен с permanent reader).
+- **DNS: DomainMatcher.SetCtx** — контекст для обновления DNS-кэша.
+- **Reconnect: sleepWithContext** — `time.NewTimer` + `defer timer.Stop()` вместо `time.After`.
+- **Config: secretFromEnv/warnSecretInFile** — принимают `prefix` вместо глобальной переменной.
 - **internal/ratelimit/** — извлечён rate-limiter (IPRateLimiter, SessionPacketLimiter).
 - **internal/proxy/stream.go** — SessionStreams.M сделан private `m`,
   добавлен конструктор NewSessionStreams().
 - **proxySem глобальная → поле Session** — убрана глобальная переменная,
   proxySem инициализируется в NewSession().
-- **SIGHUP reload fix** — startSighupHandler теперь использует сохранённый
-  путь конфига вместо сломанного type assertion.
-- **Proxy goroutine nil-guard** — проверка proxyStreams в FrameTypeProxy handler.
+
+### Fixed
+
+- **SIGHUP reload fix** — startSighupHandler использует сохранённый путь конфига вместо type assertion.
+- **Proxy frame: deadline exceeded** — `runProxySession` не завершается при `Timeout() == true`.
+- **Proxy frame: zero-length close** — `HandleIncomingFrame` закрывает стрим при пустом payload.
+- **Tunnel: close frame on dial failure** — `wsToTun` отправляет close-фрейм при неудачном proxy-диале.
+- **UI logs stream** — `zap.WrapCore` вместо `zap.Hooks` для корректной передачи полей лога.
+- **WebUI broadcast lifecycle** — `broadcastLogs`/`broadcastStatus` стартуют в `Serve()` с серверным context.
+- **Critical: config prefix race** — устранена глобальная переменная prefix в конфиге.
+- **QUIC dial background ctx** — `Dial` принимает `ctx context.Context`, таймаут через `WithTimeout`.
 
 ### Removed
 
 - **pkg/api/** — мёртвый пакет удалён.
 - **cmd/client: tunToWS, wsToTun, tunReadInterruptible** — дублированный
   data-path (-114 строк) заменён на вызов tunnel.NewSession(...).Run(ctx).
-- **cmd/server: дублированная логика** — ~600 строк бутстрапа перенесены
-  в internal/bootstrap/server.
+- **cmd/server: дублированная логика** — ~600 строк бутстрапа перенесены в internal/bootstrap/server.
+- **exec.Command("ip")** из tun.go — все манипуляции с TUN через netlink API.
+- **Зависимость от os/exec, strconv, strings** в tun.go.
+- **Дублирующиеся StreamConn interface** — единый `transport.StreamConn`, type alias в tunnel/ и proxy/.
+- **Глобальная prefix в config** — заменена на параметр функции.
+- **SetInterruptibleRead** из TUN reconnect.
 
 ## [0.2.0] — 2026-06-04
 

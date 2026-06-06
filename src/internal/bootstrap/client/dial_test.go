@@ -1,4 +1,3 @@
-// @sk-test arch-refactoring#T4.1: dialStream tests (AC-004)
 package client
 
 import (
@@ -10,6 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// @sk-test arch-refactoring#T4.1: dialStream tests (AC-004)
 // @sk-test arch-refactoring#T4.1: dialStream with cancelled ctx returns error (AC-004)
 func TestDialStreamCancelledContext(t *testing.T) {
 	cfg := &config.ClientConfig{

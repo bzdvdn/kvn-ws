@@ -1,6 +1,3 @@
-// @sk-task production-readiness-gap#T3: integration test — full handshake + encrypted data round-trip over WebSocket (AC-001)
-// @sk-task production-readiness-gap#T3: trace marker for integration test coverage (AC-001)
-
 package integration_test
 
 import (
@@ -20,6 +17,8 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
+// @sk-test production-readiness-gap#T3: integration test — full handshake + encrypted data round-trip over WebSocket (AC-001)
+// @sk-test production-readiness-gap#T3: trace marker for integration test coverage (AC-001)
 // @sk-test production-readiness-gap#T3: full handshake + encrypted data round-trip (AC-001)
 func TestTunnelHandshakeAndEncryptedDataRoundtrip(t *testing.T) {
 	// Start a WebSocket server

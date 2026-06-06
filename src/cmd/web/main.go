@@ -1,4 +1,3 @@
-// @sk-task kvn-web#T2.4: web entrypoint (AC-001)
 package main
 
 import (
@@ -15,6 +14,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/webui"
 )
 
+// @sk-task kvn-web#T2.4: web entrypoint (AC-001)
 func main() {
 	port := flag.Int("port", 2311, "web UI port")
 	openBrowser := flag.Bool("open-browser", true, "open browser on start")

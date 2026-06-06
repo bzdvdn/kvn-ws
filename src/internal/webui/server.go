@@ -1,4 +1,3 @@
-// @sk-task kvn-web#T1.2: webui server package (AC-001, AC-002)
 package webui
 
 import (
@@ -16,6 +15,7 @@ import (
 //go:embed all:frontend/dist
 var reactDist embed.FS
 
+// @sk-task kvn-web#T1.2: webui server package (AC-001, AC-002)
 type Server struct {
 	httpServer *http.Server
 	state      *AppState

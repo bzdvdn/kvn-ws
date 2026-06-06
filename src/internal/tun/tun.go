@@ -1,9 +1,3 @@
-// @sk-task foundation#T1.3: internal stubs (AC-002)
-// @sk-task docs-and-release#T5.1: fix MTU=0 for TUN creation (AC-008)
-// @sk-task tun-data-path#T2.1: single-buf Read (AC-002)
-// @sk-task tun-data-path#T2.2: Write offset=12 virtioNetHdrLen (AC-001)
-// @sk-task tun-data-path#T6.1: SetIP fix — use ip/mask not subnet/mask (AC-003)
-// @sk-task arch-refactoring#T3.4: netlink for addr/link, exec.Command for routes (AC-007)
 // Route management uses exec.Command("ip") because netlink.RouteDel partial matching
 // can delete the physical default route instead of the TUN route.
 
@@ -19,6 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
+// @sk-task foundation#T1.3: internal stubs (AC-002)
 // @sk-task core-tunnel-mvp#T1.2: TunDevice interface (AC-001)
 type TunDevice interface {
 	Open() error
@@ -65,6 +60,7 @@ func (t *tunDevice) Close() error {
 	return t.device.Close()
 }
 
+// @sk-task tun-data-path#T2.1: single-buf Read (AC-002)
 func (t *tunDevice) Read(buf []byte) (int, error) {
 	sizes := make([]int, 1)
 	n, err := t.device.Read([][]byte{buf}, sizes, 0)
@@ -105,6 +101,7 @@ const CIDRMaskV4Total = 32
 const CIDRMaskV6Bits = 112
 const CIDRMaskV6Total = 128
 
+// @sk-task tun-data-path#T2.2: Write offset=12 virtioNetHdrLen (AC-001)
 func (t *tunDevice) Write(buf []byte) (int, error) {
 	padded := make([]byte, writeHeadroom+len(buf))
 	copy(padded[writeHeadroom:], buf)
@@ -129,6 +126,7 @@ func flushV4Addrs(link netlink.Link) error {
 	return nil
 }
 
+// @sk-task tun-data-path#T6.1: SetIP fix — use ip/mask not subnet/mask (AC-003)
 // @sk-task arch-refactoring#T3.4: netlink AddrAdd+LinkSetUp (AC-007)
 func (t *tunDevice) SetIP(ip net.IP, mask *net.IPNet) error {
 	link, err := netlink.LinkByName(t.name)
@@ -150,6 +148,7 @@ func (t *tunDevice) SetIP(ip net.IP, mask *net.IPNet) error {
 }
 
 // @sk-task arch-refactoring#T3.4: netlink LinkSetMTU (AC-007)
+// @sk-task docs-and-release#T5.1: fix MTU=0 for TUN creation (AC-008)
 func (t *tunDevice) SetMTU(mtu int) error {
 	link, err := netlink.LinkByName(t.name)
 	if err != nil {

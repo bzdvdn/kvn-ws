@@ -1,4 +1,3 @@
-// @sk-task quic-transport#T2.2: QUIC listener (AC-001)
 package quic
 
 import (
@@ -8,6 +7,7 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
+// @sk-task quic-transport#T2.2: QUIC listener (AC-001)
 type Listener struct {
 	ln *quic.Listener
 }

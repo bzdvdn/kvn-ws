@@ -1,4 +1,3 @@
-// @sk-task security-acl#T2: CIDR matcher package
 package acl
 
 import (
@@ -20,6 +19,7 @@ type node struct {
 	act   action
 }
 
+// @sk-task security-acl#T2: CIDR matcher package
 // @sk-task production-gap#T3.1: radix tree for O(k) CIDR matching (AC-004)
 type CIDRMatcher struct {
 	root     *node

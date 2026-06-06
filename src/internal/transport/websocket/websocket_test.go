@@ -1,4 +1,3 @@
-// @sk-test security-acl#T4: Origin checker tests (AC-005, AC-006)
 package websocket
 
 import (

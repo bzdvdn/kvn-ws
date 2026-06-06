@@ -1,7 +1,3 @@
-// @sk-task foundation#T1.3: internal stubs (AC-002)
-// @sk-task production-hardening#T4.1: keepalive support (AC-002)
-
-// @sk-task security-acl#T4: Origin/Referer validation with configurable CheckOrigin
 package websocket
 
 import (
@@ -27,6 +23,7 @@ const MultiplexSubprotocol = "kvn-ws-mux"
 const DefaultPongTimeout = 45 * time.Second
 const wsReadLimit = 1 << 20 // 1MB
 
+// @sk-task foundation#T1.3: internal stubs (AC-002)
 // @sk-task performance-and-polish#T1.1: WSConfig for Dial/Accept options (AC-004, AC-006, AC-007)
 // @sk-task whitelist-obfuscation#T2.1: add UTLS field (AC-001)
 // @sk-task whitelist-obfuscation#T3.2: add Padding fields (AC-005)
@@ -191,6 +188,7 @@ func (c *WSConn) Subprotocol() string {
 	return c.conn.Subprotocol()
 }
 
+// @sk-task production-hardening#T4.1: keepalive support (AC-002)
 // @sk-task production-hardening#T4.1: set keepalive with ping/pong (AC-002)
 // @sk-task production-readiness-hardening#T2.6: log.Printf → zap (AC-006)
 func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {

@@ -1,4 +1,3 @@
-// @sk-task kvn-web#T2.3: SSE log streaming (AC-003)
 package webui
 
 import (
@@ -7,6 +6,7 @@ import (
 	"net/http"
 )
 
+// @sk-task kvn-web#T2.3: SSE log streaming (AC-003)
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {

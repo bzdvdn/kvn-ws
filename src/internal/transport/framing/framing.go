@@ -1,5 +1,3 @@
-// @sk-task foundation#T1.3: internal stubs (AC-002)
-
 package framing
 
 import (
@@ -56,6 +54,7 @@ const (
 
 var ErrPayloadTooLarge = errors.New("payload exceeds max frame size")
 
+// @sk-task foundation#T1.3: internal stubs (AC-002)
 // @sk-task core-tunnel-mvp#T1.1: binary frame protocol (AC-004)
 type Frame struct {
 	Type    byte

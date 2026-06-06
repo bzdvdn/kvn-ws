@@ -1,4 +1,3 @@
-// @sk-task kvn-web#T1.3: app state management (AC-003, AC-004)
 package webui
 
 import (
@@ -25,6 +24,7 @@ type LogEntry struct {
 	TS     string `json:"ts,omitempty"`
 }
 
+// @sk-task kvn-web#T1.3: app state management (AC-003, AC-004)
 type AppState struct {
 	mu          sync.Mutex
 	cl          *client.Client

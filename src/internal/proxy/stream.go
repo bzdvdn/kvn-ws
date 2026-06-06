@@ -1,5 +1,3 @@
-// @sk-task local-proxy-mode#T2.2: ProxyStream and stream management (AC-001)
-// @sk-task post-hardening#T3.4: sessionProxyStreams extracted (AC-012)
 package proxy
 
 import (
@@ -12,6 +10,8 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
+// @sk-task local-proxy-mode#T2.2: ProxyStream and stream management (AC-001)
+// @sk-task post-hardening#T3.4: sessionProxyStreams extracted (AC-012)
 // @sk-task quic-proxy-mode#T2.1: local StreamConn for cycle avoidance (AC-001, AC-003)
 // @sk-task arch-refactoring#T2.2: type alias to transport.StreamConn (AC-003)
 // StreamConn is the minimal interface needed by Manager/ForwardToStream.

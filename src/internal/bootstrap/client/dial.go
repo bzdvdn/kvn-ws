@@ -1,4 +1,3 @@
-// @sk-task arch-refactoring#T3.1: common dialStream for tun and proxy modes (AC-004)
 package client
 
 import (
@@ -16,6 +15,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 )
 
+// @sk-task arch-refactoring#T3.1: common dialStream for tun and proxy modes (AC-004)
 // @sk-task arch-refactoring#T3.1: single dialStream for QUIC and WebSocket (AC-004)
 func dialStream(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger) (transport.StreamConn, error) {
 	tlsCfg, err := clientTLSConfig(cfg)

@@ -1,5 +1,3 @@
-// @sk-task app-crypto#T1: test encryption/decryption
-
 package crypto
 
 import (
@@ -8,6 +6,7 @@ import (
 	"testing"
 )
 
+// @sk-task app-crypto#T1: test encryption/decryption
 func TestEncryptDecrypt(t *testing.T) {
 	key := make([]byte, KeyLen)
 	for i := range key {

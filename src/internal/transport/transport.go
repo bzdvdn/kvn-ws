@@ -1,8 +1,8 @@
-// @sk-task arch-refactoring#T1.2: unified StreamConn interface (AC-003)
 package transport
 
 import "time"
 
+// @sk-task arch-refactoring#T1.2: unified StreamConn interface (AC-003)
 type StreamConn interface {
 	ReadMessage() ([]byte, error)
 	WriteMessage([]byte) error

@@ -1,5 +1,3 @@
-// @sk-task security-acl#T8: Admin API server
-// @sk-task security-acl#T9: Admin API handlers
 package admin
 
 import (
@@ -23,6 +21,8 @@ type AdminCfg struct {
 
 const TokenHeader = "X-Admin-Token"
 
+// @sk-task security-acl#T8: Admin API server
+// @sk-task security-acl#T9: Admin API handlers
 type AdminServer struct {
 	router *chi.Mux
 	sm     *session.SessionManager

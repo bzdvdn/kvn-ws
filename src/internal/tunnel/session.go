@@ -1,6 +1,4 @@
-// @sk-task production-readiness-hardening#T2.5: tunnel session abstraction (AC-005)
 package tunnel
-
 import (
 	"context"
 	"encoding/binary"

@@ -1,4 +1,3 @@
-// @sk-test security-acl#T2: CIDR matcher unit tests
 package acl
 
 import (
@@ -6,6 +5,7 @@ import (
 	"testing"
 )
 
+// @sk-test security-acl#T2: CIDR matcher unit tests
 func TestCIDRMatcherDeny(t *testing.T) {
 	m, err := NewCIDRMatcher(nil, []string{"10.0.0.0/8"})
 	if err != nil {

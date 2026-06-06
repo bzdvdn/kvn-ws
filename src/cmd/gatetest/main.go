@@ -1,5 +1,3 @@
-// @sk-task routing-split-tunnel#T4.1: gate test program (AC-010)
-// @sk-task performance-and-polish#T2.4: load testing mode (AC-008)
 package main
 
 import (
@@ -30,6 +28,8 @@ func (m *mockResolver) Lookup(ctx context.Context, domain string) ([]netip.Addr,
 	return nil, nil
 }
 
+// @sk-task routing-split-tunnel#T4.1: gate test program (AC-010)
+// @sk-task performance-and-polish#T2.4: load testing mode (AC-008)
 func main() {
 	mode := pflag.String("mode", "routing", "test mode: routing | loadtest")
 	cfgPath := pflag.String("config", "configs/loadtest.yaml", "config path (loadtest mode)")

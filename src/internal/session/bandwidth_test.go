@@ -1,10 +1,10 @@
-// @sk-test security-acl#T6: bandwidth limiter tests (AC-003)
 package session
 
 import (
 	"testing"
 )
 
+// @sk-test security-acl#T6: bandwidth limiter tests (AC-003)
 func TestBandwidthLimiterUnlimited(t *testing.T) {
 	mgr := NewTokenBandwidthManager(map[string]int{"user1": 0})
 	if !mgr.Allow("user1", 1000000) {

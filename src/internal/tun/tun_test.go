@@ -1,5 +1,3 @@
-// @sk-test tun-data-path#T1.1: MockTunDevice for unit tests (AC-004)
-
 package tun
 
 import (
@@ -9,6 +7,7 @@ import (
 	"testing"
 )
 
+// @sk-test tun-data-path#T1.1: MockTunDevice for unit tests (AC-004)
 type MockTunDevice struct {
 	mu         sync.Mutex
 	readQueue  [][]byte

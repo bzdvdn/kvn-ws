@@ -1,6 +1,3 @@
-// @sk-task foundation#T1.3: internal stubs (AC-002)
-// @sk-task security-acl#T11: mTLS support
-
 package tls
 
 import (
@@ -14,6 +11,8 @@ import (
 	utls "github.com/refraction-networking/utls"
 )
 
+// @sk-task foundation#T1.3: internal stubs (AC-002)
+// @sk-task security-acl#T11: mTLS support
 // @sk-task core-tunnel-mvp#T2.2: TLS 1.3 config (AC-003)
 // @sk-task security-acl#T11: mTLS with optional client CA
 // @sk-task production-gap#T1.2: explicit request/require/verify semantics (AC-002)

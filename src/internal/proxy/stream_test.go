@@ -1,4 +1,3 @@
-// @sk-test post-hardening#T4.3: TestSessionStreams (AC-012)
 package proxy
 
 import (
@@ -6,6 +5,7 @@ import (
 	"testing"
 )
 
+// @sk-test post-hardening#T4.3: TestSessionStreams (AC-012)
 func TestSessionStreamsCRUD(t *testing.T) {
 	ss := NewSessionStreams()
 

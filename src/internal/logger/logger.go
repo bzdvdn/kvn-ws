@@ -1,7 +1,5 @@
 package logger
 
-// @sk-task foundation#T3.1: zap logger with JSON output (AC-008)
-
 import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

@@ -1,4 +1,3 @@
-// @sk-task whitelist-obfuscation#T4.1: TLS Exporter nonce + full payload XOR (AC-006)
 package quic
 
 import (

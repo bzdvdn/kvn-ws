@@ -1,4 +1,3 @@
-// @sk-test whitelist-obfuscation#T5.1: config decoder tests (AC-001, AC-004, AC-005)
 package config
 
 import (
@@ -17,6 +16,7 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
+// @sk-test whitelist-obfuscation#T5.1: config decoder tests (AC-001, AC-004, AC-005)
 // @sk-test whitelist-obfuscation#T5.1: backward compat obfuscation: true (AC-001)
 func TestObfuscationBoolBackwardCompat(t *testing.T) {
 	path := writeConfig(t, `

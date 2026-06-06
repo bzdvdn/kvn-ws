@@ -1,5 +1,3 @@
-// @sk-task foundation#T1.3: internal stubs (AC-002)
-// @sk-task production-hardening#T3.2: prometheus metrics (AC-007)
 package metrics
 
 import (
@@ -7,6 +5,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+// @sk-task foundation#T1.3: internal stubs (AC-002)
+// @sk-task production-hardening#T3.2: prometheus metrics (AC-007)
 // @sk-task production-hardening#T3.2: metrics collectors (AC-007)
 // @sk-task post-hardening#T3.3: latency histograms (AC-010)
 type Collectors struct {

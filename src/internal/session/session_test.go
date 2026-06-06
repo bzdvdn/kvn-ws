@@ -1,4 +1,3 @@
-// @sk-task security-acl#T5: session max_sessions tests
 package session
 
 import (
@@ -10,6 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// @sk-task security-acl#T5: session max_sessions tests
 func testPool(t *testing.T) *IPPool {
 	t.Helper()
 	pool, err := NewIPPool(PoolCfg{

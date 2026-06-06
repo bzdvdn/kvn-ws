@@ -1,4 +1,3 @@
-// @sk-task kvn-web#T2.2: connect/disconnect handlers (AC-003, AC-004)
 package webui
 
 import (
@@ -20,6 +19,7 @@ type connectResponse struct {
 	Status Status `json:"status"`
 }
 
+// @sk-task kvn-web#T2.2: connect/disconnect handlers (AC-003, AC-004)
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if s.state.Status() == StatusConnected || s.state.Status() == StatusConnecting {
 		writeJSON(w, http.StatusConflict, connectResponse{Status: s.state.Status()})

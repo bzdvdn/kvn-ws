@@ -1,6 +1,3 @@
-// @sk-task local-proxy-mode#T2.1: SOCKS5 listener (AC-001)
-// @sk-task local-proxy-mode#T3.1: HTTP CONNECT handler (AC-002)
-// @sk-task local-proxy-mode#T3.2: SOCKS5 auth (AC-005)
 package proxy
 
 import (
@@ -36,6 +33,9 @@ type ProxyAuth struct {
 	Password string
 }
 
+// @sk-task local-proxy-mode#T2.1: SOCKS5 listener (AC-001)
+// @sk-task local-proxy-mode#T3.1: HTTP CONNECT handler (AC-002)
+// @sk-task local-proxy-mode#T3.2: SOCKS5 auth (AC-005)
 // @sk-task arch-refactoring#T3.5: defaultProxyConcurrency removed → Listener field (AC-006)
 const defaultProxyConcurrency = 1000
 

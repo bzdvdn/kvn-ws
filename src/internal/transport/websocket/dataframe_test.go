@@ -1,5 +1,3 @@
-// @sk-test docs-and-release#T5.1: TestDataFrameRoundTrip — full WS handshake + data frame (AC-008)
-
 package websocket
 
 import (
@@ -15,6 +13,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
+// @sk-test docs-and-release#T5.1: TestDataFrameRoundTrip — full WS handshake + data frame (AC-008)
 func TestDataFrameRoundTrip(t *testing.T) {
 	helloCh := make(chan *handshake.ClientHello, 1)
 	dataCh := make(chan []byte, 1)

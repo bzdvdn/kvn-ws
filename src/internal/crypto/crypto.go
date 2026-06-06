@@ -1,5 +1,3 @@
-// @sk-task app-crypto#T1: real app-layer encryption implementation
-
 package crypto
 
 import (
@@ -22,6 +20,7 @@ const (
 	MinPacketOverhead = NonceLen + TagOverhead
 )
 
+// @sk-task app-crypto#T1: real app-layer encryption implementation
 type SessionCipher struct {
 	aead cipher.AEAD
 }

@@ -1,4 +1,3 @@
-// @sk-task production-hardening#T5.2: stability gate program (AC-012)
 package main
 
 import (
@@ -16,6 +15,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 )
 
+// @sk-task production-hardening#T5.2: stability gate program (AC-012)
 func main() {
 	duration := 30
 	if len(os.Args) > 1 {

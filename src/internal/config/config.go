@@ -1,7 +1,5 @@
 package config
 
-// @sk-task foundation#T2.3: config loader with viper (AC-006, AC-007)
-
 import (
 	"encoding/json"
 	"fmt"

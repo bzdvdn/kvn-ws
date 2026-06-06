@@ -1,5 +1,3 @@
-// @sk-task foundation#T1.3: internal stubs (AC-002)
-
 package handshake
 
 import (
@@ -12,6 +10,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
+// @sk-task foundation#T1.3: internal stubs (AC-002)
 const (
 	ProtoVersion = 0x02
 	SessionIDLen = 16

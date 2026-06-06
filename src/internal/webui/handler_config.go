@@ -1,4 +1,3 @@
-// @sk-task kvn-web#T2.1: config API handlers (AC-005, AC-007)
 package webui
 
 import (
@@ -11,6 +10,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
+// @sk-task kvn-web#T2.1: config API handlers (AC-005, AC-007)
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	cfgPath := filepath.Join(s.configDir, "config.yaml")
 	cfg, err := config.LoadClientConfig(cfgPath)

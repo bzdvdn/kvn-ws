@@ -1,5 +1,3 @@
-// @sk-task production-hardening#T2.1: IP-based rate limiter (AC-003)
-// @sk-task production-hardening#T2.2: per-session packet rate limiter (AC-004)
 package ratelimit
 
 import (
@@ -10,6 +8,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// @sk-task production-hardening#T2.1: IP-based rate limiter (AC-003)
+// @sk-task production-hardening#T2.2: per-session packet rate limiter (AC-004)
 // IPRateLimiter limits requests per IP address.
 type IPRateLimiter struct {
 	mu       sync.Mutex

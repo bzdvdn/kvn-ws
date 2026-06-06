@@ -1,4 +1,3 @@
-// @sk-test whitelist-obfuscation#T4.1: XOR roundtrip test (AC-006)
 package quic
 
 import (
