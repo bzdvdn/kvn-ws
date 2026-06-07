@@ -21,6 +21,7 @@ import (
 // @sk-task whitelist-obfuscation#T1.1: Obfuscation bool → struct (AC-001)
 // @sk-task arch-refactoring#T1.1: add MaxMessageSize, TunnelTimeout, ProxyMaxConcurrency fields (AC-006)
 // @sk-task system-proxy#T1.2: add SystemProxy field (AC-001)
+// @sk-task transparent-proxy#T1.1: add Transparent and DNSProxyCfg fields (AC-001, AC-008, AC-009)
 type ClientConfig struct {
 	Server              string         `json:"server" mapstructure:"server"`
 	Transport           string         `json:"transport" mapstructure:"transport"`
@@ -43,6 +44,12 @@ type ClientConfig struct {
 	TunnelTimeout       int            `json:"tunnel_timeout" mapstructure:"tunnel_timeout"`
 	ProxyMaxConcurrency int            `json:"proxy_max_concurrency" mapstructure:"proxy_max_concurrency"`
 	SystemProxy        *bool           `json:"system_proxy" mapstructure:"system_proxy"`
+	Transparent       bool            `json:"transparent" mapstructure:"transparent"`
+	DNSProxy          DNSProxyCfg     `json:"dns_proxy" mapstructure:"dns_proxy"`
+}
+
+type DNSProxyCfg struct {
+	Listen string `json:"listen" mapstructure:"listen"`
 }
 
 type ObfuscationCfg struct {
@@ -179,6 +186,10 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	}
 	if cfg.ProxyMaxConcurrency <= 0 {
 		cfg.ProxyMaxConcurrency = 1000
+	}
+
+	if cfg.DNSProxy.Listen == "" {
+		cfg.DNSProxy.Listen = "127.0.0.53:53"
 	}
 
 	// @sk-task production-readiness-gap#T1: warn when secrets come from config file (AC-001)

@@ -42,6 +42,8 @@ func defaultConfig() *config.ClientConfig {
 		TunnelTimeout:       30,
 		ProxyMaxConcurrency: 1000,
 		SystemProxy:         boolPtr(false),
+		Transparent:         false,
+		DNSProxy:            config.DNSProxyCfg{Listen: "127.0.0.53:53"},
 		Routing: &config.RoutingCfg{
 			DefaultRoute:  "server",
 			ExcludeRanges: append([]string{}, config.DefaultExcludeRanges...),

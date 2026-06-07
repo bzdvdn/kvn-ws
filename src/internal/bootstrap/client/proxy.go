@@ -42,13 +42,14 @@ func (c *Client) runProxyMode(ctx context.Context) {
 			continue
 		}
 
-		c.runProxySession(ctx, stream)
+		c.runProxySession(ctx, stream, c.cfg.Transparent)
 		backoff = nextBackoff(backoff, minBackoff, maxBackoff)
 	}
 }
 
 // @sk-task quic-proxy-mode#T2.2: runProxySession takes proxy.StreamConn (AC-001, AC-002, AC-003)
-func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
+// @sk-task transparent-proxy#T3.1: transparent mode — listen on 0.0.0.0, enable transparent detection (AC-001)
+func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, transparent bool) {
 	defer func() { _ = stream.Close() }()
 
 	{
@@ -121,7 +122,14 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 	if c.cfg.ProxyAuth != nil {
 		proxyAuth = &proxy.ProxyAuth{Username: c.cfg.ProxyAuth.Username, Password: c.cfg.ProxyAuth.Password}
 	}
-	pl := proxy.NewListener(c.cfg.ProxyListen, proxyAuth, func(client net.Conn, dst string) {
+	listenAddr := c.cfg.ProxyListen
+	if transparent {
+		_, port, err := net.SplitHostPort(listenAddr)
+		if err == nil {
+			listenAddr = "0.0.0.0:" + port
+		}
+	}
+	pl := proxy.NewListener(listenAddr, proxyAuth, func(client net.Conn, dst string) {
 		if routeSet != nil {
 			host, _, err := net.SplitHostPort(dst)
 			if err != nil {
@@ -220,6 +228,10 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 			streamMgr.Remove(s.ID)
 		}()
 	}, c.cfg.ProxyMaxConcurrency)
+
+	if transparent {
+		pl.SetTransparent(true)
+	}
 
 	if err := pl.Start(); err != nil {
 		c.logger.Warn("proxy start", zap.Error(err))

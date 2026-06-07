@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"syscall"
+	"unsafe"
 )
 
 var (
@@ -26,6 +29,8 @@ const (
 	socksAuthNone     = 0x00
 	socksAuthUserPass = 0x02
 	socksRepSuccess   = 0x00
+
+	soOriginalDst = 80
 )
 
 type ProxyAuth struct {
@@ -40,11 +45,17 @@ type ProxyAuth struct {
 const defaultProxyConcurrency = 1000
 
 type Listener struct {
-	addr   string
-	auth   *ProxyAuth
-	ln     net.Listener
-	onConn func(conn net.Conn, dst string)
-	sem    chan struct{}
+	addr        string
+	auth        *ProxyAuth
+	ln          net.Listener
+	onConn      func(conn net.Conn, dst string)
+	sem         chan struct{}
+	transparent bool
+}
+
+// @sk-task transparent-proxy#T2.2: enable transparent detection (AC-002, AC-003)
+func (l *Listener) SetTransparent(v bool) {
+	l.transparent = v
 }
 
 // @sk-task arch-refactoring#T3.5: NewListener accepts optional concurrency param (AC-006)
@@ -122,6 +133,9 @@ func (l *Listener) handleClient(client net.Conn) {
 	case 'C':
 		handedOff = l.handleHTTPConnect(client, buf)
 	default:
+		if l.transparent {
+			handedOff = l.handleTransparent(client, buf[:1])
+		}
 		return
 	}
 }
@@ -285,6 +299,70 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) (handedOff bo
 	return false
 }
 
+// @sk-task transparent-proxy#T2.2: transparent connection handler via SO_ORIGINAL_DST (AC-002, AC-003)
+func (l *Listener) handleTransparent(client net.Conn, firstByte []byte) bool {
+	dst, err := getOriginalDst(client)
+	if err != nil {
+		return false
+	}
+	if l.onConn != nil {
+		wrapped := &prependConn{
+			Conn:   client,
+			reader: io.MultiReader(bytes.NewReader(firstByte), client),
+		}
+		l.onConn(wrapped, dst)
+		return true
+	}
+	return false
+}
+
+type prependConn struct {
+	net.Conn
+	reader io.Reader
+}
+
+func (c *prependConn) Read(b []byte) (int, error) {
+	return c.reader.Read(b)
+}
+
+func getOriginalDst(conn net.Conn) (string, error) {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return "", fmt.Errorf("transparent: not a TCPConn")
+	}
+	rawConn, err := tcpConn.SyscallConn()
+	if err != nil {
+		return "", fmt.Errorf("transparent: syscallconn: %w", err)
+	}
+	var addr [16]byte
+	addrLen := uint32(len(addr))
+	var opErr error
+	err = rawConn.Control(func(fd uintptr) {
+		_, _, opErr = syscall.Syscall6(
+			syscall.SYS_GETSOCKOPT,
+			fd,
+			syscall.IPPROTO_IP,
+			soOriginalDst,
+			uintptr(unsafe.Pointer(&addr[0])),
+			uintptr(unsafe.Pointer(&addrLen)),
+			0,
+		)
+	})
+	if err != nil {
+		return "", fmt.Errorf("transparent: control: %w", err)
+	}
+	if opErr != nil {
+		return "", fmt.Errorf("transparent: getsockopt: %w", opErr)
+	}
+	if addrLen < 8 {
+		return "", fmt.Errorf("transparent: short addr len %d", addrLen)
+	}
+	// sockaddr_in: [0-1]=family, [2-3]=port (big endian), [4-7]=ip
+	port := int(addr[2])<<8 | int(addr[3])
+	ip := net.IPv4(addr[4], addr[5], addr[6], addr[7])
+	return net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port)), nil
+}
+
 // @sk-task local-proxy-mode#T3.1: HTTP CONNECT handler (AC-002)
 func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) (handedOff bool) {
 	br := bufio.NewReader(io.MultiReader(
@@ -307,7 +385,13 @@ func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) (handedO
 	_, _ = client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
 	if l.onConn != nil {
-		l.onConn(client, dst)
+		buffered := make([]byte, br.Buffered())
+		_, _ = br.Read(buffered)
+		wrapped := &prependConn{
+			Conn:   client,
+			reader: io.MultiReader(bytes.NewReader(buffered), client),
+		}
+		l.onConn(wrapped, dst)
 		return true
 	}
 	return false

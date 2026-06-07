@@ -122,11 +122,15 @@ func (bw *BatchWriter) Close() error {
 
 // @sk-task production-readiness-hardening#T2.1: deadline helpers for WSConn (AC-001)
 func (c *WSConn) SetReadDeadline(t time.Time) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	return c.conn.SetReadDeadline(t)
 }
 
 // @sk-task production-readiness-hardening#T2.1: deadline helpers for WSConn (AC-001)
 func (c *WSConn) SetWriteDeadline(t time.Time) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	return c.conn.SetWriteDeadline(t)
 }
 

@@ -13,6 +13,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/config/` — YAML config parsing (viper + env override)
 - `src/internal/logger/` — structured JSON logging (zap)
 - `src/internal/tun/` — TUN device (WireGuard tun, ip-link)
+- `src/internal/transparent/` — iptables/pf transparent proxy rules (DEC-001)
 - `src/internal/transport/` — transport abstraction (StreamConn interface)
 - `src/internal/transport/websocket/` — WS dial/accept, per-conn config
 - `src/internal/transport/quic/` — QUIC dial/listen, ObfuscatedQUICConn (8B nonce + XOR)
@@ -23,6 +24,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/protocol/control/` — PING/PONG keepalive, session control
 - `src/internal/routing/` — packet routing engine (RuleSet, CIDR/IP/domain matchers, ordered rules)
 - `src/internal/dns/` — DNS resolver with in-memory TTL cache
+- `src/internal/dnsproxy/` — in-client DNS proxy server for transparent proxy mode
 - `src/internal/nat/` — nftables MASQUERADE (server-side NAT)
 - `src/internal/session/` — session management, IP pool, expiry/reclaim, BoltDB persistence
 - `src/internal/crypto/` — app-layer encryption (AES-256-GCM, per-session key derivation)
@@ -84,6 +86,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Logging/metrics — `src/internal/logger/`, `src/internal/metrics/`
 - Rate limiting — `src/internal/ratelimit/`
 - System proxy — `src/internal/systemproxy/`
+- Transparent proxy — `src/internal/transparent/`, `src/internal/dnsproxy/`
 - Web UI — `src/internal/webui/`, `src/cmd/web/`, `src/internal/webui/frontend/`
 - Integration tests — `src/integration/`
 - Documentation — `docs/en/`, `docs/ru/`, `docs/openapi.yaml`

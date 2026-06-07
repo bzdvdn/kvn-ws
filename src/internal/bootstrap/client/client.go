@@ -3,16 +3,22 @@ package client
 import (
 	"context"
 	"log"
+	"net"
+	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
+	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/systemproxy"
+	"github.com/bzdvdn/kvn-ws/src/internal/transparent"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
@@ -88,6 +94,22 @@ func New() (*Client, error) {
 	}, nil
 }
 
+// @sk-task transparent-proxy#T3.1: parse port from listen addr (AC-001)
+func portFromAddr(addr string) int {
+	if addr == "" {
+		return 2310
+	}
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 2310
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 2310
+	}
+	return port
+}
+
 // @sk-task whitelist-obfuscation#T3.2: padding size default helper (AC-005)
 func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
 	if oc != nil && oc.Padding != nil && oc.Padding.Size > 0 {
@@ -97,6 +119,7 @@ func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
 }
 
 // @sk-task system-proxy#T2.1: integrate system proxy with client lifecycle (AC-001, AC-002, AC-003, AC-007)
+// @sk-task transparent-proxy#T3.1: integrate transparent proxy + DNS proxy (AC-001, AC-005, AC-008, AC-009)
 func (c *Client) Run(ctx context.Context) error {
 	defer c.logger.Info("client stopped")
 
@@ -119,6 +142,57 @@ func (c *Client) Run(ctx context.Context) error {
 				}()
 			}
 		}
+
+		if c.cfg.Transparent {
+			if os.Geteuid() != 0 {
+				c.logger.Warn("transparent proxy requires root privileges, skipping")
+			} else {
+				mgr := transparent.New()
+				port := portFromAddr(c.cfg.ProxyListen)
+				var excludes []string
+				if c.cfg.Routing != nil {
+					excludes = c.cfg.Routing.ExcludeRanges
+				}
+				if err := mgr.Set(ctx, c.logger, port, excludes); err != nil {
+					c.logger.Warn("transparent proxy setup failed", zap.Error(err))
+				} else {
+					c.logger.Info("transparent proxy active")
+					resolvBackup, _ := dnsproxy.BackupResolvConf()
+					dnsSrv := dnsproxy.New(c.cfg.DNSProxy.Listen)
+					dnsCtx, dnsCancel := context.WithCancel(ctx)
+
+					// pre-check DNS proxy port before overriding resolv.conf
+					dnsReady := make(chan error, 1)
+					go func() {
+						dnsReady <- dnsSrv.Run(dnsCtx)
+					}()
+					select {
+					case err := <-dnsReady:
+						c.logger.Warn("dns proxy failed to start, restoring resolv.conf", zap.Error(err))
+						dnsCancel()
+						if resolvBackup != nil {
+							_ = resolvBackup.Restore()
+						}
+						resolvBackup = nil
+					case <-time.After(100 * time.Millisecond):
+						if resolvBackup != nil {
+							_ = dnsproxy.OverrideResolvConf()
+						}
+					}
+
+					defer func() {
+						dnsCancel()
+						_ = dnsSrv.Shutdown()
+						if resolvBackup != nil {
+							_ = resolvBackup.Restore()
+						}
+						_ = mgr.Restore(context.Background(), c.logger)
+						c.logger.Info("transparent proxy restored")
+					}()
+				}
+			}
+		}
+
 		c.runProxyMode(ctx)
 		return nil
 	}

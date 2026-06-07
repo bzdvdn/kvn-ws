@@ -16,6 +16,43 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
+// @sk-test transparent-proxy#T4.4: transparent config parsing (AC-001, AC-009)
+func TestTransparentConfig(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+transparent: true
+dns_proxy:
+  listen: "127.0.0.1:5353"
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if !cfg.Transparent {
+		t.Error("Transparent = false, want true")
+	}
+	if cfg.DNSProxy.Listen != "127.0.0.1:5353" {
+		t.Errorf("DNSProxy.Listen = %q, want %q", cfg.DNSProxy.Listen, "127.0.0.1:5353")
+	}
+}
+
+// @sk-test transparent-proxy#T4.4: transparent default values (AC-001)
+func TestTransparentDefaults(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.Transparent {
+		t.Error("Transparent = true by default, want false")
+	}
+	if cfg.DNSProxy.Listen != "127.0.0.53:53" {
+		t.Errorf("DNSProxy.Listen = %q, want %q", cfg.DNSProxy.Listen, "127.0.0.53:53")
+	}
+}
+
 // @sk-test whitelist-obfuscation#T5.1: config decoder tests (AC-001, AC-004, AC-005)
 // @sk-test whitelist-obfuscation#T5.1: backward compat obfuscation: true (AC-001)
 func TestObfuscationBoolBackwardCompat(t *testing.T) {

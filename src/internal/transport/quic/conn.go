@@ -58,6 +58,7 @@ func (c *QUICConn) WriteMessage(data []byte) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.stream.SetWriteDeadline(time.Time{})
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
 	if _, err := c.stream.Write(lenBuf[:]); err != nil {
@@ -68,10 +69,14 @@ func (c *QUICConn) WriteMessage(data []byte) error {
 }
 
 func (c *QUICConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.stream.SetReadDeadline(t)
 }
 
 func (c *QUICConn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.stream.SetWriteDeadline(t)
 }
 
