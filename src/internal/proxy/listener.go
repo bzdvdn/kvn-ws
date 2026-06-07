@@ -10,8 +10,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"syscall"
-	"unsafe"
 )
 
 var (
@@ -29,8 +27,6 @@ const (
 	socksAuthNone     = 0x00
 	socksAuthUserPass = 0x02
 	socksRepSuccess   = 0x00
-
-	soOriginalDst = 80
 )
 
 type ProxyAuth struct {
@@ -340,44 +336,7 @@ func (c *prependConn) Read(b []byte) (int, error) {
 	return c.reader.Read(b)
 }
 
-// @sk-task transparent-proxy#T5.1: fix SO_ORIGINAL_DST errno 0 — syscall.Errno(0) interface nil trap
-func getOriginalDst(conn net.Conn) (string, error) {
-	tcpConn, ok := conn.(*net.TCPConn)
-	if !ok {
-		return "", fmt.Errorf("transparent: not a TCPConn")
-	}
-	rawConn, err := tcpConn.SyscallConn()
-	if err != nil {
-		return "", fmt.Errorf("transparent: syscallconn: %w", err)
-	}
-	var addr [16]byte
-	addrLen := uint32(len(addr))
-	var errno syscall.Errno
-	err = rawConn.Control(func(fd uintptr) {
-		_, _, errno = syscall.Syscall6(
-			syscall.SYS_GETSOCKOPT,
-			fd,
-			syscall.IPPROTO_IP,
-			soOriginalDst,
-			uintptr(unsafe.Pointer(&addr[0])),
-			uintptr(unsafe.Pointer(&addrLen)),
-			0,
-		)
-	})
-	if err != nil {
-		return "", fmt.Errorf("transparent: control: %w", err)
-	}
-	if errno != 0 {
-		return "", fmt.Errorf("transparent: getsockopt: %w", errno)
-	}
-	if addrLen < 8 {
-		return "", fmt.Errorf("transparent: short addr len %d", addrLen)
-	}
-	// sockaddr_in: [0-1]=family, [2-3]=port (big endian), [4-7]=ip
-	port := int(addr[2])<<8 | int(addr[3])
-	ip := net.IPv4(addr[4], addr[5], addr[6], addr[7])
-	return net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port)), nil
-}
+
 
 // @sk-task local-proxy-mode#T3.1: HTTP CONNECT handler (AC-002)
 func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) (handedOff bool) {

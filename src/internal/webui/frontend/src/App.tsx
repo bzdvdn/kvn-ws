@@ -327,7 +327,11 @@ function App() {
               {/* @sk-task system-proxy#T2.2: system proxy checkbox (AC-001) */}
               <Checkbox checked={config.system_proxy ?? true} onChange={(v) => update("system_proxy", v)} label="Use as system proxy" />
               {/* @sk-task transparent-proxy#T3.1: transparent proxy checkbox + DNS proxy settings (AC-001, AC-009) */}
-              <Checkbox checked={config.transparent ?? false} onChange={(v) => update("transparent", v)} label="Transparent proxy (iptables REDIRECT)" />
+              {platform === "linux" ? (
+                <Checkbox checked={config.transparent ?? false} onChange={(v) => update("transparent", v)} label="Transparent proxy (iptables REDIRECT)" />
+              ) : (
+                <div style={{ color: "#888", fontSize: 11, marginTop: 4 }}>Transparent proxy not available on {platform}</div>
+              )}
               {config.transparent && <div style={{ marginLeft: 16, marginTop: 4, padding: "6px 8px", borderLeft: "2px solid #333" }}>
                 <label style={lbl}>DNS Proxy Listen
                   <input style={inp} placeholder="127.0.0.54:53" value={config.dns_proxy?.listen || "127.0.0.54:53"} onChange={(e) => nest("dns_proxy", "listen", e.target.value)} />

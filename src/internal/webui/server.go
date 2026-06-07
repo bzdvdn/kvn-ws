@@ -91,5 +91,9 @@ func (s *Server) Serve(ctx context.Context) error {
 
 // @sk-task kvn-web#T2.5: platform info endpoint (AC-009)
 func (s *Server) handlePlatform(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"os": runtime.GOOS})
+	transparentSupported := runtime.GOOS == "linux"
+	writeJSON(w, http.StatusOK, map[string]any{
+		"os":                    runtime.GOOS,
+		"transparent_supported": transparentSupported,
+	})
 }
