@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
-	"time"
 
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -27,6 +26,7 @@ type Client struct {
 	logger     *zap.Logger
 	masterKey  []byte
 	tunDev     tun.TunDevice
+	dnsSrv     *dnsproxy.Server
 }
 
 func (c *Client) SetLogger(l *zap.Logger) {
@@ -157,35 +157,7 @@ func (c *Client) Run(ctx context.Context) error {
 					c.logger.Warn("transparent proxy setup failed", zap.Error(err))
 				} else {
 					c.logger.Info("transparent proxy active")
-					resolvBackup, _ := dnsproxy.BackupResolvConf()
-					dnsSrv := dnsproxy.New(c.cfg.DNSProxy.Listen)
-					dnsCtx, dnsCancel := context.WithCancel(ctx)
-
-					// pre-check DNS proxy port before overriding resolv.conf
-					dnsReady := make(chan error, 1)
-					go func() {
-						dnsReady <- dnsSrv.Run(dnsCtx)
-					}()
-					select {
-					case err := <-dnsReady:
-						c.logger.Warn("dns proxy failed to start, restoring resolv.conf", zap.Error(err))
-						dnsCancel()
-						if resolvBackup != nil {
-							_ = resolvBackup.Restore()
-						}
-						resolvBackup = nil
-					case <-time.After(100 * time.Millisecond):
-						if resolvBackup != nil {
-							_ = dnsproxy.OverrideResolvConf()
-						}
-					}
-
 					defer func() {
-						dnsCancel()
-						_ = dnsSrv.Shutdown()
-						if resolvBackup != nil {
-							_ = resolvBackup.Restore()
-						}
 						_ = mgr.Restore(context.Background(), c.logger)
 						c.logger.Info("transparent proxy restored")
 					}()

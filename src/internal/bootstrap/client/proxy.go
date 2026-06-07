@@ -2,7 +2,9 @@ package client
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -12,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
@@ -51,6 +54,71 @@ func (c *Client) runProxyMode(ctx context.Context) {
 // @sk-task transparent-proxy#T3.1: transparent mode — listen on 0.0.0.0, enable transparent detection (AC-001)
 func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, transparent bool) {
 	defer func() { _ = stream.Close() }()
+
+	// @sk-task transparent-proxy#T5.5: build routeSet before DNS proxy for domain-based routing
+	var routeSet *routing.RuleSet
+	if c.cfg.Routing != nil {
+		rs, err := routing.NewRuleSet(c.cfg.Routing, c.logger)
+		if err != nil {
+			c.logger.Warn("routing init, using default", zap.Error(err))
+		} else {
+			routeSet = rs
+		}
+	}
+
+	// Start DNS proxy if transparent mode
+	var dnsCtx context.Context
+	var dnsCancel context.CancelFunc
+	var resolvBackup *dnsproxy.ResolvConfBackup
+	if transparent {
+		resolvBackup, _ = dnsproxy.BackupResolvConf()
+
+		c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstream)
+		if resolvBackup != nil {
+			c.dnsSrv.SetOrigResolvers(resolvBackup.Nameservers())
+		}
+		if routeSet != nil {
+			c.dnsSrv.SetRouteFunc(func(domain string) bool {
+				return routeSet.MatchDomain(domain) == routing.RouteDirect
+			})
+		}
+
+		dnsCtx, dnsCancel = context.WithCancel(ctx)
+		dnsReady := make(chan error, 1)
+		go func() {
+			dnsReady <- c.dnsSrv.Run(dnsCtx)
+		}()
+		select {
+		case err := <-dnsReady:
+			c.logger.Warn("dns proxy failed to start, restoring resolv.conf", zap.Error(err))
+			dnsCancel()
+			c.dnsSrv = nil
+			if resolvBackup != nil {
+				_ = resolvBackup.Restore()
+				resolvBackup = nil
+			}
+		case <-time.After(100 * time.Millisecond):
+			if resolvBackup != nil {
+				_ = dnsproxy.OverrideResolvConf(c.cfg.DNSProxy.Listen)
+			}
+			c.dnsSrv.SetStream(stream)
+		}
+		defer func() {
+			if c.dnsSrv != nil {
+				c.dnsSrv.ClearStream()
+			}
+			if dnsCancel != nil {
+				dnsCancel()
+			}
+			if c.dnsSrv != nil {
+				_ = c.dnsSrv.Shutdown()
+				c.dnsSrv = nil
+			}
+			if resolvBackup != nil {
+				_ = resolvBackup.Restore()
+			}
+		}()
+	}
 
 	{
 		helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
@@ -108,16 +176,6 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 
 	streamMgr := proxy.NewManager(stream)
 
-	var routeSet *routing.RuleSet
-	if c.cfg.Routing != nil {
-		rs, err := routing.NewRuleSet(c.cfg.Routing, c.logger)
-		if err != nil {
-			c.logger.Warn("routing init, using default", zap.Error(err))
-		} else {
-			routeSet = rs
-		}
-	}
-
 	var proxyAuth *proxy.ProxyAuth
 	if c.cfg.ProxyAuth != nil {
 		proxyAuth = &proxy.ProxyAuth{Username: c.cfg.ProxyAuth.Username, Password: c.cfg.ProxyAuth.Password}
@@ -130,6 +188,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 		}
 	}
 	pl := proxy.NewListener(listenAddr, proxyAuth, func(client net.Conn, dst string) {
+		c.logger.Debug("proxy onconn", zap.String("dst", dst))
 		if routeSet != nil {
 			host, _, err := net.SplitHostPort(dst)
 			if err != nil {
@@ -231,6 +290,9 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 
 	if transparent {
 		pl.SetTransparent(true)
+		pl.SetLogFn(func(format string, args ...any) {
+			c.logger.Debug(fmt.Sprintf(format, args...))
+		})
 	}
 
 	if err := pl.Start(); err != nil {
@@ -275,6 +337,13 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			if f.Type == framing.FrameTypeProxy {
 				c.logger.Debug("proxy frame received", zap.Int("payload_len", len(f.Payload)))
 				streamMgr.HandleIncomingFrame(&f)
+			} else if f.Type == framing.FrameTypeDNS && c.dnsSrv != nil {
+				c.logger.Debug("dns frame received", zap.Int("payload_len", len(f.Payload)))
+				payload := f.Payload
+				if len(payload) >= 4 {
+					streamID := binary.BigEndian.Uint32(payload[0:4])
+					c.dnsSrv.HandleDNSResponse(streamID, payload[4:])
+				}
 			} else {
 				c.logger.Debug("skipping non-proxy frame", zap.Int("type", int(f.Type)))
 			}

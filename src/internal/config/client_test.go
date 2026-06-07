@@ -48,8 +48,8 @@ server: wss://example.com/tunnel
 	if cfg.Transparent {
 		t.Error("Transparent = true by default, want false")
 	}
-	if cfg.DNSProxy.Listen != "127.0.0.53:53" {
-		t.Errorf("DNSProxy.Listen = %q, want %q", cfg.DNSProxy.Listen, "127.0.0.53:53")
+	if cfg.DNSProxy.Listen != "127.0.0.54:53" {
+		t.Errorf("DNSProxy.Listen = %q, want %q", cfg.DNSProxy.Listen, "127.0.0.54:53")
 	}
 }
 

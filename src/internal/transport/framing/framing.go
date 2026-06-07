@@ -43,6 +43,7 @@ const (
 	FrameTypeAuth  = 0x03
 	FrameTypeClose = 0x04
 	FrameTypeProxy = 0x05
+	FrameTypeDNS   = 0x06
 
 	FrameFlagNone        = 0x00
 	FrameFlagSegment     = 0x40

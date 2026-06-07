@@ -94,6 +94,16 @@ Stop if: задачи расплывчаты или coverage не удаётся
 - [x] T4.5 Unit-тест `client_test.go` (bootstrap): root check → warning. Touches: `internal/bootstrap/client/client_test.go`
 - [x] T4.6 Ручная верификация: собрать `go build ./src/...` + `go vet ./src/...`, `go test -race` — все PASS.
 
+## Фаза 5: Transparent proxy fixes & domain DNS routing
+
+Цель: исправить SO_ORIGINAL_DST errno баг, добавить domain-based DNS routing для excluded доменов в transparent mode.
+
+- [x] T5.1 Fix `getOriginalDst()` — заменить `var opErr error` на `var errno syscall.Errno`, исправить классическую Go ошибку `syscall.Errno(0)` → non-nil interface. Touches: `internal/proxy/listener.go`
+- [x] T5.2 Добавить `SetLogFn` в proxy listener для отладки transparent-соединений. Touches: `internal/proxy/listener.go`
+- [x] T5.3 Добавить `ResolvConfBackup.Nameservers()` — сохранять оригинальные nameserver-ы из `/etc/resolv.conf` при backup. Touches: `internal/dnsproxy/dnsproxy.go`
+- [x] T5.4 Добавить `SetRouteFunc`, `SetOrigResolvers`, `resolveDirect`, `extractDNSDomain` в DNS proxy. Для excluded доменов DNS запрос резолвится локально через оригинальные nameserver-ы, а не через туннель. Touches: `internal/dnsproxy/dnsproxy.go`
+- [x] T5.5 В `proxy.go` создать routeSet до DNS proxy, передать `RouteFunc` и `OrigResolvers` в DNS proxy. Touches: `internal/bootstrap/client/proxy.go`
+
 ## Покрытие критериев приемки
 
 - AC-001 -> T2.1, T3.1, T4.1
@@ -102,14 +112,17 @@ Stop if: задачи расплывчаты или coverage не удаётся
 - AC-004 -> T2.1, T4.1
 - AC-005 -> T3.1
 - AC-006 -> T3.2
-- AC-007 -> (отложено, P2)
+- AC-007 -> deferred (P2, macOS pf anchor)
 - AC-008 -> T3.1, T4.5
 - AC-009 -> T2.3, T4.3
+- AC-010 -> T5.1 (SO_ORIGINAL_DST errno fix)
+- AC-011 -> T5.3, T5.4, T5.5 (domain-based DNS routing)
 
 ## Заметки
 
 - Фаза 2 задачи (T2.1, T2.2, T2.3) независимы и могут выполняться параллельно.
 - T3.2 (Docker) — проверочная задача, код не меняется, только тестирование.
+- T5.x задачи выполнены после verify:pass, поэтому verify.md нужно обновить.
 - trace-маркеры `@sk-task transparent-proxy#T*.*` ставить на новые функции.
 
 Готово к: `/speckeep.implement transparent-proxy`

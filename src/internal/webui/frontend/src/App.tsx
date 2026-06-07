@@ -37,7 +37,7 @@ interface ClientConfig {
   reconnect?: { min_backoff_sec?: number; max_backoff_sec?: number };
   system_proxy?: boolean;
   transparent?: boolean;
-  dns_proxy?: { listen?: string };
+  dns_proxy?: { listen?: string; upstream?: string };
 }
 
 interface LogEntry {
@@ -330,7 +330,11 @@ function App() {
               <Checkbox checked={config.transparent ?? false} onChange={(v) => update("transparent", v)} label="Transparent proxy (iptables REDIRECT)" />
               {config.transparent && <div style={{ marginLeft: 16, marginTop: 4, padding: "6px 8px", borderLeft: "2px solid #333" }}>
                 <label style={lbl}>DNS Proxy Listen
-                  <input style={inp} placeholder="127.0.0.53:53" value={config.dns_proxy?.listen || "127.0.0.53:53"} onChange={(e) => nest("dns_proxy", "listen", e.target.value)} />
+                  <input style={inp} placeholder="127.0.0.54:53" value={config.dns_proxy?.listen || "127.0.0.54:53"} onChange={(e) => nest("dns_proxy", "listen", e.target.value)} />
+                </label>
+                <label style={lbl}>DNS Upstream (trusted resolver)
+                  <input style={inp} placeholder="1.1.1.1:53" value={config.dns_proxy?.upstream || "1.1.1.1:53"} onChange={(e) => nest("dns_proxy", "upstream", e.target.value)} />
+                  <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>DNS queries are forwarded through the tunnel to this resolver.</div>
                 </label>
               </div>}
             </>}

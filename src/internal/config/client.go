@@ -49,7 +49,8 @@ type ClientConfig struct {
 }
 
 type DNSProxyCfg struct {
-	Listen string `json:"listen" mapstructure:"listen"`
+	Listen   string `json:"listen" mapstructure:"listen"`
+	Upstream string `json:"upstream" mapstructure:"upstream"`
 }
 
 type ObfuscationCfg struct {
@@ -189,7 +190,10 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	}
 
 	if cfg.DNSProxy.Listen == "" {
-		cfg.DNSProxy.Listen = "127.0.0.53:53"
+		cfg.DNSProxy.Listen = "127.0.0.54:53"
+	}
+	if cfg.DNSProxy.Upstream == "" {
+		cfg.DNSProxy.Upstream = "1.1.1.1:53"
 	}
 
 	// @sk-task production-readiness-gap#T1: warn when secrets come from config file (AC-001)

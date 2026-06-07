@@ -9,9 +9,12 @@ import (
 
 // @sk-test transparent-proxy#T4.2: TestTransparentDetection verifies transparent handler wired (AC-002)
 func TestTransparentDetection(t *testing.T) {
+	var mu sync.Mutex
 	transparentCalled := false
 	handler := func(client net.Conn, dst string) {
+		mu.Lock()
 		transparentCalled = true
+		mu.Unlock()
 	}
 
 	l := NewListener("127.0.0.1:0", nil, handler)
@@ -37,16 +40,22 @@ func TestTransparentDetection(t *testing.T) {
 	// on direct connections (not redirected by iptables). The connection
 	// should just be closed.
 	// This tests that the handler doesn't crash and the connection is cleanly closed.
-	if transparentCalled {
+	mu.Lock()
+	wasCalled := transparentCalled
+	mu.Unlock()
+	if wasCalled {
 		t.Log("transparent handler called (SO_ORIGINAL_DST not available on non-redirected conn)")
 	}
 }
 
 // @sk-test transparent-proxy#T4.2: TestTransparentOffDoesNotIntercept verifies default path unchanged (AC-002)
 func TestTransparentOffDoesNotIntercept(t *testing.T) {
+	var mu sync.Mutex
 	transparentCalled := false
 	handler := func(client net.Conn, dst string) {
+		mu.Lock()
 		transparentCalled = true
+		mu.Unlock()
 	}
 
 	l := NewListener("127.0.0.1:0", nil, handler)
@@ -67,8 +76,69 @@ func TestTransparentOffDoesNotIntercept(t *testing.T) {
 	_, _ = conn.Write([]byte{0x01})
 	time.Sleep(100 * time.Millisecond)
 
-	if transparentCalled {
+	mu.Lock()
+	wasCalled := transparentCalled
+	mu.Unlock()
+	if wasCalled {
 		t.Error("transparent handler called when transparent=false")
+	}
+}
+
+// @sk-test transparent-proxy#T5.2: TestSetLogFn verifies debug logging callback (AC-010)
+func TestSetLogFn(t *testing.T) {
+	var mu sync.Mutex
+	var logged []string
+	handler := func(client net.Conn, dst string) {}
+
+	l := NewListener("127.0.0.1:0", nil, handler)
+	l.SetTransparent(true)
+	l.SetLogFn(func(format string, args ...any) {
+		mu.Lock()
+		logged = append(logged, format)
+		mu.Unlock()
+	})
+	if err := l.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer l.Close()
+
+	go func() { _ = l.AcceptLoop() }()
+
+	conn, err := net.DialTimeout("tcp", l.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	_, _ = conn.Write([]byte{0x01})
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(logged) == 0 {
+		t.Fatal("expected logf to be called, got none")
+	}
+	found := false
+	for _, msg := range logged {
+		if msg == "transparent dst=" {
+			found = true
+		}
+	}
+	// getOriginalDst will fail on non-redirected conn, so we expect
+	// "getOriginalDst failed: ..." at minimum.
+	// The key: SetLogFn must not panic and must actually invoke the callback.
+	if !found {
+		t.Logf("logged messages: %v", logged)
+	}
+}
+
+// @sk-test transparent-proxy#T5.1: TestGetOriginalDstNotTCPConn (AC-010)
+func TestGetOriginalDstNotTCPConn(t *testing.T) {
+	// getOriginalDst should return an error for non-TCP connections
+	type fakeConn struct{ net.Conn }
+	_, err := getOriginalDst(fakeConn{})
+	if err == nil {
+		t.Fatal("expected error for non-TCPConn, got nil")
 	}
 }
 

@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.3.0] — 2026-06-07
+## [0.3.0] — 2026-06-08
 
 ### Added
 
@@ -57,6 +57,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   macOS: `networksetup` webproxy/securewebproxy с восстановлением оригиналов.
   Windows: реестр `HKCU\…\Internet Settings` с сохранением состояния.
   Recovery при краше: детект orphaned прокси при старте, лог, очистка.
+- **Transparent proxy: domain-based DNS routing** — DNS proxy проверяет домен из DNS-запроса через `RouteSet.MatchDomain()`. Для excluded доменов запрос резолвится локально через оригинальные nameserver-ы (из backup `/etc/resolv.conf`), а не через туннель. Это позволяет exclude_domains работать в transparent mode.
+  - `dnsproxy.Server`: `SetRouteFunc()`, `SetOrigResolvers()`, `resolveDirect()`, `extractDNSDomain()`.
+  - `ResolvConfBackup.Nameservers()` — сохранение оригинальных DNS-серверов.
+  - `proxy.go`: routeSet создаётся до DNS proxy, `RouteFunc` и `OrigResolvers` передаются в DNS proxy.
+- **Debug logging для transparent-соединений** — `proxy.Listener.SetLogFn()` + логи в `handleTransparent`.
 
 ### Changed
 
@@ -86,6 +91,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **QUICConn** — `WriteMessage` защищён mutex'ом; `Close()` закрывает и connection и stream.
 - **Proxy: ForwardToWS → ForwardToStream** — обобщено под `transport.StreamConn`.
 - **Proxy listener: NewListener** — опциональный variadic `proxyConcurrency`.
+- **Proxy listener: `Listener.logFn`** — добавлено поле `logFn` и методы `SetLogFn`/`logf` для отладки transparent-соединений.
 - **Proxy goroutine nil-guard** — проверка proxyStreams в FrameTypeProxy handler.
 - **TUN: SetInterruptibleRead** — удалён (больше не нужен с permanent reader).
 - **DNS: DomainMatcher.SetCtx** — контекст для обновления DNS-кэша.
@@ -107,6 +113,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **WebUI broadcast lifecycle** — `broadcastLogs`/`broadcastStatus` стартуют в `Serve()` с серверным context.
 - **Critical: config prefix race** — устранена глобальная переменная prefix в конфиге.
 - **QUIC dial background ctx** — `Dial` принимает `ctx context.Context`, таймаут через `WithTimeout`.
+- **Critical: SO_ORIGINAL_DST errno 0** — `getOriginalDst()` всегда падала с `errno 0` из-за классической Go ошибки: `syscall.Errno(0)` при присваивании в `error`-интерфейс становится non-nil. Исправлено: `var opErr error` → `var errno syscall.Errno`, проверка `errno != 0`.
 
 ### Removed
 

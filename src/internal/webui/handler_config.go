@@ -43,7 +43,7 @@ func defaultConfig() *config.ClientConfig {
 		ProxyMaxConcurrency: 1000,
 		SystemProxy:         boolPtr(false),
 		Transparent:         false,
-		DNSProxy:            config.DNSProxyCfg{Listen: "127.0.0.53:53"},
+		DNSProxy:            config.DNSProxyCfg{Listen: "127.0.0.54:53", Upstream: "1.1.1.1:53"},
 		Routing: &config.RoutingCfg{
 			DefaultRoute:  "server",
 			ExcludeRanges: append([]string{}, config.DefaultExcludeRanges...),

@@ -51,11 +51,24 @@ type Listener struct {
 	onConn      func(conn net.Conn, dst string)
 	sem         chan struct{}
 	transparent bool
+	logFn       func(format string, args ...any)
 }
 
 // @sk-task transparent-proxy#T2.2: enable transparent detection (AC-002, AC-003)
 func (l *Listener) SetTransparent(v bool) {
 	l.transparent = v
+}
+
+// @sk-task transparent-proxy#T5.2: debug logging for transparent connections
+func (l *Listener) SetLogFn(fn func(format string, args ...any)) {
+	l.logFn = fn
+}
+
+// @sk-task transparent-proxy#T5.2: debug logging for transparent connections
+func (l *Listener) logf(format string, args ...any) {
+	if l.logFn != nil {
+		l.logFn(format, args...)
+	}
 }
 
 // @sk-task arch-refactoring#T3.5: NewListener accepts optional concurrency param (AC-006)
@@ -303,8 +316,10 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) (handedOff bo
 func (l *Listener) handleTransparent(client net.Conn, firstByte []byte) bool {
 	dst, err := getOriginalDst(client)
 	if err != nil {
+		l.logf("getOriginalDst failed: %v", err)
 		return false
 	}
+	l.logf("transparent dst=%s", dst)
 	if l.onConn != nil {
 		wrapped := &prependConn{
 			Conn:   client,
@@ -325,6 +340,7 @@ func (c *prependConn) Read(b []byte) (int, error) {
 	return c.reader.Read(b)
 }
 
+// @sk-task transparent-proxy#T5.1: fix SO_ORIGINAL_DST errno 0 — syscall.Errno(0) interface nil trap
 func getOriginalDst(conn net.Conn) (string, error) {
 	tcpConn, ok := conn.(*net.TCPConn)
 	if !ok {
@@ -336,9 +352,9 @@ func getOriginalDst(conn net.Conn) (string, error) {
 	}
 	var addr [16]byte
 	addrLen := uint32(len(addr))
-	var opErr error
+	var errno syscall.Errno
 	err = rawConn.Control(func(fd uintptr) {
-		_, _, opErr = syscall.Syscall6(
+		_, _, errno = syscall.Syscall6(
 			syscall.SYS_GETSOCKOPT,
 			fd,
 			syscall.IPPROTO_IP,
@@ -351,8 +367,8 @@ func getOriginalDst(conn net.Conn) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("transparent: control: %w", err)
 	}
-	if opErr != nil {
-		return "", fmt.Errorf("transparent: getsockopt: %w", opErr)
+	if errno != 0 {
+		return "", fmt.Errorf("transparent: getsockopt: %w", errno)
 	}
 	if addrLen < 8 {
 		return "", fmt.Errorf("transparent: short addr len %d", addrLen)

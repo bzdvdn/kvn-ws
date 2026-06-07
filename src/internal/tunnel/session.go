@@ -193,6 +193,8 @@ func (s *Session) wsToTun(ctx context.Context) error {
 			return nil
 		case framing.FrameTypeProxy:
 			s.handleProxyFrame(ctx, &f)
+		case framing.FrameTypeDNS:
+			s.handleDNSFrame(ctx, &f)
 		default:
 			f.Release()
 		}
@@ -283,6 +285,63 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	}
 
 	go s.forwardProxyStream(streamID, tcpConn, dst, ctx)
+}
+
+// @sk-task transparent-proxy#T2.3: server-side DNS forwarder (FrameTypeDNS)
+func (s *Session) handleDNSFrame(ctx context.Context, f *framing.Frame) {
+	defer f.Release()
+	payload := f.Payload
+	if len(payload) < 5 {
+		return
+	}
+	streamID := binary.BigEndian.Uint32(payload[0:4])
+	query := payload[4:]
+
+	upstream := "8.8.8.8:53"
+	resp, err := s.forwardDNS(ctx, query, upstream)
+	if err != nil {
+		s.logger.Debug("dns forward error", zap.Error(err))
+		return
+	}
+
+	respPayload := make([]byte, 4+len(resp))
+	binary.BigEndian.PutUint32(respPayload[0:4], streamID)
+	copy(respPayload[4:], resp)
+
+	frame := framing.Frame{
+		Type:    framing.FrameTypeDNS,
+		Payload: respPayload,
+	}
+	encoded, encErr := frame.Encode()
+	if encErr != nil {
+		return
+	}
+	defer framing.ReturnBuffer(encoded)
+	_ = s.stream.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = s.stream.WriteMessage(encoded)
+}
+
+func (s *Session) forwardDNS(ctx context.Context, query []byte, upstream string) ([]byte, error) {
+	addr, err := net.ResolveUDPAddr("udp", upstream)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := conn.Write(query); err != nil {
+		return nil, err
+	}
+	resp := make([]byte, 1500)
+	n, err := conn.Read(resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp[:n], nil
 }
 
 // @sk-task arch-refactoring#T3.3: extracted proxy stream forwarding (AC-005)

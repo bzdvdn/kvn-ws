@@ -58,9 +58,10 @@ iptables -t nat -L PREROUTING    # → видно REDIRECT правило
 | Surface | Изменение |
 |---|---|
 | `internal/config/client.go` | +`Transparent bool`, +`DNSProxyCfg` |
-| `internal/proxy/listener.go` | + transparent-детекция: если первый байт не SOCKS/HTTP → `SO_ORIGINAL_DST` |
+| `internal/proxy/listener.go` | + transparent-детекция: если первый байт не SOCKS/HTTP → `SO_ORIGINAL_DST`; +`SetLogFn` для отладки; fix: `syscall.Errno(0)` → nil interface bug |
 | `internal/bootstrap/client/client.go` | + запуск `TransparentManager.Set()` перед proxy session, `Restore()` в defer |
-| `internal/bootstrap/client/proxy.go` | `runProxySession`: при `transparent` слушать на `0.0.0.0`, передавать listener-у флаг transparent |
+| `internal/bootstrap/client/proxy.go` | `runProxySession`: при `transparent` слушать на `0.0.0.0`, передавать listener-у флаг transparent; создание routeSet до DNS proxy; передача `RouteFunc` и `OrigResolvers` в DNS proxy |
+| `internal/dnsproxy/dnsproxy.go` | +`SetRouteFunc`, `SetOrigResolvers`, `resolveDirect`, `extractDNSDomain`; `ResolvConfBackup.Nameservers()` |
 
 ## Bootstrapping Surfaces
 
@@ -86,6 +87,8 @@ iptables -t nat -L PREROUTING    # → видно REDIRECT правило
 | AC-007 | macOS pf anchor (P2, deferred) | — | — |
 | AC-008 | Без root → warning, transparent off | `client.go` | лог "requires root" |
 | AC-009 | DNS-proxy слушает :53, форвардит через KVN | `dnsproxy.go`, `/etc/resolv.conf` | dig + лог DNS |
+| AC-010 | SO_ORIGINAL_DST не падает с errno 0 | `listener.go` | `getOriginalDst` с `syscall.Errno(0)` не считается ошибкой |
+| AC-011 | Exclude_domains резолвятся локально, не через туннель | `dnsproxy.go`, `proxy.go` | `nslookup corp.domain.ru 127.0.0.54` → IP от локального DNS, не от сервера |
 
 ## Данные и контракты
 
@@ -123,6 +126,13 @@ iptables -t nat -L PREROUTING    # → видно REDIRECT правило
 - **Affects**: `iptables_linux.go`.
 - **Validation**: curl к 10.0.0.0/8 не попадает в лог прокси.
 
+### DEC-005 Domain-based DNS routing в transparent mode
+
+- **Why**: exclude_domains из конфига не работают в transparent mode, т.к. destination — IP от SO_ORIGINAL_DST. Решение: перехватывать DNS-запросы excluded доменов и резолвить локально.
+- **Tradeoff**: требует CIDR в exclude_ranges для TCP (iptables не умеет домены); DNS-запрос excluded домена идёт локально, а не через туннель.
+- **Affects**: `internal/dnsproxy/dnsproxy.go`, `internal/bootstrap/client/proxy.go`.
+- **Validation**: `nslookup corp.internal.ru 127.0.0.54` → ответ от локального DNS (не через туннель).
+
 ## Incremental Delivery
 
 ### MVP (Первая ценность)
@@ -139,8 +149,9 @@ iptables -t nat -L PREROUTING    # → видно REDIRECT правило
 ### Итеративное расширение
 
 - **P2**: macOS pf anchor (AC-007).
-- **P3 (future)**: TPROXY для UDP.
-- **P4 (future)**: IPv6.
+- **P3**: Domain-based DNS routing — exclude_domains в transparent mode теперь работают на уровне DNS proxy (локальный резолв).
+- **P4 (future)**: TPROXY для UDP.
+- **P5 (future)**: IPv6.
 
 ## Порядок реализации
 
