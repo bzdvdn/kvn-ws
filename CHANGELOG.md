@@ -50,6 +50,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Admin server: логирование ошибок** — `listSessions`/`deleteSession` логируют ошибки `json.Encode`.
 - **kvn-web на Windows** — `internal/tun` разделён на linux/заглушку, `GET /api/platform`,
   фронтенд скрывает TUN-mode на не-Linux. CI собирает kvn-web для всех платформ.
+- **System proxy** — новый пакет `internal/systemproxy/`: автоматическая установка/восстановление
+  `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` при старте/стопе proxy-режима. Linux env vars + systemd
+  drop-in override (best-effort). macOS/Windows — stub (итеративное расширение).
+  UI чекбокс "Use as system proxy" в блоке Proxy настроек.
+  macOS: `networksetup` webproxy/securewebproxy с восстановлением оригиналов.
+  Windows: реестр `HKCU\…\Internet Settings` с сохранением состояния.
+  Recovery при краше: детект orphaned прокси при старте, лог, очистка.
 
 ### Changed
 

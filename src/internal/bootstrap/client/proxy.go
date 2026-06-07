@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -134,15 +135,18 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 					defer func() { _ = client.Close() }()
 					target, err := net.Dial("tcp", dst)
 					if err != nil {
+						c.logger.Warn("route direct dial failed", zap.String("dst", dst), zap.Error(err))
 						return
 					}
 					defer func() { _ = target.Close() }()
-					eg, gctx := errgroup.WithContext(ctx)
+					gctx, cancel := context.WithCancel(ctx)
+					defer cancel()
 					go func() {
 						<-gctx.Done()
 						target.Close()
 						client.Close()
 					}()
+					eg, _ := errgroup.WithContext(gctx)
 					eg.Go(func() error {
 						_, err := io.Copy(target, client)
 						return err
@@ -178,15 +182,18 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 					defer func() { _ = client.Close() }()
 					target, err := net.Dial("tcp", dst)
 					if err != nil {
+						c.logger.Warn("route direct dial failed", zap.String("dst", dst), zap.Error(err))
 						return
 					}
 					defer func() { _ = target.Close() }()
-					eg, gctx := errgroup.WithContext(ctx)
+					gctx, cancel := context.WithCancel(ctx)
+					defer cancel()
 					go func() {
 						<-gctx.Done()
 						target.Close()
 						client.Close()
 					}()
+					eg, _ := errgroup.WithContext(gctx)
 					eg.Go(func() error {
 						_, err := io.Copy(target, client)
 						return err
@@ -208,7 +215,10 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 		}
 		streamMgr.Add(s)
 
-		go s.ForwardToStream(stream)
+		go func() {
+			s.ForwardToStream(stream)
+			streamMgr.Remove(s.ID)
+		}()
 	}, c.cfg.ProxyMaxConcurrency)
 
 	if err := pl.Start(); err != nil {
@@ -234,14 +244,12 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 				return gctx.Err()
 			default:
 			}
-			if err := stream.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+			if err := stream.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
 				return err
 			}
 			data, err := stream.ReadMessage()
 			if err != nil {
-				// @sk-task fix-critical-leaks#T1.4: errors.As for wrapped net.Error (AC-011)
-				var netErr net.Error
-				if errors.As(err, &netErr) && netErr.Timeout() {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
 					continue
 				}
 				c.logger.Warn("stream read error in proxy mode", zap.Error(err))
@@ -261,6 +269,40 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn) {
 			f.Release()
 		}
 	})
+
+	// @sk-task fix-ping-drops#T3.1: QUIC keepalive — send periodic proxy frames to prevent server stream read deadline expiry
+	if c.cfg.Transport == "quic" {
+		eg.Go(func() error {
+			pingTicker := time.NewTicker(25 * time.Second)
+			defer pingTicker.Stop()
+			for {
+				select {
+				case <-gctx.Done():
+					return nil
+				case <-pingTicker.C:
+					f := framing.Frame{
+						Type:  framing.FrameTypeProxy,
+						Flags: framing.FrameFlagNone,
+					}
+					_ = stream.SetWriteDeadline(time.Now().Add(10 * time.Second))
+					data, err := f.Encode()
+					if err != nil {
+						c.logger.Warn("keepalive encode error", zap.Error(err))
+						_ = stream.SetWriteDeadline(time.Time{})
+						continue
+					}
+					if err := stream.WriteMessage(data); err != nil {
+						c.logger.Warn("keepalive write error", zap.Error(err))
+						framing.ReturnBuffer(data)
+						_ = stream.SetWriteDeadline(time.Time{})
+						continue
+					}
+					framing.ReturnBuffer(data)
+					_ = stream.SetWriteDeadline(time.Time{})
+				}
+			}
+		})
+	}
 
 	<-gctx.Done()
 	c.logger.Debug("proxy session stopping")

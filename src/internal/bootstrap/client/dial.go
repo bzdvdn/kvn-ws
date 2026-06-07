@@ -34,7 +34,7 @@ func dialStream(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logge
 			quicAddr = u.Host
 		}
 		quicCfg := &quic.Config{
-			KeepAlivePeriod: 15 * time.Second,
+			KeepAlivePeriod: 7 * time.Second,
 		}
 		quicConn, err := quictp.Dial(ctx, quicAddr, tlsCfg, quicCfg)
 		if err != nil {

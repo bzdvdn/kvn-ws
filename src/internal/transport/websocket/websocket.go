@@ -191,6 +191,7 @@ func (c *WSConn) Subprotocol() string {
 // @sk-task production-hardening#T4.1: keepalive support (AC-002)
 // @sk-task production-hardening#T4.1: set keepalive with ping/pong (AC-002)
 // @sk-task production-readiness-hardening#T2.6: log.Printf → zap (AC-006)
+// @sk-task fix-ping-drops#T1.1: retry ping on transient error, set write deadline to prevent wmu lockup
 func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 	c.conn.SetPongHandler(func(string) error {
 		return c.conn.SetReadDeadline(time.Now().Add(timeout))
@@ -200,11 +201,12 @@ func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 		defer ticker.Stop()
 		for range ticker.C {
 			c.wmu.Lock()
+			_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			err := c.conn.WriteMessage(websocket.PingMessage, nil)
+			_ = c.conn.SetWriteDeadline(time.Time{})
 			c.wmu.Unlock()
 			if err != nil {
 				c.logger.Warn("ping error", zap.Error(err))
-				return
 			}
 		}
 	}()

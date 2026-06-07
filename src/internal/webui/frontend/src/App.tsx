@@ -35,6 +35,7 @@ interface ClientConfig {
     exclude_domains?: string[];
   };
   reconnect?: { min_backoff_sec?: number; max_backoff_sec?: number };
+  system_proxy?: boolean;
 }
 
 interface LogEntry {
@@ -321,6 +322,8 @@ function App() {
               <label style={lbl}>Proxy Password
                 <input type="password" style={inp} value={config.proxy_auth?.password || ""} onChange={(e) => nest("proxy_auth", "password", e.target.value)} />
               </label>
+              {/* @sk-task system-proxy#T2.2: system proxy checkbox (AC-001) */}
+              <Checkbox checked={config.system_proxy ?? true} onChange={(v) => update("system_proxy", v)} label="Use as system proxy" />
             </>}
             {config.mode === "tun" && <div style={{ color: "#666", fontSize: 11, fontStyle: "italic" }}>Proxy settings not applicable in TUN mode.</div>}
           </Section>

@@ -20,6 +20,7 @@ import (
 // @sk-task quic-obfuscation#T2.1: add Obfuscation field (AC-001)
 // @sk-task whitelist-obfuscation#T1.1: Obfuscation bool → struct (AC-001)
 // @sk-task arch-refactoring#T1.1: add MaxMessageSize, TunnelTimeout, ProxyMaxConcurrency fields (AC-006)
+// @sk-task system-proxy#T1.2: add SystemProxy field (AC-001)
 type ClientConfig struct {
 	Server              string         `json:"server" mapstructure:"server"`
 	Transport           string         `json:"transport" mapstructure:"transport"`
@@ -41,6 +42,7 @@ type ClientConfig struct {
 	MaxMessageSize      int            `json:"max_message_size" mapstructure:"max_message_size"`
 	TunnelTimeout       int            `json:"tunnel_timeout" mapstructure:"tunnel_timeout"`
 	ProxyMaxConcurrency int            `json:"proxy_max_concurrency" mapstructure:"proxy_max_concurrency"`
+	SystemProxy        *bool           `json:"system_proxy" mapstructure:"system_proxy"`
 }
 
 type ObfuscationCfg struct {

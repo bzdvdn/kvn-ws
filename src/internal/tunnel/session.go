@@ -2,8 +2,10 @@ package tunnel
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"math"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -133,6 +135,7 @@ func (s *Session) Run(ctx context.Context) error {
 	return eg.Wait()
 }
 
+// @sk-task fix-ping-drops#T2.1: treat read timeout as non-fatal, continue instead of aborting session
 // @sk-task arch-refactoring#T3.3: decomposed wsToTun with handler methods (AC-005)
 func (s *Session) wsToTun(ctx context.Context) error {
 	var lastRateLimitLog time.Time
@@ -160,6 +163,10 @@ func (s *Session) wsToTun(ctx context.Context) error {
 		}
 		data, err := s.stream.ReadMessage()
 		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				s.logger.Debug("read timeout, continuing", zap.Error(err))
+				continue
+			}
 			return err
 		}
 		var f framing.Frame
@@ -218,6 +225,15 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	}
 	payload := f.Payload
 	if len(payload) < 6 {
+		ack := framing.Frame{
+			Type:  framing.FrameTypeProxy,
+			Flags: framing.FrameFlagNone,
+		}
+		data, err := ack.Encode()
+		if err == nil {
+			_ = s.stream.WriteMessage(data)
+			framing.ReturnBuffer(data)
+		}
 		return
 	}
 	streamID := binary.BigEndian.Uint32(payload[0:4])
@@ -243,6 +259,7 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 		binary.BigEndian.PutUint32(closeFrame.Payload[0:4], streamID)
 		binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
 		if encoded, encErr := closeFrame.Encode(); encErr == nil {
+			_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
 			if err := s.stream.WriteMessage(encoded); err != nil {
 				s.logger.Warn("write close frame failed", zap.Error(err))
 			}
@@ -281,7 +298,10 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 		binary.BigEndian.PutUint32(closeFrame.Payload[0:4], sid)
 		binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
 		if encoded, encErr := closeFrame.Encode(); encErr == nil {
-			_ = s.stream.WriteMessage(encoded)
+			_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
+			if err := s.stream.WriteMessage(encoded); err != nil {
+				s.logger.Warn("write close frame failed", zap.Error(err))
+			}
 			framing.ReturnBuffer(encoded)
 		}
 	}()
@@ -318,6 +338,7 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 		if err != nil {
 			return
 		}
+		_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
 		if err := s.stream.WriteMessage(encoded); err != nil {
 			framing.ReturnBuffer(encoded)
 			return

@@ -12,6 +12,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
+	"github.com/bzdvdn/kvn-ws/src/internal/systemproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
@@ -95,6 +96,7 @@ func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
 	return 512
 }
 
+// @sk-task system-proxy#T2.1: integrate system proxy with client lifecycle (AC-001, AC-002, AC-003, AC-007)
 func (c *Client) Run(ctx context.Context) error {
 	defer c.logger.Info("client stopped")
 
@@ -102,6 +104,21 @@ func (c *Client) Run(ctx context.Context) error {
 	defer stop()
 
 	if c.cfg.Mode == "proxy" {
+		if c.cfg.SystemProxy != nil && *c.cfg.SystemProxy {
+			sysProxy := systemproxy.New(c.cfg)
+			addr := c.cfg.ProxyListen
+			if addr == "" {
+				addr = "127.0.0.1:2310"
+			}
+			noProxy := systemproxy.NOProxyBuilder(c.cfg.Routing)
+			if err := sysProxy.Set(ctx, c.logger, addr, noProxy); err != nil {
+				c.logger.Warn("system proxy set failed", zap.Error(err))
+			} else {
+				defer func() {
+					_ = sysProxy.Restore(ctx, c.logger)
+				}()
+			}
+		}
 		c.runProxyMode(ctx)
 		return nil
 	}

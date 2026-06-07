@@ -25,6 +25,8 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, configResponse{Config: cfg})
 }
 
+func boolPtr(b bool) *bool { return &b }
+
 func defaultConfig() *config.ClientConfig {
 	autoReconnect := true
 	return &config.ClientConfig{
@@ -39,6 +41,7 @@ func defaultConfig() *config.ClientConfig {
 		MaxMessageSize:      10 * 1024 * 1024,
 		TunnelTimeout:       30,
 		ProxyMaxConcurrency: 1000,
+		SystemProxy:         boolPtr(false),
 		Routing: &config.RoutingCfg{
 			DefaultRoute:  "server",
 			ExcludeRanges: append([]string{}, config.DefaultExcludeRanges...),
