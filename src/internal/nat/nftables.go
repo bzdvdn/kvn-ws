@@ -26,7 +26,7 @@ func (m *NFTManager) Setup() error {
 	if err := m.runNft("add", "chain", "ip", "kvn-nat", "postrouting", chainDef); err != nil {
 		return fmt.Errorf("add chain: %w", err)
 	}
-	if err := m.runNft("add", "rule", "ip", "kvn-nat", "postrouting", "masquerade"); err != nil {
+	if err := m.runNft("add", "rule", "ip", "kvn-nat", "postrouting", `iifname "kvn"`, "masquerade"); err != nil {
 		return err
 	}
 	return nil
@@ -49,7 +49,7 @@ func (m *NFTManager) Setup6() error {
 	if err := m.runNft("add", "chain", "ip6", "kvn-nat", "postrouting", chainDef); err != nil {
 		return fmt.Errorf("add ip6 chain: %w", err)
 	}
-	if err := m.runNft("add", "rule", "ip6", "kvn-nat", "postrouting", "masquerade"); err != nil {
+	if err := m.runNft("add", "rule", "ip6", "kvn-nat", "postrouting", `iifname "kvn"`, "masquerade"); err != nil {
 		return err
 	}
 	return nil

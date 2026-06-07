@@ -378,9 +378,13 @@ func (s *Server) Run(ctx context.Context) error {
 	defer s.sm.Stop()
 	defer func() { _ = s.tunDev.Close() }()
 	defer func() {
-		_ = s.natMgr.Teardown()
+		if err := s.natMgr.Teardown(); err != nil {
+			s.logger.Warn("nat teardown", zap.Error(err))
+		}
 		if s.cfg.Network.PoolIPv6.Subnet != "" {
-			_ = s.natMgr.Teardown6()
+			if err := s.natMgr.Teardown6(); err != nil {
+				s.logger.Warn("ipv6 nat teardown", zap.Error(err))
+			}
 		}
 	}()
 	if s.bolt != nil {
