@@ -105,6 +105,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Critical: QUIC WriteMessage сбрасывал write deadline** — `SetWriteDeadline(time.Time{})` внутри `WriteMessage` отменял deadline, установленный caller'ом (TUN/proxy). TUN-записи могли зависать навсегда. Исправлено: deadline больше не сбрасывается.
+- **QUIC keepalive не триггерил reconnect** — ошибка записи keepalive только логировалась (`continue`), соединение висело мёртвым. Исправлено: keepalive возвращает ошибку в errgroup → сессия закрывается → reconnect с backoff.
+- **WebSocket keepalive goroutine утекала** — горутина пингов жила вечно после `Close()`, продолжая писать в закрытый сокет и плодить `"ping error"` каждые 25с. Исправлено: добавлен `stopCh`, горутина останавливается при `Close()`.
+- **Windows: transparent proxy в UI** — чекбокс "Transparent proxy" показывался на всех платформах, хотя функция Linux-only. Исправлено: `GET /api/platform` возвращает `transparent_supported`, UI скрывает опцию на Windows/macOS.
+- **Windows cross-compile** — `getOriginalDst()` использует Linux-only `SYS_GETSOCKOPT`. Исправлено: код вынесен в `listener_linux.go` с build tag, добавлена заглушка `listener_other.go` для !linux.
 - **SIGHUP reload fix** — startSighupHandler использует сохранённый путь конфига вместо type assertion.
 - **Proxy frame: deadline exceeded** — `runProxySession` не завершается при `Timeout() == true`.
 - **Proxy frame: zero-length close** — `HandleIncomingFrame` закрывает стрим при пустом payload.

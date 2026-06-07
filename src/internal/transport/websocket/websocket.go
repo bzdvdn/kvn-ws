@@ -39,10 +39,12 @@ type WSConfig struct {
 // @sk-task core-tunnel-mvp#T2.1: WebSocket connection wrapper (AC-002)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 type WSConn struct {
-	conn   *websocket.Conn
-	cfg    WSConfig
-	logger *zap.Logger
-	wmu    sync.Mutex
+	conn      *websocket.Conn
+	cfg       WSConfig
+	logger    *zap.Logger
+	wmu       sync.Mutex
+	stopCh    chan struct{}
+	closeOnce sync.Once
 }
 
 // @sk-task performance-and-polish#T2.3: BatchWriter for coalescing writes (AC-003)
@@ -181,6 +183,9 @@ func (c *WSConn) WriteMessage(data []byte) error {
 }
 
 func (c *WSConn) Close() error {
+	c.closeOnce.Do(func() {
+		close(c.stopCh)
+	})
 	return c.conn.Close()
 }
 
@@ -203,14 +208,19 @@ func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		for range ticker.C {
-			c.wmu.Lock()
-			_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			err := c.conn.WriteMessage(websocket.PingMessage, nil)
-			_ = c.conn.SetWriteDeadline(time.Time{})
-			c.wmu.Unlock()
-			if err != nil {
-				c.logger.Warn("ping error", zap.Error(err))
+		for {
+			select {
+			case <-c.stopCh:
+				return
+			case <-ticker.C:
+				c.wmu.Lock()
+				_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				err := c.conn.WriteMessage(websocket.PingMessage, nil)
+				_ = c.conn.SetWriteDeadline(time.Time{})
+				c.wmu.Unlock()
+				if err != nil {
+					c.logger.Warn("ping error", zap.Error(err))
+				}
 			}
 		}
 	}()
@@ -267,7 +277,7 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 	}
 	// @sk-task post-hardening#T2.1: cap incoming message size (AC-005)
 	conn.SetReadLimit(wsReadLimit)
-	return &WSConn{conn: conn, cfg: wsCfg, logger: logger}, nil
+	return &WSConn{conn: conn, cfg: wsCfg, logger: logger, stopCh: make(chan struct{})}, nil
 }
 
 // @sk-task security-acl#T4: NewOriginChecker creates origin check function from whitelist
@@ -344,7 +354,7 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
 		_ = tcpConn.SetNoDelay(true)
 	}
-	wsConn := &WSConn{conn: conn, cfg: cfg, logger: logger}
+	wsConn := &WSConn{conn: conn, cfg: cfg, logger: logger, stopCh: make(chan struct{})}
 	wsConn.SetPingHandler(func(appData string) error {
 		return conn.SetReadDeadline(time.Now().Add(DefaultPongTimeout))
 	})

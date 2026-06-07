@@ -373,10 +373,10 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 						continue
 					}
 					if err := stream.WriteMessage(data); err != nil {
-						c.logger.Warn("keepalive write error", zap.Error(err))
 						framing.ReturnBuffer(data)
 						_ = stream.SetWriteDeadline(time.Time{})
-						continue
+						c.logger.Warn("keepalive: connection lost", zap.Error(err))
+						return fmt.Errorf("keepalive: %w", err)
 					}
 					framing.ReturnBuffer(data)
 					_ = stream.SetWriteDeadline(time.Time{})
