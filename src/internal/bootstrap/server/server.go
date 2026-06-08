@@ -33,6 +33,7 @@ import (
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
+	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
 	"github.com/quic-go/quic-go"
 )
 
@@ -54,6 +55,7 @@ type Server struct {
 	sm            *session.SessionManager
 	collectors    *metrics.Collectors
 	tunDev        tun.TunDevice
+	tunDemux      *tunnel.TunDemux
 	natMgr        *nat.NFTManager
 	tlsCfg        *tls.Config
 	originChecker func(*http.Request) bool
@@ -187,6 +189,8 @@ func New(configPath string) (*Server, error) {
 		logger.Info("gso/gro disabled on tun")
 	}
 
+	tunDemux := tunnel.NewTunDemux(tunDev, logger)
+
 	natMgr := nat.NewNFTManager()
 	if err := natMgr.Setup(); err != nil {
 		logger.Warn("nat setup", zap.Error(err))
@@ -243,6 +247,7 @@ func New(configPath string) (*Server, error) {
 		sm:            sm,
 		collectors:    collectors,
 		tunDev:        tunDev,
+		tunDemux:      tunDemux,
 		natMgr:        natMgr,
 		tlsCfg:        tlsCfg,
 		originChecker: originChecker,

@@ -249,7 +249,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 	}
 
 	tunSess := tunnel.NewSession(tunDev, stream, nil, sessionID, "", nil, nil, nil, c.logger, sessionCipher, nil,
-		time.Duration(c.cfg.TunnelTimeout)*time.Second, c.cfg.ProxyMaxConcurrency)
+		time.Duration(c.cfg.TunnelTimeout)*time.Second, c.cfg.ProxyMaxConcurrency, nil, nil)
 	if tunRouter != nil {
 		tunSess.SetTunRouter(tunRouter)
 	}

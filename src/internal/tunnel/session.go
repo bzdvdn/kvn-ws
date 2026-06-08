@@ -58,8 +58,11 @@ type Session struct {
 	proxySem         chan struct{}
 	tunRouter        *routing.TunRouter
 	tunReaderCh      chan tunReadResult
+	demux            *TunDemux
 	tunnelTimeout    time.Duration
 	proxyConcurrency int
+	clientIP         net.IP
+	clientIP6        net.IP
 }
 
 // @sk-task arch-refactoring#T3.5: add tunnelTimeout and proxyConcurrency params (AC-006)
@@ -77,6 +80,8 @@ func NewSession(
 	proxyStreams *proxy.SessionStreams,
 	tunnelTimeout time.Duration,
 	proxyConcurrency int,
+	clientIP net.IP,
+	clientIP6 net.IP,
 ) *Session {
 	if tunnelTimeout <= 0 {
 		tunnelTimeout = 30 * time.Second
@@ -99,6 +104,8 @@ func NewSession(
 		proxySem:         make(chan struct{}, proxyConcurrency),
 		tunnelTimeout:    tunnelTimeout,
 		proxyConcurrency: proxyConcurrency,
+		clientIP:         clientIP,
+		clientIP6:        clientIP6,
 	}
 }
 
@@ -106,9 +113,21 @@ func (s *Session) SetTunRouter(tr *routing.TunRouter) {
 	s.tunRouter = tr
 }
 
+func (s *Session) SetDemux(d *TunDemux) {
+	s.demux = d
+}
+
 // @sk-task fix-critical-leaks#T3.1: TUN reader — permanent goroutine (AC-001)
 func (s *Session) startTunReader(ctx context.Context) {
-	s.tunReaderCh = make(chan tunReadResult, 1)
+	s.tunReaderCh = make(chan tunReadResult, 64)
+	if s.demux != nil {
+		s.demux.Register(s.clientIP, s.clientIP6, s.tunReaderCh)
+		go func() {
+			<-ctx.Done()
+			s.demux.Unregister(s.clientIP, s.clientIP6)
+		}()
+		return
+	}
 	go func() {
 		for {
 			buf := make([]byte, 1500)
@@ -194,7 +213,12 @@ func (s *Session) wsToTun(ctx context.Context) error {
 		case framing.FrameTypeProxy:
 			s.handleProxyFrame(ctx, &f)
 		case framing.FrameTypeDNS:
-			s.handleDNSFrame(ctx, &f)
+			go func() {
+				payload := make([]byte, len(f.Payload))
+				copy(payload, f.Payload)
+				f.Release()
+				s.handleDNSFrame(ctx, payload)
+			}()
 		default:
 			f.Release()
 		}
@@ -288,9 +312,8 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 }
 
 // @sk-task transparent-proxy#T2.3: server-side DNS forwarder (FrameTypeDNS)
-func (s *Session) handleDNSFrame(ctx context.Context, f *framing.Frame) {
-	defer f.Release()
-	payload := f.Payload
+// must be called in a goroutine to avoid blocking wsToTun read-loop
+func (s *Session) handleDNSFrame(ctx context.Context, payload []byte) {
 	if len(payload) < 5 {
 		return
 	}

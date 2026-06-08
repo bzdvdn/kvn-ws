@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.3.0] — 2026-06-08
+## [0.3.0] — 2026-06-09
 
 ### Added
 
@@ -62,6 +62,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `ResolvConfBackup.Nameservers()` — сохранение оригинальных DNS-серверов.
   - `proxy.go`: routeSet создаётся до DNS proxy, `RouteFunc` и `OrigResolvers` передаются в DNS proxy.
 - **Debug logging для transparent-соединений** — `proxy.Listener.SetLogFn()` + логи в `handleTransparent`.
+- **TunDemux** (`src/internal/tunnel/demux.go`) — single-reader TUN demultiplexer:
+  `Register(ip4, ip6, chan)` / `Unregister(ip4, ip6)`, `parseDestIP()`.
 
 ### Changed
 
@@ -80,6 +82,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **internal/tunnel/session.go** — wsToTun декомпозирован на handler-методы
   (`handleDataFrame`, `handleCloseFrame`, `handleProxyFrame`); Session переиспользуется
   клиентом и сервером; параметры `tunnelTimeout` и `proxyConcurrency` из конфига.
+- **internal/tunnel/session.go** — `matchClientIP` удалён (demux handles per-session dispatch).
+  Server-side `startTunReader` регистрируется в `TunDemux` вместо прямого `tunDev.Read`.
+  Client-side (TUN mode) не изменился.
+- **internal/bootstrap/server/** — создаёт `TunDemux` в `New()`, передаёт в
+  `handleStream` через `SetDemux`.
 - **Магические числа** — заменены на конфигурируемые поля, именованные константы
   (`wsReadLimit`, `CIDRMaskV4Bits`, `CIDRMaskV6Bits`).
 - **Obfuscation config** — `bool → *ObfuscationCfg` (struct с `Enabled`, `UTLS`, `Padding`);
@@ -105,6 +112,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **TUN mode packet loss (33–66%) при нескольких сессиях** — все сессии
+  (TUN + proxy) на сервере конкурировали за чтение из одного TUN-устройства.
+  Пакет для TUN-клиента мог прочитать proxy-сессия (75% шанс) и дропнуть.
+  Исправлено: добавлен `TunDemux` — одна горутина читает из TUN и диспатчит
+  пакет в сессию по destination IP. Non-blocking send.
 - **Critical: QUIC WriteMessage сбрасывал write deadline** — `SetWriteDeadline(time.Time{})` внутри `WriteMessage` отменял deadline, установленный caller'ом (TUN/proxy). TUN-записи могли зависать навсегда. Исправлено: deadline больше не сбрасывается.
 - **QUIC keepalive не триггерил reconnect** — ошибка записи keepalive только логировалась (`continue`), соединение висело мёртвым. Исправлено: keepalive возвращает ошибку в errgroup → сессия закрывается → reconnect с backoff.
 - **WebSocket keepalive goroutine утекала** — горутина пингов жила вечно после `Close()`, продолжая писать в закрытый сокет и плодить `"ping error"` каждые 25с. Исправлено: добавлен `stopCh`, горутина останавливается при `Close()`.

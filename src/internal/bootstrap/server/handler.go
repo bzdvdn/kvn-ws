@@ -172,7 +172,8 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	sessionStreams := proxy.NewSessionStreams()
 
 	tunSess := tunnel.NewSession(s.tunDev, stream, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams,
-		30*time.Second, 1000)
+		30*time.Second, 1000, assignedIP, assignedIPv6)
+	tunSess.SetDemux(s.tunDemux)
 	if err := tunSess.Run(sessionCtx); err != nil {
 		s.logger.Info("session ended",
 			zap.String("session", sess.ID),
