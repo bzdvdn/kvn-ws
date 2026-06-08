@@ -139,10 +139,17 @@ jobs:
               cp scripts/install-web.ps1 "$dir/"
             else
               cp scripts/install-web.sh "$dir/"
+              cp scripts/install-server.sh "$dir/"
+              cp scripts/install-client.sh "$dir/"
               cp scripts/kvn-web.service "$dir/" 2>/dev/null || true
               cp scripts/kvn-web.plist "$dir/" 2>/dev/null || true
             fi
           done
+          cp scripts/install-server.sh dist/
+          cp scripts/install-client.sh dist/
+          cp scripts/install-web.sh dist/
+          cp scripts/install-web.ps1 dist/
+          cp scripts/install-client.ps1 dist/
       - name: Package archives
         run: |
           cd dist

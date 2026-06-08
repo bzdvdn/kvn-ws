@@ -12,19 +12,18 @@ Go stack: `go.mod` at root, all source under `src/`.
 ## Top-Level Code
 - `src/internal/config/` — YAML config parsing (viper + env override)
 - `src/internal/logger/` — structured JSON logging (zap)
-- `src/internal/tun/` — TUN device (WireGuard tun, ip-link)
-- `src/internal/transparent/` — iptables/pf transparent proxy rules (DEC-001)
-- `src/internal/transport/` — transport abstraction (StreamConn interface)
-- `src/internal/transport/websocket/` — WS dial/accept, per-conn config
-- `src/internal/transport/quic/` — QUIC dial/listen, ObfuscatedQUICConn (8B nonce + XOR)
-- `src/internal/transport/tls/` — TLS config (mTLS, CA, verify mode)
+- `src/internal/tun/` — TUN device (WireGuard tun, ip-link), cross-platform split (linux/stub)
+- `src/internal/transport/` — shared transport abstraction (StreamConn interface)
+- `src/internal/transport/websocket/` — WS dial/accept, per-conn config, keepalive
+- `src/internal/transport/quic/` — QUIC dial/listen, ObfuscatedQUICConn (XOR nonce), WriteMessage
+- `src/internal/transport/tls/` — TLS config (mTLS, CA, verify mode, uTLS fingerprint)
 - `src/internal/transport/framing/` — binary frame protocol (encode/decode, buffer pool)
 - `src/internal/protocol/handshake/` — Client/Server Hello, MTU negotiation
 - `src/internal/protocol/auth/` — token/jwt/basic auth, session binding
 - `src/internal/protocol/control/` — PING/PONG keepalive, session control
 - `src/internal/routing/` — packet routing engine (RuleSet, CIDR/IP/domain matchers, ordered rules)
 - `src/internal/dns/` — DNS resolver with in-memory TTL cache
-- `src/internal/dnsproxy/` — in-client DNS proxy server for transparent proxy mode
+- `src/internal/dnsproxy/` — in-client DNS proxy server (domain routing, resolv.conf backup)
 - `src/internal/nat/` — nftables MASQUERADE (server-side NAT)
 - `src/internal/session/` — session management, IP pool, expiry/reclaim, BoltDB persistence
 - `src/internal/crypto/` — app-layer encryption (AES-256-GCM, per-session key derivation)
@@ -35,10 +34,10 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/bootstrap/client/` — Client bootstrap (dial, reconnect, kill switch, proxy, TUN)
 - `src/internal/bootstrap/server/` — Server bootstrap (handler, lifecycle, graceful shutdown)
 - `src/internal/ratelimit/` — IP-based rate limiter (token bucket per IP/session)
-- `src/internal/systemproxy/` — Platform-specific system proxy manager (Linux/macOS/Windows env)
+- `src/internal/systemproxy/` — Platform-specific system proxy manager (Linux env vars, macOS networksetup, Windows registry)
+- `src/internal/transparent/` — iptables transparent proxy manager (Linux-only, stub for other platforms)
 - `src/internal/tunnel/` — Tunnel session logic (proxy buffers, stream bridge, transport glue)
-- `src/internal/webui/` — Web UI server (embed React SPA, REST API + SSE, AppState)
-- `src/pkg/api/` — public API package (stub)
+- `src/internal/webui/` — Web UI server (embed React SPA, REST API + SSE, AppState, SSE log core)
 - `src/integration/` — integration tests (tunnel_integration_test.go)
 
 ## Key Paths
@@ -85,13 +84,14 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Config changes — `src/internal/config/`
 - Logging/metrics — `src/internal/logger/`, `src/internal/metrics/`
 - Rate limiting — `src/internal/ratelimit/`
+- Transparent proxy — `src/internal/transparent/`, `src/internal/dnsproxy/`, `src/internal/proxy/listener_*.go`
+- DNS proxy — `src/internal/dnsproxy/`
 - System proxy — `src/internal/systemproxy/`
-- Transparent proxy — `src/internal/transparent/`, `src/internal/dnsproxy/`
 - Web UI — `src/internal/webui/`, `src/cmd/web/`, `src/internal/webui/frontend/`
 - Integration tests — `src/integration/`
 - Documentation — `docs/en/`, `docs/ru/`, `docs/openapi.yaml`
 - Examples — `examples/`
-- Build/CI/install — `scripts/`, `.github/workflows/`
+- Build/CI/install — `scripts/`, `.github/workflows/`, `Dockerfile`, `Dockerfile.test`
 - Load testing — `configs/loadtest.yaml`
 - Release — `CHANGELOG.md`, `README.md`
 

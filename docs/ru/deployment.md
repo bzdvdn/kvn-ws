@@ -223,19 +223,13 @@ KVN Web UI — браузерный интерфейс для управлени
 
 ### Linux — systemd сервис
 
-#### Быстрая установка
+#### Быстрая установка (одна команда)
 
 ```bash
-# Скачайте и распакуйте релиз
-curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/kvn-linux-amd64.tar.gz \
-  -o /tmp/kvn-web.tar.gz
-tar -xzf /tmp/kvn-web.tar.gz -C /tmp
-
-# Установите и запустите
-sudo /tmp/kvn-web/install-web.sh --start
-
-# Web UI: http://127.0.0.1:2311
+sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.sh)" -- --start
 ```
+
+Web UI: http://127.0.0.1:2311
 
 #### Что делает install-web.sh
 
@@ -262,19 +256,13 @@ sudo ./scripts/install-web.sh --start
 
 ### macOS — launchd демон
 
-#### Быстрая установка
+#### Быстрая установка (одна команда)
 
 ```bash
-# Скачайте и распакуйте
-curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/kvn-darwin-arm64.tar.gz \
-  -o /tmp/kvn-web.tar.gz
-tar -xzf /tmp/kvn-web.tar.gz -C /tmp
-
-# Установите и запустите
-sudo /tmp/kvn-web/install-web.sh --start
-
-# Web UI: http://127.0.0.1:2311
+sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.sh)" -- --start
 ```
+
+Web UI: http://127.0.0.1:2311
 
 #### Управление демоном
 
@@ -286,14 +274,13 @@ sudo launchctl list com.kvn-web.daemon
 
 ### Windows — служба Windows
 
-#### Быстрая установка
+#### Быстрая установка (одна команда)
 
 ```powershell
-# Запустите от имени администратора
-.\install-web.ps1 -Start
-
-# Web UI: http://127.0.0.1:2311
+iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.ps1 -OutFile install-web.ps1; .\install-web.ps1 -Start
 ```
+
+Web UI: http://127.0.0.1:2311
 
 #### Управление службой
 

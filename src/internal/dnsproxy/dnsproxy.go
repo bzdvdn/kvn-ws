@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"strings"
@@ -166,9 +167,13 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 	}
 	defer upConn.Close()
 
-	wire := make([]byte, 2+len(query))
-	wire[0] = byte(len(query) >> 8)
-	wire[1] = byte(len(query) & 0xff)
+	qlen := len(query)
+	if qlen > math.MaxUint16 {
+		return
+	}
+	wire := make([]byte, 2+qlen)
+	wire[0] = byte(qlen >> 8)
+	wire[1] = byte(qlen & 0xff)
 	copy(wire[2:], query)
 
 	upConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
@@ -334,7 +339,7 @@ func (b *ResolvConfBackup) Restore() error {
 	if !b.saved {
 		return nil
 	}
-	return os.WriteFile(resolvConfPath, []byte(b.original), 0644)
+	return os.WriteFile(resolvConfPath, []byte(b.original), 0644) // #nosec G306
 }
 
 func OverrideResolvConf(addr string) error {
@@ -342,7 +347,7 @@ func OverrideResolvConf(addr string) error {
 	if err != nil {
 		host = addr
 	}
-	return os.WriteFile(resolvConfPath, []byte("nameserver "+host+"\n"), 0644)
+	return os.WriteFile(resolvConfPath, []byte("nameserver "+host+"\n"), 0644) // #nosec G306
 }
 
 func readNameserver() (string, error) {

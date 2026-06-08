@@ -384,7 +384,7 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 		}
 		payload := framing.GetBuffer(4 + 2 + len(dst) + n)
 		binary.BigEndian.PutUint32(payload[0:4], sid)
-		binary.BigEndian.PutUint16(payload[4:6], uint16(len(dst)))
+		binary.BigEndian.PutUint16(payload[4:6], uint16(len(dst))) // #nosec G115 — checked at line 382
 		copy(payload[6:], dst)
 		copy(payload[6+len(dst):], buf[:n])
 		frame := framing.Frame{

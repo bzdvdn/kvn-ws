@@ -7,21 +7,29 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/bzdvdn/kvn-ws)](https://github.com/bzdvdn/kvn-ws/releases)
 
-**kvn-ws** — VPN-туннель через HTTPS/WebSocket с маскировкой под обычный веб-трафик. Написан на Go, работает через TUN-интерфейс. Поддерживает два режима: TUN (VPN) и локальный SOCKS5/HTTP CONNECT прокси.
+**kvn-ws** — VPN-туннель через WebSocket/QUIC с маскировкой под обычный веб-трафик. Написан на Go, работает в двух режимах: TUN (VPN) и локальный SOCKS5/HTTP CONNECT прокси. Включает веб-интерфейс (`kvn-web`) для управления конфигурацией и мониторинга.
 
 - Сервер и клиент в одном Docker-образе (multi-stage build)
-- TLS 1.3 + mTLS + WebSocket Binary Frames
+- TLS 1.3 + mTLS + WebSocket Binary Frames / QUIC
+- TUN (VPN) и Proxy (SOCKS5/HTTP CONNECT) режимы
+- Transparent proxy (iptables REDIRECT) + DNS proxy (Linux)
+- System proxy — автоустановка/восстановление HTTP_PROXY (Linux, macOS, Windows)
+- Одноифскация трафика: uTLS (TLS fingerprint), WebSocket padding, QUIC XOR-obfuscation
+- SNI rotation — случайный SNI из белого списка при каждом подключении
 - Маршрутизация: server/direct, CIDR, DNS-имена, отдельные IP с ordered rules
+- DNS-роутинг — маршрутизация DNS-запросов по суффиксу домена
 - App-layer шифрование (AES-256-GCM, per-session key derivation)
 - Split-tunnel с kill-switch при потере соединения (nftables)
 - Dual-stack IPv4/IPv6
-- Prometheus-метрики, сессионный менеджмент с BoltDB-персистентностью
-- SOCKS5 + HTTP CONNECT proxy mode
-- CIDR ACL, rate limiting, per-token bandwidth management
+- QUIC transport с автоматическим fallback на TCP
 - MaxMessageSize защита от OOM в QUIC-транспорте
+- Web UI (`kvn-web`) — конфигурация, логи, импорт/экспорт/QR, статус соединения
+- Prometheus-метрики, сессионный менеджмент с BoltDB-персистентностью
+- CIDR ACL, rate limiting, per-token bandwidth management
 - Netlink API для управления маршрутами (без exec.Command)
 - SIGHUP hot-reload конфига
 - Graceful shutdown, health endpoints (/livez, /readyz, /health)
+- Кроссплатформенный клиент: Linux, macOS, Windows (Web UI)
 
 ## Quick start (30 sec)
 
@@ -30,6 +38,8 @@ git clone https://github.com/bzdvdn/kvn-ws.git
 cd kvn-ws && cp -r examples/* .
 bash examples/run.sh
 ```
+
+Web UI: http://127.0.0.1:2311
 
 Подробнее: [docs/en/quickstart.md](docs/en/quickstart.md) · [docs/ru/quickstart.md](docs/ru/quickstart.md)
 
@@ -42,13 +52,30 @@ bash examples/run.sh
 | [Configuration](docs/en/config.md)      | [Конфигурация](docs/ru/config.md)      |
 | [Architecture](docs/en/architecture.md) | [Архитектура](docs/ru/architecture.md) |
 
-### Server quick install (Linux)
+## Installation
+
+### Server (Linux) — одна команда
+
+Устанавливает бинарник, генерирует конфиг со случайным токеном, настраивает systemd-сервис и nftables.
 
 ```bash
 sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-server.sh)"
 ```
 
-### Client quick install (Windows)
+С опциями (порт, подсеть, IPv6):
+```bash
+sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-server.sh)" -- --listen :8443 --subnet 10.20.0.0/16 --gateway 10.20.0.1
+```
+
+### Client (Linux)
+
+```bash
+# Install from release
+sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-client.sh)" \
+  -- -s wss://vpn.example.com/tunnel -t your-token
+```
+
+### Client (Windows)
 
 ```powershell
 # PowerShell (admin)
@@ -56,27 +83,56 @@ iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-clie
 .\install-client.ps1 -Server "wss://vpn.example.com/tunnel" -Token "your-token" -RegisterTask
 ```
 
-### Web UI install
+### Web UI (kvn-web) — одна команда
 
-**Linux:**
-```bash
-sudo ./install-web.sh --start
-# Web UI: http://127.0.0.1:2311
-```
+Устанавливает бинарник, регистрирует сервис автозапуска (systemd/launchd/Windows Service) и запускает Web UI на порту 2311.
 
-**macOS:**
+**Linux / macOS:**
 ```bash
-sudo ./install-web.sh --start
-# Web UI: http://127.0.0.1:2311
+sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.sh)" -- --start
 ```
 
 **Windows (PowerShell Admin):**
 ```powershell
-.\install-web.ps1 -Start
-# Web UI: http://127.0.0.1:2311
+iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.ps1 -OutFile install-web.ps1; .\install-web.ps1 -Start
 ```
 
-Подробнее: [docs/en/deployment.md](docs/en/deployment.md)
+Web UI: http://127.0.0.1:2311
+
+## Configuration
+
+Минимальный `client.yaml`:
+
+```yaml
+server: wss://vpn.example.com/tunnel
+auth:
+  token: your-token
+```
+
+Детальная конфигурация — [docs/ru/config.md](docs/ru/config.md).
+
+## Web UI features
+
+- Редактирование конфигурации через браузер
+- Поддержка TUN и Proxy режимов
+- Import/Export конфига (JSON, QR-код)
+- Мониторинг логов соединения с фильтром по уровню и поиском
+- Статус подключения в реальном времени
+- Transparent proxy + DNS proxy настройки (Linux)
+- System proxy toggle
+
+## Obfuscation
+
+Трафик маскируется под обычный HTTPS несколькими уровнями:
+
+- **uTLS** — подмена TLS fingerprint (Chrome HelloChrome_Auto)
+- **Padding** — дополнение WebSocket-сообщений случайными данными до кратного размера
+- **QUIC obfuscation** — XOR-обфускация QUIC-трафика с nonce через TLS Exporter
+- **SNI rotation** — случайный домен из списка `tls.sni`
+
+## Transport
+
+Два транспорта: TCP (WebSocket) и QUIC (UDP). QUIC используется по умолчанию, при недоступности — автоматический fallback на TCP.
 
 ## Examples
 

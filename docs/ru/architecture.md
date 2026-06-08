@@ -56,13 +56,17 @@ flowchart TB
 | TLS Listener | `src/internal/transport/tls/` | Терминация TLS 1.3 (TCP) |
 | WebSocket Acceptor | `src/internal/transport/websocket/` | WebSocket upgrade и ввод/вывод бинарных фреймов |
 | QUIC Listener | `src/internal/transport/quic/` | QUIC (UDP) listener + ObfuscatedQUICConn |
+| Bootstrap | `src/internal/bootstrap/` | Оркестрация сервера: TLS, QUIC, менеджер сессий |
 | Session Manager | `src/internal/session/` | Жизненный цикл сессий, выделение/возврат IP, BoltDB |
 | IP Pool | `src/internal/session/` | Динамическое выделение IPv4/IPv6 из подсетей |
 | Auth | `src/internal/protocol/auth/` | Аутентификация по токену, JWT и basic |
 | Control | `src/internal/protocol/control/` | PING/PONG keepalive, управляющие сообщения |
+| Admin API | `src/internal/admin/` | HTTP API для управления сессиями и pprof |
 | NAT | `src/internal/nat/` | nftables MASQUERADE для проброса трафика |
 | DNS | `src/internal/dns/` | DNS-резолвер с TTL-кэшем в памяти |
 | Metrics | `src/internal/metrics/` | Prometheus-метрики (active_sessions, throughput, errors) |
+| Rate Limiter | `src/internal/ratelimit/` | IP-ограничитель скорости (token bucket) |
+| ACL | `src/internal/acl/` | Контроль доступа по IP через CIDR-правила |
 
 ### Клиент
 
@@ -70,12 +74,18 @@ flowchart TB
 |-----------|-------|------|
 | TUN Interface | `src/internal/tun/` | Абстракция виртуального сетевого интерфейса |
 | Routing Engine | `src/internal/routing/` | RuleSet: server/direct, CIDR, домены, IP с ordered rules |
+| Tunnel Session | `src/internal/tunnel/` | Туннельная сессия: связывает TUN, crypto, proxy, transport |
+| Bootstrap | `src/internal/bootstrap/` | Оркестрация клиента: TUN, DNS, proxy, transport |
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT прокси для локального трафика |
+| Transparent Proxy | `src/internal/transparent/` | Прозрачный прокси через iptables REDIRECT (Linux) |
+| System Proxy | `src/internal/systemproxy/` | Управление системными прокси (Linux/macOS/Windows) |
+| DNS Proxy | `src/internal/dnsproxy/` | Прокси-сервер DNS для трафика VPN |
 | WebSocket Dialer | `src/internal/transport/websocket/` | Клиентское WebSocket-подключение с опциональным padding |
 | uTLS Dialer | `src/internal/transport/tls/` | Браузерный TLS (uTLS, Chrome JA3), кастомный выбор SNI |
 | QUIC Dialer | `src/internal/transport/quic/` | QUIC (UDP) dial + ObfuscatedQUICConn |
 | DNS Resolver | `src/internal/dns/` | DNS-резолвер с TTL-кэшем |
 | Crypto | `src/internal/crypto/` | Шифрование на уровне приложения (AES-256-GCM, per-session key) |
+| Web UI | `src/internal/webui/` | Локальный веб-интерфейс (React + REST API для конфига/подключения) |
 
 ### Общие
 
@@ -137,12 +147,17 @@ src/
 ├── cmd/
 │   ├── client/main.go       # Точка входа клиента
 │   ├── server/main.go       # Точка входа сервера
+│   ├── web/main.go          # Точка входа Web UI (kvn-web)
 │   ├── gatetest/main.go     # Утилита gate-тестирования
 │   └── stability/main.go    # Утилита stability/soak-тестирования
 ├── internal/
+│   ├── acl/                 # Контроль доступа по CIDR
+│   ├── admin/               # Admin HTTP API (сессии, pprof)
+│   ├── bootstrap/           # Оркестрация клиента/сервера
 │   ├── config/              # YAML конфиг (viper)
 │   ├── crypto/              # Шифрование приложения
 │   ├── dns/                 # DNS-резолвер + кэш
+│   ├── dnsproxy/            # Прокси-сервер DNS
 │   ├── logger/              # Структурированное логирование (zap)
 │   ├── metrics/             # Prometheus-метрики
 │   ├── nat/                 # nftables MASQUERADE
@@ -151,14 +166,19 @@ src/
 │   │   ├── control/         # PING/PONG keepalive
 │   │   └── handshake/       # Client/Server Hello
 │   ├── proxy/               # SOCKS5 + HTTP CONNECT
+│   ├── ratelimit/           # IP-ограничитель скорости (token bucket)
 │   ├── routing/             # RuleSet engine
 │   ├── session/             # Сессии + IP pool + BoltDB
+│   ├── systemproxy/         # Управление системными прокси
+│   ├── transparent/         # Прозрачный прокси через iptables (Linux)
 │   ├── transport/
 │   │   ├── framing/         # Протокол бинарных фреймов
 │   │   ├── quic/            # QUIC dial/listen + ObfuscatedQUICConn
 │   │   ├── tls/             # TLS конфиг
 │   │   └── websocket/       # WebSocket dial/accept
-│   └── tun/                 # TUN-интерфейс
+│   ├── tun/                 # TUN-интерфейс
+│   ├── tunnel/              # Туннельная сессия VPN
+│   └── webui/               # Web UI (React + REST API)
 └── pkg/
     └── api/                 # Публичное API (расширяемое)
 ```

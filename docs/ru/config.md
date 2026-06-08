@@ -127,6 +127,10 @@ logging:
 | `kill_switch.enabled` | bool | `false` | Блокировать весь трафик при разрыве (nftables) |
 | `reconnect.min_backoff_sec` | int | `1` | Минимальная задержка переподключения в секундах |
 | `reconnect.max_backoff_sec` | int | `30` | Максимальная задержка переподключения в секундах |
+| `system_proxy` | bool | `false` | Автоуправление системными прокси (Linux/macOS/Windows) |
+| `transparent` | bool | `false` | Прозрачный прокси через iptables REDIRECT (только Linux) |
+| `dns_proxy.listen` | string | `127.0.0.54:53` | Адрес DNS-прокси |
+| `dns_proxy.upstream` | string | `1.1.1.1:53` | Вышестоящий DNS-сервер |
 | `log.level` | string | `info` | Уровень логирования (`debug`, `info`, `warn`, `error`) |
 
 ### Пример конфигурации клиента

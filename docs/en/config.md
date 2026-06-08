@@ -127,6 +127,10 @@ logging:
 | `kill_switch.enabled` | bool | `false` | Block all non-tunnel traffic on disconnect (nftables) |
 | `reconnect.min_backoff_sec` | int | `1` | Minimum reconnect backoff in seconds |
 | `reconnect.max_backoff_sec` | int | `30` | Maximum reconnect backoff in seconds |
+| `system_proxy` | bool | `false` | Enable automatic OS-level proxy settings (Linux/macOS/Windows) |
+| `transparent` | bool | `false` | Enable transparent proxy via iptables REDIRECT (Linux only) |
+| `dns_proxy.listen` | string | `127.0.0.54:53` | DNS proxy listen address |
+| `dns_proxy.upstream` | string | `1.1.1.1:53` | Upstream DNS server address |
 | `log.level` | string | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
 ### Client example

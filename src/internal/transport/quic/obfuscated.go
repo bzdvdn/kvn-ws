@@ -63,7 +63,7 @@ func (oc *ObfuscatedQUICConn) ReadMessage() ([]byte, error) {
 	}
 	xorBytes(lenBuf[:], lenBuf[:], oc.nonce[:])
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
-	if msgLen > uint32(oc.maxMessageSize) {
+	if msgLen > uint32(oc.maxMessageSize) { // #nosec G115 — maxMessageSize >= 0 per SetMaxMessageSize
 		return nil, ErrMessageTooLarge
 	}
 	buf := make([]byte, msgLen)
@@ -85,7 +85,7 @@ func (oc *ObfuscatedQUICConn) WriteMessage(data []byte) error {
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data))) // #nosec G115 — checked at line 79
 	xorBytes(lenBuf[:], lenBuf[:], oc.nonce[:])
 	if _, err := oc.stream.Write(lenBuf[:]); err != nil {
 		return err

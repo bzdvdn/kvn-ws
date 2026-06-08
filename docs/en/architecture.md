@@ -56,13 +56,17 @@ flowchart TB
 | TLS Listener | `src/internal/transport/tls/` | TLS 1.3 termination (TCP) |
 | WebSocket Acceptor | `src/internal/transport/websocket/` | WebSocket upgrade and binary frame I/O |
 | QUIC Listener | `src/internal/transport/quic/` | QUIC (UDP) listener + ObfuscatedQUICConn |
+| Bootstrap | `src/internal/bootstrap/` | Server orchestration: TLS, QUIC, session manager |
 | Session Manager | `src/internal/session/` | Session lifecycle, IP allocation/reclaim, BoltDB persistence |
 | IP Pool | `src/internal/session/` | Dynamic IPv4/IPv6 allocation from configurable subnets |
 | Auth | `src/internal/protocol/auth/` | Token, JWT, and basic authentication |
 | Control | `src/internal/protocol/control/` | PING/PONG keepalive, session control messages |
+| Admin API | `src/internal/admin/` | Admin HTTP API for session management and pprof |
 | NAT | `src/internal/nat/` | nftables MASQUERADE for traffic forwarding |
 | DNS | `src/internal/dns/` | DNS resolver with in-memory TTL cache |
 | Metrics | `src/internal/metrics/` | Prometheus metrics (active_sessions, throughput, errors) |
+| Rate Limiter | `src/internal/ratelimit/` | Per-IP rate limiter (token bucket) |
+| ACL | `src/internal/acl/` | CIDR-based IP access control (allow/deny) |
 
 ### Client
 
@@ -70,12 +74,18 @@ flowchart TB
 |-----------|---------|------|
 | TUN Interface | `src/internal/tun/` | Virtual network interface abstraction |
 | Routing Engine | `src/internal/routing/` | RuleSet engine: server/direct, CIDR, domain, IP matching |
+| Tunnel Session | `src/internal/tunnel/` | VPN tunnel session: links TUN, crypto, proxy, transport |
+| Bootstrap | `src/internal/bootstrap/` | Client orchestration: TUN, DNS, proxy, transport setup |
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT proxy for local traffic |
+| Transparent Proxy | `src/internal/transparent/` | Transparent proxy via iptables REDIRECT (Linux) |
+| System Proxy | `src/internal/systemproxy/` | OS-level proxy settings management (Linux/macOS/Windows) |
+| DNS Proxy | `src/internal/dnsproxy/` | DNS forwarding proxy for VPN traffic |
 | WebSocket Dialer | `src/internal/transport/websocket/` | WebSocket client connection with optional padding |
 | uTLS Dialer | `src/internal/transport/tls/` | Browser-like TLS (uTLS, Chrome JA3), custom SNI selection |
 | QUIC Dialer | `src/internal/transport/quic/` | QUIC (UDP) dial + ObfuscatedQUICConn |
 | DNS Resolver | `src/internal/dns/` | DNS resolution with TTL caching |
 | Crypto | `src/internal/crypto/` | App-layer encryption (AES-256-GCM, per-session key) |
+| Web UI | `src/internal/webui/` | Local web interface (React + REST API for config/connect) |
 
 ### Shared
 
@@ -137,12 +147,17 @@ src/
 ├── cmd/
 │   ├── client/main.go       # Client entrypoint
 │   ├── server/main.go       # Server entrypoint
+│   ├── web/main.go          # Web UI entrypoint (kvn-web)
 │   ├── gatetest/main.go     # Gate test tool
 │   └── stability/main.go    # Stability/soak test tool
 ├── internal/
+│   ├── acl/                 # CIDR-based IP access control
+│   ├── admin/               # Admin HTTP API (session management, pprof)
+│   ├── bootstrap/           # Client/server orchestration
 │   ├── config/              # YAML config (viper)
 │   ├── crypto/              # App-layer encryption
 │   ├── dns/                 # DNS resolver + cache
+│   ├── dnsproxy/            # DNS forwarding proxy
 │   ├── logger/              # Structured logging (zap)
 │   ├── metrics/             # Prometheus metrics
 │   ├── nat/                 # nftables MASQUERADE
@@ -151,14 +166,19 @@ src/
 │   │   ├── control/         # PING/PONG keepalive
 │   │   └── handshake/       # Client/Server Hello
 │   ├── proxy/               # SOCKS5 + HTTP CONNECT
+│   ├── ratelimit/           # Per-IP rate limiter (token bucket)
 │   ├── routing/             # RuleSet engine
 │   ├── session/             # Session + IP pool + BoltDB
+│   ├── systemproxy/         # OS-level proxy settings management
+│   ├── transparent/         # Transparent proxy via iptables (Linux)
 │   ├── transport/
 │   │   ├── framing/         # Binary frame protocol
 │   │   ├── quic/            # QUIC dial/listen + ObfuscatedQUICConn
 │   │   ├── tls/             # TLS config
 │   │   └── websocket/       # WebSocket dial/accept
-│   └── tun/                 # TUN interface
+│   ├── tun/                 # TUN interface
+│   ├── tunnel/              # VPN tunnel session
+│   └── webui/               # Web UI server (React + REST API)
 └── pkg/
     └── api/                 # Public API (extensible)
 ```

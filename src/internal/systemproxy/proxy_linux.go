@@ -36,7 +36,7 @@ func systemdOverride(logger *zap.Logger, addr string) error {
 	path := systemdOverridePath()
 	dir := filepath.Dir(path)
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil { // #nosec G301
 		logger.Warn("systemd override: cannot create directory, skipping",
 			zap.String("dir", dir),
 			zap.Error(err),
@@ -51,7 +51,7 @@ Environment=HTTPS_PROXY=http://%s
 Environment=https_proxy=http://%s
 `, addr, addr, addr, addr)
 
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil { // #nosec G306
 		logger.Warn("systemd override: write failed, skipping",
 			zap.String("path", path),
 			zap.Error(err),

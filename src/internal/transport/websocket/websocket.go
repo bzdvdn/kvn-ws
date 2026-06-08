@@ -7,6 +7,8 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"errors"
+	"io"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -162,6 +164,9 @@ func (c *WSConn) WriteMessage(data []byte) error {
 
 	if c.cfg.PaddingEnabled {
 		payloadLen := len(data)
+		if payloadLen > math.MaxUint32 {
+			return io.ErrShortWrite
+		}
 		totalLen := 4 + payloadLen
 
 		padSize := c.cfg.PaddingSize

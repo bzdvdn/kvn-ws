@@ -61,8 +61,9 @@ func New(port int) (*Server, error) {
 	}
 
 	s.httpServer = &http.Server{
-		Addr:    net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)),
-		Handler: mux,
+		Addr:              net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)),
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	return s, nil

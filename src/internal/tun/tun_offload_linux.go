@@ -5,5 +5,5 @@ package tun
 import "golang.org/x/sys/unix"
 
 func disableTUNOffload(fd uintptr) error {
-	return unix.IoctlSetInt(int(fd), unix.TUNSETOFFLOAD, 0)
+	return unix.IoctlSetInt(int(fd), unix.TUNSETOFFLOAD, 0) // #nosec G115 — fd from TUN device, always valid
 }

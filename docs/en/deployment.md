@@ -229,19 +229,13 @@ KVN Web UI provides a browser-based management interface for the tunnel client (
 
 ### Linux — systemd service
 
-#### Quick install
+#### Quick install (one-liner)
 
 ```bash
-# Download and extract the release archive
-curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/kvn-linux-amd64.tar.gz \
-  -o /tmp/kvn-web.tar.gz
-tar -xzf /tmp/kvn-web.tar.gz -C /tmp
-
-# Install and start
-sudo /tmp/kvn-web/install-web.sh --start
-
-# Web UI: http://127.0.0.1:2311
+sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.sh)" -- --start
 ```
+
+Web UI: http://127.0.0.1:2311
 
 #### What install-web.sh does
 
@@ -268,19 +262,13 @@ sudo ./scripts/install-web.sh --start
 
 ### macOS — launchd daemon
 
-#### Quick install
+#### Quick install (one-liner)
 
 ```bash
-# Download and extract
-curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/kvn-darwin-arm64.tar.gz \
-  -o /tmp/kvn-web.tar.gz
-tar -xzf /tmp/kvn-web.tar.gz -C /tmp
-
-# Install and start
-sudo /tmp/kvn-web/install-web.sh --start
-
-# Web UI: http://127.0.0.1:2311
+sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.sh)" -- --start
 ```
+
+Web UI: http://127.0.0.1:2311
 
 #### Manage the daemon
 
@@ -292,17 +280,13 @@ sudo launchctl list com.kvn-web.daemon
 
 ### Windows — Windows Service
 
-#### Quick install
+#### Quick install (one-liner)
 
 ```powershell
-# Download and extract (or use the release zip)
-# Extract to C:\KVN
-
-# Run as Administrator
-.\install-web.ps1 -Start
-
-# Web UI: http://127.0.0.1:2311
+iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.ps1 -OutFile install-web.ps1; .\install-web.ps1 -Start
 ```
+
+Web UI: http://127.0.0.1:2311
 
 #### Manage the service
 

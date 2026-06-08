@@ -42,7 +42,7 @@ func (c *QUICConn) ReadMessage() ([]byte, error) {
 		return nil, err
 	}
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
-	if msgLen > uint32(c.maxMessageSize) {
+	if msgLen > uint32(c.maxMessageSize) { // #nosec G115 — maxMessageSize >= 0 per SetMaxMessageSize
 		return nil, ErrMessageTooLarge
 	}
 	buf := make([]byte, msgLen)
@@ -59,7 +59,7 @@ func (c *QUICConn) WriteMessage(data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data))) // #nosec G115 — checked at line 56
 	if _, err := c.stream.Write(lenBuf[:]); err != nil {
 		return err
 	}

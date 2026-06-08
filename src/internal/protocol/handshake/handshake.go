@@ -83,8 +83,11 @@ func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 		pos += 2
 	}
 	if transportSize > 0 {
+		if len(transportBytes) > 255 {
+			return nil, fmt.Errorf("transport tag too long")
+		}
 		payload[pos] = TransportTag
-		payload[pos+1] = byte(len(transportBytes))
+		payload[pos+1] = byte(len(transportBytes)) // #nosec G115 — checked above
 		copy(payload[pos+2:], transportBytes)
 	}
 	return &framing.Frame{
@@ -219,8 +222,11 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 		}
 	}
 	if transportLen > 0 {
+		if len(transportBytes) > 255 {
+			return nil, fmt.Errorf("transport tag too long")
+		}
 		payload[pos] = TransportTag
-		payload[pos+1] = byte(len(transportBytes))
+		payload[pos+1] = byte(len(transportBytes)) // #nosec G115 — checked above
 		copy(payload[pos+2:], transportBytes)
 	}
 	return &framing.Frame{

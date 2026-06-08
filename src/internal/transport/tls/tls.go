@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"math/rand"
+	mathrand "math/rand/v2"
 	"net"
 	"os"
 
@@ -158,5 +158,5 @@ func SelectSNI(list []string) string {
 	if len(list) == 0 {
 		return ""
 	}
-	return list[rand.Intn(len(list))]
+	return list[mathrand.IntN(len(list))] // #nosec G404 — non-cryptographic SNI load balancing only
 }

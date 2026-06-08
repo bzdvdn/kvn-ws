@@ -32,26 +32,26 @@ func (m *iptablesLinuxManager) Set(ctx context.Context, logger *zap.Logger, port
 	)
 
 	// create custom chain
-	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-N", chainName).Run()
+	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-N", chainName).Run() // #nosec G204 — bin resolved by detectIptables, chainName is const
 
 	// exclude CIDR rules
 	for _, cidr := range excludes {
-		_ = exec.CommandContext(ctx, bin, "-t", "nat", "-A", chainName, "-d", cidr, "-j", "RETURN").Run()
+		_ = exec.CommandContext(ctx, bin, "-t", "nat", "-A", chainName, "-d", cidr, "-j", "RETURN").Run() // #nosec G204 — bin resolved by detectIptables, cidr from config
 	}
 
 	// REDIRECT all remaining TCP to local proxy port
 	portStr := strconv.Itoa(port)
-	if err := exec.CommandContext(ctx, bin, "-t", "nat", "-A", chainName, "-p", "tcp", "-j", "REDIRECT", "--to-port", portStr).Run(); err != nil {
+	if err := exec.CommandContext(ctx, bin, "-t", "nat", "-A", chainName, "-p", "tcp", "-j", "REDIRECT", "--to-port", portStr).Run(); err != nil { // #nosec G204 — bin resolved by detectIptables, chainName is const
 		return fmt.Errorf("add REDIRECT rule: %w", err)
 	}
 
 	// apply chain to PREROUTING (routed traffic — Docker, VMs)
-	if err := exec.CommandContext(ctx, bin, "-t", "nat", "-A", "PREROUTING", "-j", chainName).Run(); err != nil {
+	if err := exec.CommandContext(ctx, bin, "-t", "nat", "-A", "PREROUTING", "-j", chainName).Run(); err != nil { // #nosec G204 — bin resolved by detectIptables, chainName is const
 		return fmt.Errorf("add PREROUTING jump: %w", err)
 	}
 
 	// apply chain to OUTPUT (locally-generated traffic — browser, apps)
-	if err := exec.CommandContext(ctx, bin, "-t", "nat", "-A", "OUTPUT", "-j", chainName).Run(); err != nil {
+	if err := exec.CommandContext(ctx, bin, "-t", "nat", "-A", "OUTPUT", "-j", chainName).Run(); err != nil { // #nosec G204 — bin resolved by detectIptables, chainName is const
 		return fmt.Errorf("add OUTPUT jump: %w", err)
 	}
 
@@ -66,12 +66,12 @@ func (m *iptablesLinuxManager) Restore(ctx context.Context, logger *zap.Logger) 
 	}
 
 	// remove jumps from PREROUTING and OUTPUT
-	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-D", "PREROUTING", "-j", chainName).Run()
-	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-D", "OUTPUT", "-j", chainName).Run()
+	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-D", "PREROUTING", "-j", chainName).Run() // #nosec G204 — bin resolved by detectIptables, chainName is const
+	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-D", "OUTPUT", "-j", chainName).Run()    // #nosec G204 — bin resolved by detectIptables, chainName is const
 
 	// flush and delete custom chain
-	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-F", chainName).Run()
-	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-X", chainName).Run()
+	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-F", chainName).Run() // #nosec G204 — bin resolved by detectIptables, chainName is const
+	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-X", chainName).Run() // #nosec G204 — bin resolved by detectIptables, chainName is const
 
 	logger.Info("iptables transparent proxy rules removed")
 	return nil

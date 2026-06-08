@@ -24,13 +24,13 @@ func getOriginalDst(conn net.Conn) (string, error) {
 	addrLen := uint32(len(addr))
 	var errno syscall.Errno
 	err = rawConn.Control(func(fd uintptr) {
-		_, _, errno = syscall.Syscall6(
+		_, _, errno = syscall.Syscall6( //nolint:gosec — required for SO_ORIGINAL_DST syscall
 			syscall.SYS_GETSOCKOPT,
 			fd,
 			syscall.IPPROTO_IP,
 			soOriginalDst,
-			uintptr(unsafe.Pointer(&addr[0])),
-			uintptr(unsafe.Pointer(&addrLen)),
+			uintptr(unsafe.Pointer(&addr[0])), // #nosec G103
+			uintptr(unsafe.Pointer(&addrLen)),  // #nosec G103
 			0,
 		)
 	})
