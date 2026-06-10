@@ -91,7 +91,7 @@ func (s *Server) Run(ctx context.Context) error {
 		default:
 		}
 
-		s.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		_ = s.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 		n, raddr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
@@ -176,12 +176,12 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 	wire[1] = byte(qlen & 0xff)
 	copy(wire[2:], query)
 
-	upConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_ = upConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if _, err := upConn.Write(wire); err != nil {
 		return
 	}
 
-	upConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = upConn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	br := bufio.NewReader(upConn)
 	respLen, err := readUint16(br)
 	if err != nil {
@@ -195,7 +195,7 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 		return
 	}
 
-	s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+	_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	_, _ = s.conn.WriteToUDP(resp, raddr)
 }
 
@@ -224,7 +224,7 @@ func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDP
 		if err != nil {
 			continue
 		}
-		s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 		_, _ = s.conn.WriteToUDP(resp[:n], raddr)
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Server) forwardViaTunnel(ctx context.Context, query []byte, raddr *net.
 
 	select {
 	case resp := <-ch:
-		s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 		_, _ = s.conn.WriteToUDP(resp, raddr)
 	case <-time.After(10 * time.Second):
 	case <-ctx.Done():

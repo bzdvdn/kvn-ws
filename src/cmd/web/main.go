@@ -57,5 +57,5 @@ func tryOpenBrowser(port int) {
 	default:
 		return
 	}
-	cmd.Start() //nolint:errcheck
+	_ = cmd.Start()
 }

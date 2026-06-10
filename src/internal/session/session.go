@@ -198,8 +198,8 @@ func (p *IPPool) Resolve(sessionID string) (net.IP, bool) {
 type Session struct {
 	ID           string
 	TokenName    string
-	AssignedIP   net.IP
-	AssignedIPv6 net.IP
+	AssignedIp   net.IP
+	AssignedIpv6 net.IP
 	RemoteAddr   string
 	ConnectedAt  time.Time
 	LastActivity time.Time
@@ -332,7 +332,7 @@ func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSes
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if s, ok := sm.sessions[sessionID]; ok {
-		return s, s.AssignedIP, s.AssignedIPv6, nil
+		return s, s.AssignedIp, s.AssignedIpv6, nil
 	}
 	if maxSessions > 0 {
 		cnt := sm.sessionCnt[tokenName]
@@ -355,8 +355,8 @@ func (sm *SessionManager) Create(sessionID, tokenName, remoteAddr string, maxSes
 	s := &Session{
 		ID:           sessionID,
 		TokenName:    tokenName,
-		AssignedIP:   ip,
-		AssignedIPv6: ip6,
+		AssignedIp:   ip,
+		AssignedIpv6: ip6,
 		RemoteAddr:   remoteAddr,
 		ConnectedAt:  now,
 		LastActivity: now,

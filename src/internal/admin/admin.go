@@ -95,7 +95,7 @@ type sessionResponse struct {
 	ID          string `json:"id"`
 	TokenName   string `json:"token_name"`
 	RemoteAddr  string `json:"remote_addr"`
-	AssignedIP  string `json:"assigned_ip"`
+	AssignedIp  string `json:"assigned_ip"`
 	ConnectedAt string `json:"connected_at"`
 }
 
@@ -108,7 +108,7 @@ func (s *AdminServer) listSessions(w http.ResponseWriter, r *http.Request) {
 			ID:          sess.ID,
 			TokenName:   sess.TokenName,
 			RemoteAddr:  sess.RemoteAddr,
-			AssignedIP:  sess.AssignedIP.String(),
+			AssignedIp:  sess.AssignedIp.String(),
 			ConnectedAt: sess.ConnectedAt.Format(time.RFC3339),
 		})
 	}

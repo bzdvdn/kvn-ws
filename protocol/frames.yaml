@@ -1,0 +1,35 @@
+# @sk-task kvn-android#T1.1: wire protocol frame specification (AC-004)
+package: framing
+go_package: "github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
+kotlin_package: "com.kvn.client.protocol"
+
+frame_types:
+  FrameTypeData: 0x01
+  FrameTypeHello: 0x02
+  FrameTypeAuth: 0x03
+  FrameTypeClose: 0x04
+  FrameTypeProxy: 0x05
+  FrameTypeDNS: 0x06
+
+frame_flags:
+  FrameFlagNone: 0x00
+  FrameFlagSegment: 0x40
+  FrameFlagSegmentLast: 0x80
+
+frame:
+  name: Frame
+  header_size: 4
+  max_payload_size: 65535
+  fields:
+    - name: Type
+      type: byte
+      offset: 0
+    - name: Flags
+      type: byte
+      offset: 1
+    - name: Length
+      type: uint16
+      offset: 2
+    - name: Payload
+      type: bytes
+      offset: 4

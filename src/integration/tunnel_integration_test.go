@@ -58,10 +58,10 @@ func TestTunnelHandshakeAndEncryptedDataRoundtrip(t *testing.T) {
 		}
 
 		hello := &handshake.ServerHello{
-			SessionID:    strings.Repeat("ab", 16),
-			AssignedIP:   net.ParseIP("10.10.0.10").To4(),
-			AssignedIPv6: net.ParseIP("fd00::2").To16(),
-			MTU:          1400,
+			SessionId:    strings.Repeat("ab", 16),
+			AssignedIp:   net.ParseIP("10.10.0.10").To4(),
+			AssignedIpv6: net.ParseIP("fd00::2").To16(),
+			Mtu:          1400,
 			CryptoSalt:   bytes.Repeat([]byte{0xaa}, 32),
 		}
 
@@ -85,7 +85,7 @@ func TestTunnelHandshakeAndEncryptedDataRoundtrip(t *testing.T) {
 		sessionCipher, err := crypto.NewSessionCipher(
 			[]byte("0123456789abcdef0123456789abcdef"), // 32-byte master key
 			hello.CryptoSalt,
-			hello.SessionID,
+			hello.SessionId,
 		)
 		if err != nil {
 			t.Logf("server cipher init: %v", err)
@@ -160,9 +160,9 @@ func TestTunnelHandshakeAndEncryptedDataRoundtrip(t *testing.T) {
 	// Client sends ClientHello
 	clientHello, err := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,
-		IPv6:         true,
+		Ipv6:         true,
 		Token:        "test-token",
-		MTU:          1400,
+		Mtu:          1400,
 	})
 	if err != nil {
 		t.Fatalf("client hello encode: %v", err)
@@ -197,11 +197,11 @@ func TestTunnelHandshakeAndEncryptedDataRoundtrip(t *testing.T) {
 		t.Fatal("server hello missing crypto salt")
 	}
 	t.Logf("client assigned IP: %s, IPv6: %v, session: %s",
-		serverHello.AssignedIP, serverHello.AssignedIPv6, serverHello.SessionID)
+		serverHello.AssignedIp, serverHello.AssignedIpv6, serverHello.SessionId)
 
 	// Client derives session key
 	masterKey := []byte("0123456789abcdef0123456789abcdef")
-	sessionCipher, err := crypto.NewSessionCipher(masterKey, serverHello.CryptoSalt, serverHello.SessionID)
+	sessionCipher, err := crypto.NewSessionCipher(masterKey, serverHello.CryptoSalt, serverHello.SessionId)
 	if err != nil {
 		t.Fatalf("client cipher init: %v", err)
 	}
@@ -437,10 +437,10 @@ func TestCryptoKeyDerivationDeterministic(t *testing.T) {
 // @sk-test production-readiness-gap#T3: ServerHello full encode/decode round-trip (AC-001)
 func TestTLSServerHelloRoundtrip(t *testing.T) {
 	hello := &handshake.ServerHello{
-		SessionID:    hex.EncodeToString([]byte("0123456789abcdef")),
-		AssignedIP:   net.ParseIP("10.88.0.10").To4(),
-		AssignedIPv6: net.ParseIP("fd00::100").To16(),
-		MTU:          1400,
+		SessionId:    hex.EncodeToString([]byte("0123456789abcdef")),
+		AssignedIp:   net.ParseIP("10.88.0.10").To4(),
+		AssignedIpv6: net.ParseIP("fd00::100").To16(),
+		Mtu:          1400,
 		CryptoSalt:   bytes.Repeat([]byte{0xbb}, 32),
 	}
 
@@ -463,17 +463,17 @@ func TestTLSServerHelloRoundtrip(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if decoded.SessionID != hello.SessionID {
-		t.Errorf("session id = %s, want %s", decoded.SessionID, hello.SessionID)
+	if decoded.SessionId != hello.SessionId {
+		t.Errorf("session id = %s, want %s", decoded.SessionId, hello.SessionId)
 	}
-	if !decoded.AssignedIP.Equal(hello.AssignedIP) {
-		t.Errorf("assigned ip = %s, want %s", decoded.AssignedIP, hello.AssignedIP)
+	if !decoded.AssignedIp.Equal(hello.AssignedIp) {
+		t.Errorf("assigned ip = %s, want %s", decoded.AssignedIp, hello.AssignedIp)
 	}
-	if !decoded.AssignedIPv6.Equal(hello.AssignedIPv6) {
-		t.Errorf("assigned ipv6 = %s, want %s", decoded.AssignedIPv6, hello.AssignedIPv6)
+	if !decoded.AssignedIpv6.Equal(hello.AssignedIpv6) {
+		t.Errorf("assigned ipv6 = %s, want %s", decoded.AssignedIpv6, hello.AssignedIpv6)
 	}
-	if decoded.MTU != hello.MTU {
-		t.Errorf("mtu = %d, want %d", decoded.MTU, hello.MTU)
+	if decoded.Mtu != hello.Mtu {
+		t.Errorf("mtu = %d, want %d", decoded.Mtu, hello.Mtu)
 	}
 	if !bytes.Equal(decoded.CryptoSalt, hello.CryptoSalt) {
 		t.Errorf("crypto salt mismatch: %x vs %x", decoded.CryptoSalt, hello.CryptoSalt)

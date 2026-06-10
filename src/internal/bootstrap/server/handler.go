@@ -91,7 +91,7 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 		copy(sidBuf[:], clientHello.Token)
 	}
 	sessionID := hex.EncodeToString(sidBuf[:])
-	sess, assignedIP, assignedIPv6, err := s.sm.Create(sessionID, tokenName, remoteAddr, tokenCfg.MaxSessions, clientHello.IPv6)
+	sess, assignedIP, assignedIPv6, err := s.sm.Create(sessionID, tokenName, remoteAddr, tokenCfg.MaxSessions, clientHello.Ipv6)
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "max sessions exceeded") {
@@ -125,12 +125,12 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 		mtu = handshake.DefaultMTU
 	}
 	serverHello, err := handshake.EncodeServerHello(&handshake.ServerHello{
-		SessionID:    sess.ID,
-		AssignedIP:   assignedIP,
-		AssignedIPv6: assignedIPv6,
-		MTU:          mtu,
+		SessionId:    sess.ID,
+		AssignedIp:   assignedIP,
+		AssignedIpv6: assignedIPv6,
+		Mtu:          mtu,
 		CryptoSalt:   cryptoSalt,
-		GatewayIP:    s.gatewayIP,
+		GatewayIp:    s.gatewayIP,
 	})
 	if err != nil {
 		s.logger.Error("encode server hello", zap.Error(err))
@@ -171,8 +171,12 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	s.sm.SetCancel(sess.ID, sessionCancel)
 	sessionStreams := proxy.NewSessionStreams()
 
+	tunnelTimeout := 30 * time.Second
+	if s.cfg.Transport == "quic" {
+		tunnelTimeout = 60 * time.Second
+	}
 	tunSess := tunnel.NewSession(s.tunDev, stream, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams,
-		30*time.Second, 1000, assignedIP, assignedIPv6)
+		tunnelTimeout, 1000, assignedIP, assignedIPv6)
 	tunSess.SetDemux(s.tunDemux)
 	if err := tunSess.Run(sessionCtx); err != nil {
 		s.logger.Info("session ended",
@@ -184,6 +188,7 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	}
 	s.collectors.ActiveSessions.Dec()
 
+	sessionCancel()
 	sessionStreams.CloseAll()
 	s.sm.Remove(sess.ID)
 	_ = stream.Close()

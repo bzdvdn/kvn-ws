@@ -1,0 +1,65 @@
+# @sk-task kvn-android#T1.1: wire protocol handshake specification (AC-004)
+package: handshake
+go_package: "github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
+kotlin_package: "com.kvn.client.protocol"
+
+protocol_version: 0x02
+session_id_len: 16
+
+constants:
+  - name: FlagIPv6
+    type: byte
+    value: 0x01
+  - name: FlagMTU
+    type: byte
+    value: 0x02
+  - name: DefaultMTU
+    type: int
+    value: 1500
+  - name: CryptoTag
+    type: byte
+    value: 0x09
+  - name: GatewayTag
+    type: byte
+    value: 0x0A
+  - name: TransportTag
+    type: byte
+    value: 0x0B
+
+client_hello:
+  name: ClientHello
+  fields:
+    - name: ProtoVersion
+      type: byte
+    - name: Ipv6
+      type: bool
+    - name: Token
+      type: string
+    - name: Mtu
+      type: int
+    - name: Transport
+      type: string
+
+server_hello:
+  name: ServerHello
+  fields:
+    - name: SessionId
+      type: string
+    - name: AssignedIp
+      type: ip
+    - name: AssignedIpv6
+      type: ip
+    - name: Mtu
+      type: int
+    - name: CryptoSalt
+      type: bytes
+    - name: GatewayIp
+      type: ip
+    - name: Transport
+      type: string
+
+auth_error:
+  name: AuthError
+  fields:
+    - name: Reason
+      type: string

@@ -5,6 +5,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
@@ -69,6 +70,7 @@ type Stream struct {
 }
 
 // @sk-task quic-proxy-mode#T2.1: ForwardToWS → ForwardToStream (AC-001, AC-003)
+// @sk-task fix-client-block#T1.1: write deadline to prevent mutex deadlock (AC-001)
 func (s *Stream) ForwardToStream(stream StreamConn) {
 	defer func() { _ = s.Local.Close() }()
 	buf := make([]byte, 4096)
@@ -92,6 +94,7 @@ func (s *Stream) ForwardToStream(stream StreamConn) {
 		if err != nil {
 			return
 		}
+		_ = stream.SetWriteDeadline(time.Now().Add(120 * time.Second))
 		if err := stream.WriteMessage(encoded); err != nil {
 			framing.ReturnBuffer(encoded)
 			return

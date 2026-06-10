@@ -105,7 +105,7 @@ func (s *State) Set(ctx context.Context, logger *zap.Logger, addr string, noProx
 func (s *State) Restore(ctx context.Context, logger *zap.Logger) error {
 	restoreOne := func(key string, value string, existed bool) {
 		if existed {
-			os.Setenv(key, value) //nolint:errcheck
+			_ = os.Setenv(key, value)
 		} else {
 			os.Unsetenv(key)
 		}

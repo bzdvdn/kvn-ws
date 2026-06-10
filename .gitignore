@@ -42,3 +42,14 @@ src/internal/webui/frontend/dist/
 .speckeep/skills/checkouts/
 # <<< speckeep: skills checkouts <<<
 server.lock.json
+
+# Android
+src/android/.gradle/
+src/android/build/
+src/android/app/build/
+src/android/local.properties
+src/android/captures/
+src/android/.externalNativeBuild/
+src/android/.cxx/
+*.apk
+*.aab

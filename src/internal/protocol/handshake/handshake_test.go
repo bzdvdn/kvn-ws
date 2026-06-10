@@ -13,7 +13,7 @@ import (
 func TestClientHelloIPv6Flag(t *testing.T) {
 	original := &ClientHello{
 		ProtoVersion: ProtoVersion,
-		IPv6:         true,
+		Ipv6:         true,
 		Token:        "test-token-123",
 	}
 
@@ -27,7 +27,7 @@ func TestClientHelloIPv6Flag(t *testing.T) {
 		t.Fatalf("DecodeClientHello: %v", err)
 	}
 
-	if !decoded.IPv6 {
+	if !decoded.Ipv6 {
 		t.Error("IPv6 flag not preserved")
 	}
 	if decoded.Token != original.Token {
@@ -88,9 +88,9 @@ func TestClientHelloEmptyToken(t *testing.T) {
 // @sk-test ipv6-dual-stack#T4.1: TestServerHelloIPv6RoundTrip (AC-004)
 func TestServerHelloIPv6RoundTrip(t *testing.T) {
 	original := &ServerHello{
-		SessionID:    "0102030405060708090a0b0c0d0e0f10",
-		AssignedIP:   net.ParseIP("10.10.0.5").To4(),
-		AssignedIPv6: net.ParseIP("fd00::2").To16(),
+		SessionId:    "0102030405060708090a0b0c0d0e0f10",
+		AssignedIp:   net.ParseIP("10.10.0.5").To4(),
+		AssignedIpv6: net.ParseIP("fd00::2").To16(),
 	}
 
 	frame, err := EncodeServerHello(original)
@@ -103,21 +103,21 @@ func TestServerHelloIPv6RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeServerHello: %v", err)
 	}
 
-	if decoded.SessionID != original.SessionID {
-		t.Errorf("SessionID = %s, want %s", decoded.SessionID, original.SessionID)
+	if decoded.SessionId != original.SessionId {
+		t.Errorf("SessionID = %s, want %s", decoded.SessionId, original.SessionId)
 	}
-	if !decoded.AssignedIP.Equal(original.AssignedIP) {
-		t.Errorf("AssignedIP = %s, want %s", decoded.AssignedIP, original.AssignedIP)
+	if !decoded.AssignedIp.Equal(original.AssignedIp) {
+		t.Errorf("AssignedIP = %s, want %s", decoded.AssignedIp, original.AssignedIp)
 	}
-	if !decoded.AssignedIPv6.Equal(original.AssignedIPv6) {
-		t.Errorf("AssignedIPv6 = %s, want %s", decoded.AssignedIPv6, original.AssignedIPv6)
+	if !decoded.AssignedIpv6.Equal(original.AssignedIpv6) {
+		t.Errorf("AssignedIPv6 = %s, want %s", decoded.AssignedIpv6, original.AssignedIpv6)
 	}
 }
 
 func TestServerHelloRoundTrip(t *testing.T) {
 	original := &ServerHello{
-		SessionID:  "0102030405060708090a0b0c0d0e0f10",
-		AssignedIP: net.ParseIP("10.10.0.5").To4(),
+		SessionId:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIp: net.ParseIP("10.10.0.5").To4(),
 	}
 
 	frame, err := EncodeServerHello(original)
@@ -134,19 +134,19 @@ func TestServerHelloRoundTrip(t *testing.T) {
 		t.Fatalf("DecodeServerHello: %v", err)
 	}
 
-	if decoded.SessionID != original.SessionID {
-		t.Errorf("SessionID = %s, want %s", decoded.SessionID, original.SessionID)
+	if decoded.SessionId != original.SessionId {
+		t.Errorf("SessionID = %s, want %s", decoded.SessionId, original.SessionId)
 	}
-	if !decoded.AssignedIP.Equal(original.AssignedIP) {
-		t.Errorf("AssignedIP = %s, want %s", decoded.AssignedIP, original.AssignedIP)
+	if !decoded.AssignedIp.Equal(original.AssignedIp) {
+		t.Errorf("AssignedIP = %s, want %s", decoded.AssignedIp, original.AssignedIp)
 	}
 }
 
 func TestServerHelloInvalidSessionID(t *testing.T) {
 	sid := hex.EncodeToString([]byte("short"))
 	original := &ServerHello{
-		SessionID:  sid,
-		AssignedIP: net.ParseIP("10.0.0.1").To4(),
+		SessionId:  sid,
+		AssignedIp: net.ParseIP("10.0.0.1").To4(),
 	}
 
 	_, err := EncodeServerHello(original)
@@ -197,7 +197,7 @@ func TestClientHelloMTU(t *testing.T) {
 	original := &ClientHello{
 		ProtoVersion: ProtoVersion,
 		Token:        "test-token",
-		MTU:          1400,
+		Mtu:          1400,
 	}
 
 	frame, err := EncodeClientHello(original)
@@ -210,17 +210,17 @@ func TestClientHelloMTU(t *testing.T) {
 		t.Fatalf("DecodeClientHello: %v", err)
 	}
 
-	if decoded.MTU != 1400 {
-		t.Errorf("MTU = %d, want 1400", decoded.MTU)
+	if decoded.Mtu != 1400 {
+		t.Errorf("MTU = %d, want 1400", decoded.Mtu)
 	}
 }
 
 // @sk-test performance-and-polish#T3.1: TestServerHelloMTU (AC-004)
 func TestServerHelloMTU(t *testing.T) {
 	original := &ServerHello{
-		SessionID:  "0102030405060708090a0b0c0d0e0f10",
-		AssignedIP: net.ParseIP("10.10.0.5").To4(),
-		MTU:        1400,
+		SessionId:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIp: net.ParseIP("10.10.0.5").To4(),
+		Mtu:        1400,
 	}
 
 	frame, err := EncodeServerHello(original)
@@ -233,8 +233,8 @@ func TestServerHelloMTU(t *testing.T) {
 		t.Fatalf("DecodeServerHello: %v", err)
 	}
 
-	if decoded.MTU != 1400 {
-		t.Errorf("MTU = %d, want 1400", decoded.MTU)
+	if decoded.Mtu != 1400 {
+		t.Errorf("MTU = %d, want 1400", decoded.Mtu)
 	}
 }
 
@@ -255,8 +255,8 @@ func TestClientHelloDefaultMTU(t *testing.T) {
 		t.Fatalf("DecodeClientHello: %v", err)
 	}
 
-	if decoded.MTU != DefaultMTU {
-		t.Errorf("MTU = %d, want %d", decoded.MTU, DefaultMTU)
+	if decoded.Mtu != DefaultMTU {
+		t.Errorf("MTU = %d, want %d", decoded.Mtu, DefaultMTU)
 	}
 }
 
@@ -279,9 +279,9 @@ func TestServerHelloCryptoSalt(t *testing.T) {
 		salt[i] = byte(i)
 	}
 	original := &ServerHello{
-		SessionID:  "0102030405060708090a0b0c0d0e0f10",
-		AssignedIP: net.ParseIP("10.10.0.5").To4(),
-		MTU:        1400,
+		SessionId:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIp: net.ParseIP("10.10.0.5").To4(),
+		Mtu:        1400,
 		CryptoSalt: salt,
 	}
 
@@ -295,14 +295,14 @@ func TestServerHelloCryptoSalt(t *testing.T) {
 		t.Fatalf("DecodeServerHello: %v", err)
 	}
 
-	if decoded.SessionID != original.SessionID {
-		t.Errorf("SessionID = %s, want %s", decoded.SessionID, original.SessionID)
+	if decoded.SessionId != original.SessionId {
+		t.Errorf("SessionID = %s, want %s", decoded.SessionId, original.SessionId)
 	}
-	if !decoded.AssignedIP.Equal(original.AssignedIP) {
-		t.Errorf("AssignedIP = %s, want %s", decoded.AssignedIP, original.AssignedIP)
+	if !decoded.AssignedIp.Equal(original.AssignedIp) {
+		t.Errorf("AssignedIP = %s, want %s", decoded.AssignedIp, original.AssignedIp)
 	}
-	if decoded.MTU != 1400 {
-		t.Errorf("MTU = %d, want 1400", decoded.MTU)
+	if decoded.Mtu != 1400 {
+		t.Errorf("MTU = %d, want 1400", decoded.Mtu)
 	}
 	if len(decoded.CryptoSalt) != 32 {
 		t.Fatalf("CryptoSalt length = %d, want 32", len(decoded.CryptoSalt))
@@ -319,8 +319,8 @@ func TestServerHelloCryptoSaltWithoutMTU(t *testing.T) {
 	salt := make([]byte, 32)
 	copy(salt, "this-is-a-32-byte-salt-for-test!!")
 	original := &ServerHello{
-		SessionID:  "0102030405060708090a0b0c0d0e0f10",
-		AssignedIP: net.ParseIP("10.10.0.5").To4(),
+		SessionId:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIp: net.ParseIP("10.10.0.5").To4(),
 		CryptoSalt: salt,
 	}
 
@@ -335,8 +335,8 @@ func TestServerHelloCryptoSaltWithoutMTU(t *testing.T) {
 	}
 
 	// MTU field is written as 0 (explicitly, to anchor crypto TLV), decoder reads 0
-	if decoded.MTU != 0 {
-		t.Errorf("MTU = %d, want 0 (explicitly written for TLV alignment)", decoded.MTU)
+	if decoded.Mtu != 0 {
+		t.Errorf("MTU = %d, want 0 (explicitly written for TLV alignment)", decoded.Mtu)
 	}
 	if len(decoded.CryptoSalt) != 32 {
 		t.Fatalf("CryptoSalt length = %d, want 32", len(decoded.CryptoSalt))
@@ -346,8 +346,8 @@ func TestServerHelloCryptoSaltWithoutMTU(t *testing.T) {
 // @sk-test app-crypto#T2: TestServerHelloBackwardCompatNoSalt (AC-006)
 func TestServerHelloBackwardCompatNoSalt(t *testing.T) {
 	original := &ServerHello{
-		SessionID:  "0102030405060708090a0b0c0d0e0f10",
-		AssignedIP: net.ParseIP("10.10.0.5").To4(),
+		SessionId:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIp: net.ParseIP("10.10.0.5").To4(),
 	}
 
 	frame, err := EncodeServerHello(original)

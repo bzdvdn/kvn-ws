@@ -125,8 +125,19 @@ func NewClientTLSConfigFromSettings(settings ClientTLSSettings) (*tls.Config, er
 	return cfg, nil
 }
 
+var browserPresets = []utls.ClientHelloID{
+	utls.HelloChrome_Auto,
+	utls.HelloFirefox_Auto,
+	utls.HelloEdge_Auto,
+	utls.HelloSafari_Auto,
+}
+
+func randomPreset() utls.ClientHelloID {
+	return browserPresets[mathrand.IntN(len(browserPresets))]
+}
+
 // @sk-task whitelist-obfuscation#T2.1: uTLS dial wrapper (AC-001)
-// DialWithUTLS establishes a TLS connection using uTLS with Chrome fingerprint.
+// DialWithUTLS establishes a TLS connection using uTLS with a random browser fingerprint.
 // Falls back to crypto/tls on any error if fallback is true.
 func DialWithUTLS(network, addr string, tlsCfg *tls.Config, fallback bool) (net.Conn, error) {
 	rawConn, err := net.Dial(network, addr)
@@ -141,9 +152,9 @@ func DialWithUTLS(network, addr string, tlsCfg *tls.Config, fallback bool) (net.
 		MinVersion:         tlsCfg.MinVersion,
 	}
 
-	uconn := utls.UClient(rawConn, utlsCfg, utls.HelloChrome_Auto)
+	uconn := utls.UClient(rawConn, utlsCfg, randomPreset())
 	if err := uconn.Handshake(); err != nil {
-		rawConn.Close()
+		_ = rawConn.Close()
 		if fallback {
 			return tls.Dial(network, addr, tlsCfg)
 		}

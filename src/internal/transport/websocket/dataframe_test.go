@@ -47,9 +47,9 @@ func TestDataFrameRoundTrip(t *testing.T) {
 		var sid [16]byte
 		rand.Read(sid[:])
 		resp, _ := handshake.EncodeServerHello(&handshake.ServerHello{
-			SessionID:  hex.EncodeToString(sid[:]),
-			AssignedIP: net.ParseIP("10.10.0.2"),
-			MTU:        1400,
+			SessionId:  hex.EncodeToString(sid[:]),
+			AssignedIp: net.ParseIP("10.10.0.2"),
+			Mtu:        1400,
 		})
 		encoded, _ := resp.Encode()
 		if err := conn.WriteMessage(encoded); err != nil {
@@ -83,7 +83,7 @@ func TestDataFrameRoundTrip(t *testing.T) {
 	helloFrame, _ := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,
 		Token:        "test-token",
-		MTU:          1400,
+		Mtu:          1400,
 	})
 	helloData, _ := helloFrame.Encode()
 	if err := conn.WriteMessage(helloData); err != nil {
@@ -110,11 +110,11 @@ func TestDataFrameRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client decode server hello: %v", err)
 	}
-	if !serverHello.AssignedIP.Equal(net.ParseIP("10.10.0.2")) {
-		t.Errorf("assigned IP = %s, want 10.10.0.2", serverHello.AssignedIP)
+	if !serverHello.AssignedIp.Equal(net.ParseIP("10.10.0.2")) {
+		t.Errorf("assigned IP = %s, want 10.10.0.2", serverHello.AssignedIp)
 	}
-	if len(serverHello.SessionID) != 32 {
-		t.Errorf("session id length = %d, want 32 (hex)", len(serverHello.SessionID))
+	if len(serverHello.SessionId) != 32 {
+		t.Errorf("session id length = %d, want 32 (hex)", len(serverHello.SessionId))
 	}
 
 	payload := []byte("hello kvn-ws data frame test")

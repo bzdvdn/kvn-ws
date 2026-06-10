@@ -271,7 +271,10 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	data := payload[6+dstLen:]
 
 	if v, ok := s.proxyStreams.Load(streamID); ok {
-		_, _ = v.Write(data)
+		go func(conn net.Conn, buf []byte) {
+			_ = conn.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
+			_, _ = conn.Write(buf)
+		}(v, data)
 		return
 	}
 
@@ -368,11 +371,15 @@ func (s *Session) forwardDNS(ctx context.Context, query []byte, upstream string)
 }
 
 // @sk-task arch-refactoring#T3.3: extracted proxy stream forwarding (AC-005)
+// @sk-task fix-proxy-drops#T1.1: skip close frame write if session ctx is cancelled (AC-001)
 func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, parentCtx context.Context) {
 	defer func() {
 		<-s.proxySem
 		_ = tcp.Close()
 		s.proxyStreams.Delete(sid)
+		if parentCtx.Err() != nil {
+			return
+		}
 		closeFrame := framing.Frame{
 			Type:    framing.FrameTypeProxy,
 			Payload: make([]byte, 6),
@@ -382,7 +389,7 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 		if encoded, encErr := closeFrame.Encode(); encErr == nil {
 			_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
 			if err := s.stream.WriteMessage(encoded); err != nil {
-				s.logger.Warn("write close frame failed", zap.Error(err))
+				s.logger.Debug("write close frame failed (stream closed)", zap.Error(err))
 			}
 			framing.ReturnBuffer(encoded)
 		}

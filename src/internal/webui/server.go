@@ -53,7 +53,7 @@ func New(port int) (*Server, error) {
 	if err != nil {
 		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
-			w.Write([]byte("<html><body><h1>KVN Web UI</h1><p>React build not found. Run npm build in frontend/ first.</p></body></html>"))
+			_, _ = w.Write([]byte("<html><body><h1>KVN Web UI</h1><p>React build not found. Run npm build in frontend/ first.</p></body></html>"))
 		})
 	} else {
 		fileServer := http.FileServer(http.FS(subFS))

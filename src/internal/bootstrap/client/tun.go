@@ -55,9 +55,9 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 
 	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,
-		IPv6:         c.cfg.IPv6,
+		Ipv6:         c.cfg.IPv6,
 		Token:        c.cfg.Auth.Token,
-		MTU:          c.cfg.MTU,
+		Mtu:          c.cfg.MTU,
 	})
 	if err != nil {
 		c.logger.Error("encode client hello", zap.Error(err))
@@ -95,30 +95,30 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 		c.logger.Fatal("auth rejected", zap.String("reason", authErr.Reason))
 	case framing.FrameTypeHello:
 		serverHello, err := handshake.DecodeServerHello(&respFrame)
-		sessionID = serverHello.SessionID
+		sessionID = serverHello.SessionId
 		if err != nil {
 			c.logger.Error("decode server hello", zap.Error(err))
 			return
 		}
 		c.logger.Info("handshake complete",
-			zap.String("session", serverHello.SessionID),
-			zap.String("ip", serverHello.AssignedIP.String()),
+			zap.String("session", serverHello.SessionId),
+			zap.String("ip", serverHello.AssignedIp.String()),
 		)
 		mask := &net.IPNet{
-			IP:   serverHello.AssignedIP,
+			IP:   serverHello.AssignedIp,
 			Mask: net.CIDRMask(tun.CIDRMaskV4Bits, tun.CIDRMaskV4Total),
 		}
-		if err := tunDev.SetIP(serverHello.AssignedIP, mask); err != nil {
+		if err := tunDev.SetIP(serverHello.AssignedIp, mask); err != nil {
 			c.logger.Error("set tun ip", zap.Error(err))
 			return
 		}
-		if serverHello.AssignedIPv6 != nil {
-			c.logger.Info("assigned IPv6", zap.String("ip6", serverHello.AssignedIPv6.String()))
+		if serverHello.AssignedIpv6 != nil {
+			c.logger.Info("assigned IPv6", zap.String("ip6", serverHello.AssignedIpv6.String()))
 			v6Mask := &net.IPNet{
-				IP:   serverHello.AssignedIPv6,
+				IP:   serverHello.AssignedIpv6,
 				Mask: net.CIDRMask(tun.CIDRMaskV6Bits, tun.CIDRMaskV6Total),
 			}
-			if err := tunDev.SetIP(serverHello.AssignedIPv6, v6Mask); err != nil {
+			if err := tunDev.SetIP(serverHello.AssignedIpv6, v6Mask); err != nil {
 				c.logger.Error("set tun ipv6", zap.Error(err))
 				return
 			}
@@ -134,7 +134,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 			c.logger.Info("gso/gro disabled on tun")
 		}
 		if len(c.masterKey) > 0 && len(serverHello.CryptoSalt) > 0 {
-			sessionCipher, err = crypto.NewSessionCipher(c.masterKey, serverHello.CryptoSalt, serverHello.SessionID)
+			sessionCipher, err = crypto.NewSessionCipher(c.masterKey, serverHello.CryptoSalt, serverHello.SessionId)
 			if err != nil {
 				c.logger.Error("session cipher init", zap.Error(err))
 				return
@@ -189,9 +189,9 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 			}()
 		}
 
-		gateway := serverHello.GatewayIP
+		gateway := serverHello.GatewayIp
 		if gateway == nil {
-			gateway = computeGateway(serverHello.AssignedIP, mask.Mask)
+			gateway = computeGateway(serverHello.AssignedIp, mask.Mask)
 		}
 		if err := tunDev.SetGateway(gateway); err != nil {
 			c.logger.Warn("set default route", zap.Error(err))

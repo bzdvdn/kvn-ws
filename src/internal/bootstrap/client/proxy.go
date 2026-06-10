@@ -123,9 +123,9 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 	{
 		helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
 			ProtoVersion: handshake.ProtoVersion,
-			IPv6:         c.cfg.IPv6,
+			Ipv6:         c.cfg.IPv6,
 			Token:        c.cfg.Auth.Token,
-			MTU:          c.cfg.MTU,
+			Mtu:          c.cfg.MTU,
 		})
 		if err != nil {
 			c.logger.Warn("encode client hello", zap.Error(err))
@@ -165,8 +165,8 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 				return
 			}
 			c.logger.Info("handshake complete",
-				zap.String("session", serverHello.SessionID),
-				zap.String("assigned_ip", serverHello.AssignedIP.String()),
+				zap.String("session", serverHello.SessionId),
+				zap.String("assigned_ip", serverHello.AssignedIp.String()),
 			)
 		default:
 			c.logger.Warn("unexpected handshake response", zap.Int("type", int(respFrame.Type)))
@@ -210,8 +210,8 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 					defer cancel()
 					go func() {
 						<-gctx.Done()
-						target.Close()
-						client.Close()
+						_ = target.Close()
+						_ = client.Close()
 					}()
 					eg, _ := errgroup.WithContext(gctx)
 					eg.Go(func() error {
@@ -222,7 +222,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 						_, err := io.Copy(client, target)
 						return err
 					})
-					eg.Wait()
+					_ = eg.Wait()
 				}()
 				return
 			}
@@ -257,8 +257,8 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 					defer cancel()
 					go func() {
 						<-gctx.Done()
-						target.Close()
-						client.Close()
+						_ = target.Close()
+						_ = client.Close()
 					}()
 					eg, _ := errgroup.WithContext(gctx)
 					eg.Go(func() error {
@@ -269,7 +269,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 						_, err := io.Copy(client, target)
 						return err
 					})
-					eg.Wait()
+					_ = eg.Wait()
 				}()
 				return
 			}

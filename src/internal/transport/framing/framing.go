@@ -37,33 +37,6 @@ func GetBuffer(size int) []byte {
 	return getBuffer(size)
 }
 
-const (
-	FrameTypeData  = 0x01
-	FrameTypeHello = 0x02
-	FrameTypeAuth  = 0x03
-	FrameTypeClose = 0x04
-	FrameTypeProxy = 0x05
-	FrameTypeDNS   = 0x06
-
-	FrameFlagNone        = 0x00
-	FrameFlagSegment     = 0x40
-	FrameFlagSegmentLast = 0x80
-
-	FrameMaxPayloadSize = 65535
-	FrameHeaderSize     = 4
-)
-
-var ErrPayloadTooLarge = errors.New("payload exceeds max frame size")
-
-// @sk-task foundation#T1.3: internal stubs (AC-002)
-// @sk-task core-tunnel-mvp#T1.1: binary frame protocol (AC-004)
-type Frame struct {
-	Type    byte
-	Flags   byte
-	Length  uint16
-	Payload []byte
-}
-
 // @sk-task performance-and-polish#T2.1: Release returns Payload to pool (AC-001)
 func (f *Frame) Release() {
 	if f.Payload == nil {

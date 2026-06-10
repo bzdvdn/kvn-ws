@@ -8,6 +8,9 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/cmd/gatetest/main.go` — routing gate test program (AC-010 simulation)
 - `src/cmd/stability/main.go` — stability gate / soak test program (AC-012)
 - `src/cmd/web/main.go` — Web UI entrypoint: browser-based tunnel client manager
+- `protocol/codegen/main.go` — protocol codegen: generates Go+Kotlin types from YAML
+- `src/android/.../ui/MainActivity.kt` — Android app entrypoint (Jetpack Compose)
+- `src/android/.../vpn/KvnVpnService.kt` — Android VpnService (TUN tunnel)
 
 ## Top-Level Code
 - `src/internal/config/` — YAML config parsing (viper + env override)
@@ -39,6 +42,8 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/tunnel/` — Tunnel session logic (proxy buffers, stream bridge, transport glue)
 - `src/internal/webui/` — Web UI server (embed React SPA, REST API + SSE, AppState, SSE log core)
 - `src/integration/` — integration tests (tunnel_integration_test.go)
+- `protocol/` — wire protocol YAML specs + codegen (single source of truth for Go+Kotlin)
+- `src/android/` — Android Kotlin client (VpnService, WebSocket, UI Compose, QR scanner)
 
 ## Key Paths
 - `configs/client.yaml` — client config template
@@ -92,6 +97,8 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Documentation — `docs/en/`, `docs/ru/`, `docs/openapi.yaml`
 - Examples — `examples/`
 - Build/CI/install — `scripts/`, `.github/workflows/`, `Dockerfile`, `Dockerfile.test`
+- Protocol changes — `protocol/*.yaml`, `protocol/codegen/` (edit YAML, not generated files)
+- Android client — `src/android/`
 - Load testing — `configs/loadtest.yaml`
 - Release — `CHANGELOG.md`, `README.md`
 

@@ -9,17 +9,27 @@ set -e
 
 TARGET="${1:-both}"
 
+generate_protocol() {
+  # @sk-task kvn-android#T1.2: codegen before any Go build (AC-004)
+  if [ -f scripts/generate-protocol.sh ]; then
+    ./scripts/generate-protocol.sh
+  fi
+}
+
 build_client() {
+  generate_protocol
   echo "Building client..."
   go build -ldflags="-s -w" -o bin/client ./src/cmd/client
 }
 
 build_server() {
+  generate_protocol
   echo "Building server..."
   go build -ldflags="-s -w" -o bin/server ./src/cmd/server
 }
 
 build_web() {
+  generate_protocol
   echo "Building frontend..."
   (cd src/internal/webui/frontend && npm ci && npm run build)
   echo "Building web..."
