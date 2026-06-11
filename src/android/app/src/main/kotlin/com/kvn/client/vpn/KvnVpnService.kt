@@ -428,16 +428,21 @@ class KvnVpnService : VpnService() {
 
         // @sk-task kvn-android#T2.4: start transport connection (AC-001)
         // @sk-task kvn-android#T3.1: wire reconnect manager (AC-005)
+        // @sk-task kvn-android#BUGFIX: dont disconnect old transport in onReconnect — already dead,
+        //   and disconnect() triggers DISCONNECTED -> safeStop loop
         reconnectManager = ReconnectManager(
             scope = serviceScope,
             config = config,
             onReconnect = {
-                transportClient?.disconnect()
                 transportClient = null
                 transportClient = createTransport()
                 transportClient?.connect()
             },
-            onStateChange = onConnectionStateChange
+            onStateChange = onConnectionStateChange,
+            onRetriesExhausted = {
+                reconnectStarted = false
+                safeStop()
+            }
         )
 
         transportClient = createTransport()
@@ -500,9 +505,17 @@ class KvnVpnService : VpnService() {
                 if (config.autoReconnect && !killed && !reconnectStarted) {
                     reconnectStarted = true
                     reconnectManager?.start()
+                } else if (config.autoReconnect && !killed && reconnectStarted) {
+                    // A reconnect attempt failed (onReconnect is async and returned
+                    // before the connection actually succeeded). Restart the cycle
+                    // so ReconnectManager can retry with backoff.
+                    reconnectManager?.stop()
+                    reconnectManager?.start()
                 } else {
                     safeStop()
                 }
+                // onRetriesExhausted (triggered after MAX_RETRIES in ReconnectManager)
+                // resets reconnectStarted and calls safeStop() as a final fallback
             }
             else -> {}
         }

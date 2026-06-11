@@ -10,11 +10,13 @@ import kotlin.random.Random
 const val MAX_RETRIES = 10
 
 // @sk-task kvn-android#T5.18: configurable exponential backoff (AC-005, RQ-010)
+// @sk-task kvn-android#T3.1+BUGFIX: onRetriesExhausted callback to avoid safeStop loop (AC-005)
 class ReconnectManager(
     private val scope: CoroutineScope,
     private val config: ConnectionConfig,
     private val onReconnect: suspend () -> Unit,
-    private val onStateChange: (ConnectionState) -> Unit
+    private val onStateChange: (ConnectionState) -> Unit,
+    private val onRetriesExhausted: () -> Unit = {}
 ) {
     private var retryCount = 0
     private var job: Job? = null
@@ -38,7 +40,7 @@ class ReconnectManager(
                     // will retry
                 }
             }
-            onStateChange(ConnectionState.DISCONNECTED)
+            onRetriesExhausted()
         }
     }
 

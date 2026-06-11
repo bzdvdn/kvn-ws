@@ -99,7 +99,7 @@ jobs:
     if: |
       startsWith(github.ref, 'refs/tags/v')
       || github.event_name == 'workflow_dispatch'
-    needs: [ci]
+    needs: [ci, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -202,6 +202,17 @@ jobs:
           done
           rm -rf kvn-*/
 
+      - name: Download APK from android job
+        uses: actions/download-artifact@v4
+        with:
+          name: kvn-android-apk
+          path: /tmp/apk
+
+      - name: Copy APK to dist
+        run: |
+          find /tmp/apk -name '*.apk' -exec cp {} dist/ \;
+          ls -lh dist/*.apk
+
       - name: Generate SHA256 checksums
         run: |
           cd dist
@@ -228,6 +239,12 @@ jobs:
               name=$(basename "$f")
               hash=$(sha256sum "$f" | cut -d' ' -f1)
               echo "| ${name} | \`${name}\` | \`${hash}\` |"
+            done
+            for f in dist/*.apk; do
+              [ -f "$f" ] || continue
+              name=$(basename "$f")
+              hash=$(sha256sum "$f" | cut -d' ' -f1)
+              echo "| 📱 Android APK | \`${name}\` | \`${hash}\` |"
             done
             echo ""
             if [ -f CHANGELOG.md ]; then
