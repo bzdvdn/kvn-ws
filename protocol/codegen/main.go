@@ -27,16 +27,16 @@ func main() {
 
 	// Generate Go framing types
 	goFraming := filepath.Join(goDir, framesSpec.GoPkgRel())
-	os.MkdirAll(goFraming, 0755)
+	mkdirAll(goFraming)
 	writeFile(filepath.Join(goFraming, "types_gen.go"), generateGoFraming(framesSpec))
 
 	// Generate Go handshake types
 	goHandshake := filepath.Join(goDir, handshakeSpec.GoPkgRel())
-	os.MkdirAll(goHandshake, 0755)
+	mkdirAll(goHandshake)
 	writeFile(filepath.Join(goHandshake, "types_gen.go"), generateGoHandshake(handshakeSpec))
 
 	// Generate Kotlin data classes
-	os.MkdirAll(kotlinDir, 0755)
+	mkdirAll(kotlinDir)
 	writeFile(filepath.Join(kotlinDir, "Frames.kt"), generateKotlinFrames(framesSpec, handshakeSpec))
 	writeFile(filepath.Join(kotlinDir, "Handshake.kt"), generateKotlinHandshake(handshakeSpec))
 
@@ -65,6 +65,7 @@ func findRepoRoot() string {
 }
 
 func loadFrames(path string) *FramesSpec {
+	// #nosec G304 — path from fixed repo root, not user input
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatalf("read %s: %v", path, err)
@@ -77,6 +78,7 @@ func loadFrames(path string) *FramesSpec {
 }
 
 func loadHandshake(path string) *HandshakeSpec {
+	// #nosec G304 — path from fixed repo root, not user input
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatalf("read %s: %v", path, err)
@@ -88,7 +90,14 @@ func loadHandshake(path string) *HandshakeSpec {
 	return &spec
 }
 
+func mkdirAll(dir string) {
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		log.Fatalf("mkdir %s: %v", dir, err)
+	}
+}
+
 func writeFile(path string, content string) {
+	// #nosec G306 — generated source files need to be readable
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		log.Fatalf("write %s: %v", path, err)
 	}
@@ -257,14 +266,22 @@ func generateKotlinFrames(frames *FramesSpec, handshake *HandshakeSpec) string {
 	b.WriteString("// @sk-task kvn-android#T1.1: Kotlin frame type constants (AC-004)\n")
 	b.WriteString("object FrameTypes {\n")
 	for _, name := range sortedKeys(frames.FrameTypes) {
-		b.WriteString(fmt.Sprintf("\tconst val %s: Byte = %d.toByte()\n", kotlinConstName(name), int(byte(frames.FrameTypes[name]))))
+		v := frames.FrameTypes[name]
+		if v < 0 || v > 255 {
+			log.Fatalf("frame type %s value %d out of byte range", name, v)
+		}
+		b.WriteString(fmt.Sprintf("\tconst val %s: Byte = %d.toByte()\n", kotlinConstName(name), v))
 	}
 	b.WriteString("}\n\n")
 
 	b.WriteString("// @sk-task kvn-android#T1.1: Kotlin frame flag constants (AC-004)\n")
 	b.WriteString("object FrameFlags {\n")
 	for _, name := range sortedKeys(frames.FrameFlags) {
-		b.WriteString(fmt.Sprintf("\tconst val %s: Byte = %d.toByte()\n", kotlinConstName(name), int(byte(frames.FrameFlags[name]))))
+		v := frames.FrameFlags[name]
+		if v < 0 || v > 255 {
+			log.Fatalf("frame flag %s value %d out of byte range", name, v)
+		}
+		b.WriteString(fmt.Sprintf("\tconst val %s: Byte = %d.toByte()\n", kotlinConstName(name), v))
 	}
 	b.WriteString("}\n\n")
 
