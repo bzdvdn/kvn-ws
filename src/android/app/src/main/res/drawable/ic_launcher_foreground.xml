@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Shield outline -->
+    <path
+        android:fillColor="#00d4ff"
+        android:pathData="M54,18L82,34L82,62C82,78 70,88 54,96C38,88 26,78 26,62L26,34Z" />
+
+    <!-- Inner dark fill -->
+    <path
+        android:fillColor="#0f172a"
+        android:pathData="M54,26L76,38L76,60C76,73 66,81 54,87C42,81 32,73 32,60L32,38Z" />
+
+    <!-- Left connection node -->
+    <path
+        android:fillColor="#00d4ff"
+        android:pathData="M39,56m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+
+    <!-- Right connection node -->
+    <path
+        android:fillColor="#0066ff"
+        android:pathData="M69,56m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+
+    <!-- Link line -->
+    <path
+        android:fillColor="#00d4ff"
+        android:pathData="M46,56L62,56"
+        android:strokeWidth="3"
+        android:strokeColor="#00d4ff" />
+</vector>

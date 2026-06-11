@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="shield-grad" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#0066ff"/>
+    </linearGradient>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#bg-grad)"/>
+
+  <!-- Shield outline -->
+  <path d="M256 76 L392 152 L392 300 C392 380 330 432 256 460 C182 432 120 380 120 300 L120 152 Z"
+        stroke="url(#shield-grad)" stroke-width="16" stroke-linejoin="round"/>
+
+  <!-- Tunnel connection: left node -->
+  <circle cx="192" cy="250" r="32" fill="#00d4ff" opacity="0.9"/>
+  <circle cx="192" cy="250" r="14" fill="#0f172a"/>
+
+  <!-- Tunnel connection: right node -->
+  <circle cx="320" cy="250" r="32" fill="#0066ff" opacity="0.9"/>
+  <circle cx="320" cy="250" r="14" fill="#0f172a"/>
+
+  <!-- Data link between nodes -->
+  <line x1="224" y1="250" x2="288" y2="250" stroke="#00d4ff" stroke-width="10" stroke-linecap="round"/>
+  <line x1="224" y1="250" x2="288" y2="250" stroke="#0f172a" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 8"/>
+
+  <!-- Arrow indicating data flow -->
+  <path d="M250 220 L256 208 L262 220" stroke="#00d4ff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M256 208 L256 240" stroke="#00d4ff" stroke-width="8" stroke-linecap="round"/>
+</svg>

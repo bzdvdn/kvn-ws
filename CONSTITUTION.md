@@ -1,53 +1,50 @@
-# Конституция проекта KVN-over-WS (Go)
+# Конституция проекта KVN-over-WS (Go) + Android клиент
 
 ## Назначение
 
-Создать производительный, безопасный и расширяемый VPN-туннель, использующий стандартный веб-трафик (HTTP/HTTPS + WebSocket) и QUIC как транспортный слой для передачи IP/IPv4/IPv6 пакетов между клиентом и сервером через TUN-интерфейсы. Маскировка под обычный HTTPS/WebSocket-трафик или QUIC с обфускацией для работы в сетях с ограничениями.
+Создать производительный, безопасный и расширяемый VPN-туннель, использующий стандартный веб-трафик (HTTP/HTTPS + WebSocket) и QUIC как транспортный слой для передачи IP/IPv4/IPv6 пакетов между клиентом и сервером через TUN-интерфейсы. Маскировка под обычный HTTPS/WebSocket-трафик или QUIC с обфускацией для работы в сетях с ограничениями. Нативный Android-клиент с Jetpack Compose UI для подключения с мобильных устройств.
 
 ## Ключевые принципы
 
 ### I. Domain-Driven Design и Clean Architecture
 <!-- DDD: чёткие bounded contexts, Ubiquitous Language в коде -->
 
-- Код организуется по доменным контекстам (tun, transport, protocol, routing, session, crypto), а не по техническим слоям.
-- Внешние зависимости (WebSocket library, TLS, TUN driver) изолируются за портами (Go interfaces).
-- Ядро (domain layer) не зависит от инфраструктуры — все side-эффекты через порты.
-- Слои: `domain (entities/value objects)` → `usecase (application services)` → `infrastructure (adapters/repositories)`.
-- `src/internal/` — только пакеты с внутренней реализацией (не экспортируемые).
-- `src/pkg/` — публичное API для внешних интеграций.
+- **Go (ядро/сервер):** Код организуется по доменным контекстам (tun, transport, protocol, routing, session, crypto), а не по техническим слоям. Внешние зависимости изолируются за портами (Go interfaces). Ядро не зависит от инфраструктуры. Слои: `domain` → `usecase` → `infrastructure`.
+- **Android (клиент):** MVVM + Jetpack Compose. UI-слой отделён от бизнес-логики. ViewModel управляет состоянием, доменная логика — в repository/use case классах.
+- `src/internal/` — только неэкспортируемые пакеты Go. `src/android/` — независимый Gradle-модуль.
 
 ### II. Границы архитектуры
 <!-- Модульность, разделение ответственности -->
 
-- `src/` — весь исходный код Go (cmd, internal, pkg).
-- `docs/` — вся документация, разделённая по языкам: `docs/ru/` (русская), `docs/en/` (английская).
-- `examples/` — примеры конфигурации, скрипты развёртывания, docker-compose.
-- Конфигурация в `configs/`.
-- Инфраструктурные скрипты (CI/CD, Docker) в `scripts/`.
-- Каждый доменный пакет в `src/internal/` владеет своей ответственностью и не имеет циклических зависимостей.
+- `src/` — исходный код: `src/cmd/`, `src/internal/`, `src/pkg/` (Go), `src/android/` (Kotlin).
+- `docs/` — документация `docs/ru/` и `docs/en/`.
+- `examples/`, `configs/`, `scripts/` — без изменений.
+- Каждый доменный пакет не имеет циклических зависимостей.
+- Android-модуль изолирован от Go-кода; связь через JSON-сериализованные конфиги/QR.
 
 ### III. Traceability (NON-NEGOTIABLE)
-<!-- Маркеры @sk-task / @sk-test -->
+<!-- Маркеры @sk-task / @sk-test для всех языков -->
 
 - Каждая нетривиальная задача требует trace-маркеров в коде (`@sk-task`) и тестах (`@sk-test`).
-- Маркеры размещаются на объявлениях функций/методов/структур, а не на строках полей.
-- Перед archive обязателен verify с подтверждением покрытия acceptance criteria.
+- Маркеры размещаются на объявлениях функций/методов/структур/классов, не на `package`/`import`/file-header.
+- Языковые правила размещения: Go (`//` над `func`/`type`/`Test`), Kotlin (`//` над `fun`/`class`/`@Test`), Shell (`#` над `function`/block).
 - Изменения публичного поведения MUST отражаться в spec/tasks до merge.
 
 ### IV. Verify перед Archive
-<!-- Проверка качества обязательна -->
+<!-- Проверка качества обязательна для обеих платформ -->
 
-- Реализация не считается завершённой без observable proof (изменённые файлы, вывод тестов, результат команды).
-- Запуск `go test ./...`, race detector, golangci-lint обязателен перед archive.
-- Docker-сборка проверяется через `scripts/docker-build.sh` (или эквивалент).
+- Observable proof: изменённые файлы, вывод тестов, результат команды.
+- Go: `go test ./...`, race detector, golangci-lint.
+- Android: `./gradlew test`, `./gradlew assembleDebug`.
+- Docker-сборка (Go) через `scripts/docker-build.sh`.
 
 ### V. Простота и эксплуатация
 <!-- Docker, конфигурация, наблюдаемость -->
 
-- Docker — основной способ поставки; multi-stage build для минимального размера образа.
-- Конфигурация через YAML + env override + SIGHUP reload.
+- Docker — основной способ поставки Go-сервера; multi-stage build.
+- Конфигурация через YAML + env override (Go).
 - Наблюдаемость: structured JSON logs (zap), Prometheus метрики, health endpoint.
-- Graceful shutdown и Context-first дизайн.
+- Android-клиент поставляется как APK; конфигурация через QR-код или ручной ввод.
 
 ## Непересматриваемые правила
 
@@ -56,32 +53,37 @@
 - Работа `MUST NOT` продолжаться из неоднозначных требований или placeholder-контента.
 - Изменения публичного поведения `MUST` отражаться в spec/tasks до merge.
 - Если реализация конфликтует с конституцией, сначала обновляется конституция.
-- Весь код пишется на Go. Cgo допускается только для TUN (wireguard/tun).
-- Никакого глобального мутабельного состояния. Dependency injection через конструкторы.
+- Go — основной язык ядра и сервера. Kotlin — язык Android-клиента. Cgo допускается только для TUN (wireguard/tun).
+- Никакого глобального мутабельного состояния. DI через конструкторы.
+- Android-код следует официальным гайдлайнам: Material 3, Jetpack Compose, Coroutines + Flow.
 
 ## Ограничения
 
-- MVP: без GUI, без HTTP3, без mobile-поддержки, без full mesh.
-- TCP 443 (TLS 1.3 + WebSocket Binary Frames) и/или UDP 443 (QUIC + TLS 1.3).
-- Минимальный external dependency footprint.
+- MVP: без HTTP3, без iOS-клиента, без full mesh.
+- Go-ядро: TCP 443 (TLS 1.3 + WebSocket Binary Frames) и/или UDP 443 (QUIC + TLS 1.3).
+- Минимальный external dependency footprint — для обеих платформ.
 - Один writer на сокет (горутин-безопасность).
+- Android: minSdk 26, targetSdk 35. Только QR/ручной ввод конфига (без NFC/Cloud).
 
 ## Технологический стек
 
-- **Язык:** Go 1.22+
+- **Языки:** Go 1.22+ (ядро/сервер), Kotlin 1.9+ (Android-клиент)
 - **WebSocket:** `github.com/gorilla/websocket` или `nhooyr.io/websocket`
 - **QUIC:** `github.com/quic-go/quic-go` v0.50
-- **Конфигурация:** `spf13/viper`
-- **Логирование:** `uber-go/zap`
+- **Конфигурация:** `spf13/viper` (Go), DataStore Preferences (Android)
+- **Логирование:** `uber-go/zap` (Go), `android.util.Log` (Android)
 - **Метрики:** `prometheus/client_golang`
-- **TUN:** `golang.zx2c4.com/wireguard/tun`
-- **Контейнеризация:** Docker (multi-stage build)
+- **TUN:** `golang.zx2c4.com/wireguard/tun` (Go), `VpnService` (Android)
+- **Android UI:** Jetpack Compose, Material 3, CameraX, ML Kit Barcode Scanning, ZXing
+- **Контейнеризация:** Docker (multi-stage build) для Go
 - **БД сессий (persistence):** BoltDB / SQLite (встраиваемая)
 
 ## Основная архитектура
 
 ```
-[TUN Client] <-> [Client Core] <-> [TLS + WebSocket / QUIC + Obfuscation] <-> [Server Core] <-> [TUN/Router/NAT] <-> Internet/LAN
+[Android Client (Kotlin)] <-> [TLS + WebSocket/QUIC] <-> [Go Server Core] <-> [TUN/Router/NAT] <-> Internet/LAN
+         |
+    [QR Config / Manual Input]
 ```
 
 Структура репозитория:
@@ -90,9 +92,9 @@
 kvn-ws/            # github.com/bzdvdn/kvn-ws
 ├── src/
 │   ├── cmd/
-│   │   ├── client/         # точка входа клиента
+│   │   ├── client/         # точка входа Go-клиента (CLI)
 │   │   └── server/         # точка входа сервера
-│   ├── internal/
+│   ├── internal/           # Go-пакеты (ядро)
 │   │   ├── config/         # парсинг YAML + env
 │   │   ├── tun/            # TUN device abstraction
 │   │   ├── transport/
@@ -109,17 +111,25 @@ kvn-ws/            # github.com/bzdvdn/kvn-ws
 │   │   ├── crypto/         # доп. шифрование (app-layer)
 │   │   ├── metrics/        # Prometheus метрики
 │   │   └── logger/         # zap-логгер
-│   └── pkg/
-│       └── api/            # публичное API
+│   ├── pkg/
+│   │   └── api/            # публичное Go API
+│   └── android/            # Android-клиент (Kotlin, Gradle)
+│       └── app/
+│           ├── src/main/kotlin/com/kvn/client/
+│           │   ├── config/      # ConnectionConfig, парсинг QR
+│           │   ├── transport/   # WebSocket-клиент (OkHttp)
+│           │   ├── vpn/         # VpnService, TUN fd
+│           │   └── ui/          # Compose UI (экраны, ViewModel)
+│           └── build.gradle.kts
 ├── docs/
-│   ├── ru/                 # русская документация
-│   └── en/                 # английская документация
-├── examples/               # примеры (docker-compose, configs, скрипты)
-├── configs/                # шаблоны конфигурации
+│   ├── ru/
+│   └── en/
+├── examples/
+├── configs/
 │   ├── client.yaml
 │   └── server.yaml
-├── scripts/                # CI/CD, Docker build
-├── tests/                  # интеграционные/load тесты
+├── scripts/
+├── tests/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── go.mod
@@ -137,15 +147,15 @@ kvn-ws/            # github.com/bzdvdn/kvn-ws
 
 ## Клиентская маршрутизация (Routing Policy)
 
-Клиент MUST поддерживать гибкую настройку направления трафика — через VPN-сервер или напрямую (bypass). Политика задаётся в конфигурации `client.yaml`:
+Клиент MUST поддерживать гибкую настройку направления трафика — через VPN-сервер или напрямую (bypass). Политика задаётся в конфигурации:
 
 - **default_route** — поведение по умолчанию: `server` (весь трафик через туннель) или `direct` (весь трафик мимо туннеля).
-- **include_ranges** — CIDR-диапазоны, которые ДОЛЖНЫ идти через сервер (например `10.0.0.0/8`, `192.168.0.0/16`).
-- **exclude_ranges** — CIDR-диапазоны, которые ДОЛЖНЫ идти напрямую (например `8.8.8.8/32`).
-- **include_domains** — DNS-имена, чей трафик ДОЛЖЕН идти через сервер (разрешаются в IP через встроенный DNS-resolver).
-- **exclude_domains** — DNS-имена, чей трафик ДОЛЖЕН идти напрямую.
-- **include_ips** — отдельные IP-адреса для маршрутизации через сервер.
-- **exclude_ips** — отдельные IP-адреса для прямого доступа.
+- **include_ranges** — CIDR-диапазоны через сервер.
+- **exclude_ranges** — CIDR-диапазоны напрямую.
+- **include_domains** — DNS-имена через сервер (встроенный DNS-resolver).
+- **exclude_domains** — DNS-имена напрямую.
+- **include_ips** — отдельные IP через сервер.
+- **exclude_ips** — отдельные IP напрямую.
 
 Правила применяются в порядке: `exclude_ips` → `include_ips` → `exclude_domains` → `include_domains` → `exclude_ranges` → `include_ranges` → `default_route`. Первое совпадение останавливает перебор.
 
@@ -155,7 +165,7 @@ kvn-ws/            # github.com/bzdvdn/kvn-ws
 
 - Язык документации: русский (`docs/ru/`), английский (`docs/en/`)
 - Язык общения с агентом: русский
-- Язык комментариев в коде: английский
+- Язык комментариев в коде: английский (Go-код и Android/Kotlin код)
 
 ## Процесс разработки
 
@@ -172,12 +182,19 @@ kvn-ws/            # github.com/bzdvdn/kvn-ws
 - Для нетривиальных правок обязательны traceability-маркеры:
   - код: `@sk-task <slug>#<TASK_ID>: <short> (<AC_ID>)`
   - тесты: `@sk-test <slug>#<TASK_ID>: <TestName> (<AC_ID>)`
+  - если одну задачу подтверждают несколько тестов/кейсов, `@sk-test <slug>#<TASK_ID>` должен стоять на каждом таком тесте/кейсе, а не только на одном representative тесте.
 - Правило размещения маркеров:
   - размещайте trace-маркеры на объявлениях функций/методов/структур/классов (или на заголовках поведенческих блоков), а не на строках полей.
+  - запрещено ставить trace-маркеры на уровень `package`, `import` или file-header comment; маркер должен принадлежать конкретному owning symbol.
+  - если язык поддерживает именованные объявления, ставьте маркер непосредственно над тем объявлением, которое реализует или проверяет поведение.
+- Примеры размещения и стиля по языкам:
+  - Go: `//` непосредственно над `func`, method receiver, `type`, `func Test...`; если несколько `Test...` проверяют одну задачу, `@sk-test` нужен на каждом таком тесте.
+  - Kotlin: `//` непосредственно над `fun`, `class`, `@Test fun`; не над `package`, `import`, `class` header без owning behavior.
+  - Java: `//` или `/* */` непосредственно над `class`, `interface`, `enum`, method, JUnit test method; не над `package`, `import`, полями.
+  - Shell / Bash: `#` над `function name()` или первой строкой именованного behavior/test block.
 - Существующие trace-маркеры сохраняются; покрытие новой задачи добавляется доп. маркерами (без перезаписи).
 - Если один метод/тест покрывает несколько задач, на нем одновременно остаются несколько маркеров.
 - Перед archive в verify должна быть подтверждена покрываемость acceptance criteria.
-- Docker-образ собирается и проходит базовый smoke-test.
 
 ## Политика Repository Map
 
@@ -195,10 +212,10 @@ kvn-ws/            # github.com/bzdvdn/kvn-ws
 
 ## Метаданные конституции
 
-- Version: 1.0.0
+- Version: 1.1.0
 - Ratified: 2026-05-13
-- Last Amended: 2026-05-13
+- Last Amended: 2026-06-11
 
 ## Последнее обновление
 
-2026-05-13
+2026-06-11 — добавлен Android-клиент (Kotlin), обновлён стек и архитектура

@@ -9,8 +9,8 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/cmd/stability/main.go` — stability gate / soak test program (AC-012)
 - `src/cmd/web/main.go` — Web UI entrypoint: browser-based tunnel client manager
 - `protocol/codegen/main.go` — protocol codegen: generates Go+Kotlin types from YAML
-- `src/android/.../ui/MainActivity.kt` — Android app entrypoint (Jetpack Compose)
-- `src/android/.../vpn/KvnVpnService.kt` — Android VpnService (TUN tunnel)
+- `src/android/app/src/main/kotlin/com/kvn/client/ui/MainActivity.kt` — Android app entrypoint (Jetpack Compose)
+- `src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt` — Android VpnService (TUN tunnel)
 
 ## Top-Level Code
 - `src/internal/config/` — YAML config parsing (viper + env override)
@@ -43,7 +43,12 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/webui/` — Web UI server (embed React SPA, REST API + SSE, AppState, SSE log core)
 - `src/integration/` — integration tests (tunnel_integration_test.go)
 - `protocol/` — wire protocol YAML specs + codegen (single source of truth for Go+Kotlin)
-- `src/android/` — Android Kotlin client (VpnService, WebSocket, UI Compose, QR scanner)
+- `src/android/app/src/main/kotlin/com/kvn/client/ui/` — Android UI: Compose screens (Connect, QR scan/export, Settings), ViewModel
+- `src/android/app/src/main/kotlin/com/kvn/client/vpn/` — Android VpnService (TUN fd, VPN.Builder, protect)
+- `src/android/app/src/main/kotlin/com/kvn/client/transport/` — Android WebSocket client (OkHttp), ReconnectManager
+- `src/android/app/src/main/kotlin/com/kvn/client/protocol/` — Android frame codec + handshake (Frames.kt, FrameCodec.kt, HandshakeClient.kt)
+- `src/android/app/src/main/kotlin/com/kvn/client/config/` — Android ConnectionConfig model + QR serialization
+- `src/android/app/src/main/kotlin/com/kvn/client/crypto/` — Android AES-GCM cipher
 
 ## Key Paths
 - `configs/client.yaml` — client config template
@@ -98,7 +103,12 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Examples — `examples/`
 - Build/CI/install — `scripts/`, `.github/workflows/`, `Dockerfile`, `Dockerfile.test`
 - Protocol changes — `protocol/*.yaml`, `protocol/codegen/` (edit YAML, not generated files)
-- Android client — `src/android/`
+- Android UI/screens — `src/android/app/src/main/kotlin/com/kvn/client/ui/`
+- Android VPN service — `src/android/app/src/main/kotlin/com/kvn/client/vpn/`
+- Android transport/WebSocket — `src/android/app/src/main/kotlin/com/kvn/client/transport/`
+- Android protocol/framing — `src/android/app/src/main/kotlin/com/kvn/client/protocol/`
+- Android crypto — `src/android/app/src/main/kotlin/com/kvn/client/crypto/`
+- Android config/QR — `src/android/app/src/main/kotlin/com/kvn/client/config/`
 - Load testing — `configs/loadtest.yaml`
 - Release — `CHANGELOG.md`, `README.md`
 
