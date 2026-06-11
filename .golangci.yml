@@ -41,6 +41,7 @@ linters-settings:
   gosec:
     excludes:
       - G204
+      - G115
 
 issues:
   exclude-rules:

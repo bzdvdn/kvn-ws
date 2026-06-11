@@ -42,7 +42,7 @@ func (c *QUICConn) ReadMessage() ([]byte, error) {
 		return nil, err
 	}
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
-	if c.maxMessageSize >= 0 && msgLen > uint32(c.maxMessageSize) { //nolint:gosec // maxMessageSize >= 0 per SetMaxMessageSize
+	if c.maxMessageSize >= 0 && msgLen > uint32(c.maxMessageSize) { // #nosec G115
 		return nil, ErrMessageTooLarge
 	}
 	buf := make([]byte, msgLen)

@@ -63,7 +63,7 @@ func (oc *ObfuscatedQUICConn) ReadMessage() ([]byte, error) {
 	}
 	xorBytes(lenBuf[:], lenBuf[:], oc.nonce[:])
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
-	if oc.maxMessageSize >= 0 && msgLen > uint32(oc.maxMessageSize) { //nolint:gosec // maxMessageSize >= 0 per SetMaxMessageSize
+	if oc.maxMessageSize >= 0 && msgLen > uint32(oc.maxMessageSize) { // #nosec G115
 		return nil, ErrMessageTooLarge
 	}
 	buf := make([]byte, msgLen)
