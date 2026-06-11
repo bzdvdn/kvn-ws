@@ -68,10 +68,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
       - name: Generate protocol types
         run: go run ./protocol/codegen/
-      - name: Generate Gradle wrapper
-        run: |
-          cd src/android
-          gradle wrapper --gradle-version 8.5
+      - name: Make gradlew executable
+        run: chmod +x src/android/gradlew
       - name: Generate debug keystore for CI
         run: |
           keytool -genkey -v \

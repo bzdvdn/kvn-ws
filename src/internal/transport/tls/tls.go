@@ -132,6 +132,7 @@ var browserPresets = []utls.ClientHelloID{
 	utls.HelloSafari_Auto,
 }
 
+// #nosec G404 — non-cryptographic random browser preset selection
 func randomPreset() utls.ClientHelloID {
 	return browserPresets[mathrand.IntN(len(browserPresets))]
 }
