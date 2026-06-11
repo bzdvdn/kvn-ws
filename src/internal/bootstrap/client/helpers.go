@@ -25,17 +25,17 @@ func clientTLSConfig(cfg *config.ClientConfig) (*tls.Config, error) {
 }
 
 // @sk-task fix-critical-leaks#T4.2: shared backoff parsing helper (AC-012)
-func parseBackoff(cfg *config.ReconnectCfg) (min, max time.Duration) {
-	min = 1 * time.Second
-	max = 30 * time.Second
+func parseBackoff(cfg *config.ReconnectCfg) (minVal, maxVal time.Duration) {
+	minVal = 1 * time.Second
+	maxVal = 30 * time.Second
 	if cfg == nil {
 		return
 	}
 	if cfg.MinBackoffSec > 0 {
-		min = time.Duration(cfg.MinBackoffSec) * time.Second
+		minVal = time.Duration(cfg.MinBackoffSec) * time.Second
 	}
 	if cfg.MaxBackoffSec > 0 {
-		max = time.Duration(cfg.MaxBackoffSec) * time.Second
+		maxVal = time.Duration(cfg.MaxBackoffSec) * time.Second
 	}
 	return
 }

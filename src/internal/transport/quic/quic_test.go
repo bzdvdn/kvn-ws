@@ -36,17 +36,16 @@ func (b *controlledBuf) Close() error { return nil }
 
 // controlledStream implements quic.Stream over in-memory buffers.
 type controlledStream struct {
-	r   io.Reader
-	w   io.Writer
-	mu  sync.Mutex
+	r io.Reader
+	w io.Writer
 }
 
-func (s *controlledStream) Read(b []byte) (int, error)    { return s.r.Read(b) }
-func (s *controlledStream) Write(b []byte) (int, error)   { return s.w.Write(b) }
-func (s *controlledStream) Close() error                   { return nil }
-func (s *controlledStream) SetReadDeadline(t time.Time) error  { return nil }
-func (s *controlledStream) SetWriteDeadline(t time.Time) error { return nil }
-func (s *controlledStream) StreamID() quic.StreamID            { return 0 }
+func (s *controlledStream) Read(b []byte) (int, error)            { return s.r.Read(b) }
+func (s *controlledStream) Write(b []byte) (int, error)           { return s.w.Write(b) }
+func (s *controlledStream) Close() error                          { return nil }
+func (s *controlledStream) SetReadDeadline(t time.Time) error     { return nil }
+func (s *controlledStream) SetWriteDeadline(t time.Time) error    { return nil }
+func (s *controlledStream) StreamID() quic.StreamID               { return 0 }
 func (s *controlledStream) CancelRead(code quic.StreamErrorCode)  {}
 func (s *controlledStream) CancelWrite(code quic.StreamErrorCode) {}
 func (s *controlledStream) Context() context.Context              { return context.Background() }
@@ -155,16 +154,16 @@ func TestQUICDialTimeout(t *testing.T) {
 
 type mockStream struct{}
 
-func (m *mockStream) Read(b []byte) (int, error)         { return len(b), nil }
-func (m *mockStream) Write(b []byte) (int, error)        { return len(b), nil }
-func (m *mockStream) Close() error                       { return nil }
-func (m *mockStream) SetReadDeadline(t time.Time) error  { return nil }
-func (m *mockStream) SetWriteDeadline(t time.Time) error { return nil }
-func (m *mockStream) StreamID() quic.StreamID            { return 0 }
-func (m *mockStream) CancelRead(code quic.StreamErrorCode)  {}
-func (m *mockStream) CancelWrite(code quic.StreamErrorCode) {}
-func (m *mockStream) Context() context.Context              { return context.Background() }
-func (m *mockStream) SetDeadline(t time.Time) error         { return nil }
-func (m *mockStream) ReadAtLeast(p []byte, min int) (int, error) { return len(p), nil }
+func (m *mockStream) Read(b []byte) (int, error)                    { return len(b), nil }
+func (m *mockStream) Write(b []byte) (int, error)                   { return len(b), nil }
+func (m *mockStream) Close() error                                  { return nil }
+func (m *mockStream) SetReadDeadline(t time.Time) error             { return nil }
+func (m *mockStream) SetWriteDeadline(t time.Time) error            { return nil }
+func (m *mockStream) StreamID() quic.StreamID                       { return 0 }
+func (m *mockStream) CancelRead(code quic.StreamErrorCode)          {}
+func (m *mockStream) CancelWrite(code quic.StreamErrorCode)         {}
+func (m *mockStream) Context() context.Context                      { return context.Background() }
+func (m *mockStream) SetDeadline(t time.Time) error                 { return nil }
+func (m *mockStream) ReadAtLeast(p []byte, minLen int) (int, error) { return len(p), nil }
 
 var _ quic.Stream = (*mockStream)(nil)

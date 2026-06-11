@@ -23,29 +23,29 @@ import (
 // @sk-task system-proxy#T1.2: add SystemProxy field (AC-001)
 // @sk-task transparent-proxy#T1.1: add Transparent and DNSProxyCfg fields (AC-001, AC-008, AC-009)
 type ClientConfig struct {
-	Server              string         `json:"server" mapstructure:"server"`
-	Transport           string         `json:"transport" mapstructure:"transport"`
+	Server              string          `json:"server" mapstructure:"server"`
+	Transport           string          `json:"transport" mapstructure:"transport"`
 	Obfuscation         *ObfuscationCfg `json:"obfuscation,omitempty" mapstructure:"obfuscation"`
-	Auth                AuthCfg        `json:"auth" mapstructure:"auth"`
-	TLS                 ClientTLSCfg   `json:"tls" mapstructure:"tls"`
-	MTU                 int            `json:"mtu" mapstructure:"mtu"`
-	IPv6                bool           `json:"ipv6" mapstructure:"ipv6"`
-	AutoReconnect       *bool          `json:"auto_reconnect" mapstructure:"auto_reconnect"`
-	Log                 LogConfig      `json:"log" mapstructure:"log"`
-	Routing             *RoutingCfg    `json:"routing" mapstructure:"routing"`
-	KillSwitch          *KillSwitchCfg `json:"kill_switch" mapstructure:"kill_switch"`
-	Reconnect           *ReconnectCfg  `json:"reconnect" mapstructure:"reconnect"`
-	Multiplex           bool           `json:"multiplex" mapstructure:"multiplex"`
-	Mode                string         `json:"mode" mapstructure:"mode"`
-	ProxyListen         string         `json:"proxy_listen" mapstructure:"proxy_listen"`
-	ProxyAuth           *ProxyAuthCfg  `json:"proxy_auth" mapstructure:"proxy_auth"`
-	Crypto              CryptoCfg      `json:"crypto" mapstructure:"crypto"`
-	MaxMessageSize      int            `json:"max_message_size" mapstructure:"max_message_size"`
-	TunnelTimeout       int            `json:"tunnel_timeout" mapstructure:"tunnel_timeout"`
-	ProxyMaxConcurrency int            `json:"proxy_max_concurrency" mapstructure:"proxy_max_concurrency"`
-	SystemProxy        *bool           `json:"system_proxy" mapstructure:"system_proxy"`
-	Transparent       bool            `json:"transparent" mapstructure:"transparent"`
-	DNSProxy          DNSProxyCfg     `json:"dns_proxy" mapstructure:"dns_proxy"`
+	Auth                AuthCfg         `json:"auth" mapstructure:"auth"`
+	TLS                 ClientTLSCfg    `json:"tls" mapstructure:"tls"`
+	MTU                 int             `json:"mtu" mapstructure:"mtu"`
+	IPv6                bool            `json:"ipv6" mapstructure:"ipv6"`
+	AutoReconnect       *bool           `json:"auto_reconnect" mapstructure:"auto_reconnect"`
+	Log                 LogConfig       `json:"log" mapstructure:"log"`
+	Routing             *RoutingCfg     `json:"routing" mapstructure:"routing"`
+	KillSwitch          *KillSwitchCfg  `json:"kill_switch" mapstructure:"kill_switch"`
+	Reconnect           *ReconnectCfg   `json:"reconnect" mapstructure:"reconnect"`
+	Multiplex           bool            `json:"multiplex" mapstructure:"multiplex"`
+	Mode                string          `json:"mode" mapstructure:"mode"`
+	ProxyListen         string          `json:"proxy_listen" mapstructure:"proxy_listen"`
+	ProxyAuth           *ProxyAuthCfg   `json:"proxy_auth" mapstructure:"proxy_auth"`
+	Crypto              CryptoCfg       `json:"crypto" mapstructure:"crypto"`
+	MaxMessageSize      int             `json:"max_message_size" mapstructure:"max_message_size"`
+	TunnelTimeout       int             `json:"tunnel_timeout" mapstructure:"tunnel_timeout"`
+	ProxyMaxConcurrency int             `json:"proxy_max_concurrency" mapstructure:"proxy_max_concurrency"`
+	SystemProxy         *bool           `json:"system_proxy" mapstructure:"system_proxy"`
+	Transparent         bool            `json:"transparent" mapstructure:"transparent"`
+	DNSProxy            DNSProxyCfg     `json:"dns_proxy" mapstructure:"dns_proxy"`
 }
 
 type DNSProxyCfg struct {
@@ -54,8 +54,8 @@ type DNSProxyCfg struct {
 }
 
 type ObfuscationCfg struct {
-	Enabled bool       `json:"enabled" mapstructure:"enabled"`
-	UTLS    *UTLSCfg   `json:"utls,omitempty" mapstructure:"utls"`
+	Enabled bool        `json:"enabled" mapstructure:"enabled"`
+	UTLS    *UTLSCfg    `json:"utls,omitempty" mapstructure:"utls"`
 	Padding *PaddingCfg `json:"padding,omitempty" mapstructure:"padding"`
 }
 
@@ -214,7 +214,7 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 // @sk-task quic-obfuscation#T3.3: normalize routing defaults on save (AC-001)
 func SaveClientConfig(path string, cfg *ClientConfig) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 
@@ -251,7 +251,7 @@ func SaveClientConfig(path string, cfg *ClientConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return os.WriteFile(path, data, 0o600)
 }
 
 var DefaultExcludeRanges = []string{

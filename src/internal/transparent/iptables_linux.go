@@ -67,7 +67,7 @@ func (m *iptablesLinuxManager) Restore(ctx context.Context, logger *zap.Logger) 
 
 	// remove jumps from PREROUTING and OUTPUT
 	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-D", "PREROUTING", "-j", chainName).Run() // #nosec G204 — bin resolved by detectIptables, chainName is const
-	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-D", "OUTPUT", "-j", chainName).Run()    // #nosec G204 — bin resolved by detectIptables, chainName is const
+	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-D", "OUTPUT", "-j", chainName).Run()     // #nosec G204 — bin resolved by detectIptables, chainName is const
 
 	// flush and delete custom chain
 	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-F", chainName).Run() // #nosec G204 — bin resolved by detectIptables, chainName is const

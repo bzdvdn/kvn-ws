@@ -9,7 +9,7 @@ type uiLogCore struct {
 	pushLog func(LogEntry)
 }
 
-func (c *uiLogCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
+func (c *uiLogCore) Write(entry zapcore.Entry, fields []zapcore.Field) error { //nolint:gocritic // matches zapcore.Core interface
 	var action int
 	var ip string
 	for _, f := range fields {
@@ -35,7 +35,7 @@ func (c *uiLogCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 	return c.Core.Write(entry, fields)
 }
 
-func (c *uiLogCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+func (c *uiLogCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry { //nolint:gocritic // matches zapcore.Core interface
 	if entry.Level >= zapcore.DebugLevel {
 		return ce.AddCore(entry, c)
 	}

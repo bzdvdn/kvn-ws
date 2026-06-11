@@ -229,7 +229,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			ipAddr := net.ParseIP(host)
 			if ipAddr == nil {
 				// @sk-task fix-critical-leaks#T2.2: DNS ctx propagation (AC-005)
-			addrs, _ := net.DefaultResolver.LookupHost(ctx, host)
+				addrs, _ := net.DefaultResolver.LookupHost(ctx, host)
 				if len(addrs) > 0 {
 					ipAddr = net.ParseIP(addrs[0])
 				}
@@ -334,17 +334,20 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 				c.logger.Warn("frame decode error", zap.Error(err))
 				continue
 			}
-			if f.Type == framing.FrameTypeProxy {
+			switch f.Type {
+			case framing.FrameTypeProxy:
 				c.logger.Debug("proxy frame received", zap.Int("payload_len", len(f.Payload)))
 				streamMgr.HandleIncomingFrame(&f)
-			} else if f.Type == framing.FrameTypeDNS && c.dnsSrv != nil {
-				c.logger.Debug("dns frame received", zap.Int("payload_len", len(f.Payload)))
-				payload := f.Payload
-				if len(payload) >= 4 {
-					streamID := binary.BigEndian.Uint32(payload[0:4])
-					c.dnsSrv.HandleDNSResponse(streamID, payload[4:])
+			case framing.FrameTypeDNS:
+				if c.dnsSrv != nil {
+					c.logger.Debug("dns frame received", zap.Int("payload_len", len(f.Payload)))
+					payload := f.Payload
+					if len(payload) >= 4 {
+						streamID := binary.BigEndian.Uint32(payload[0:4])
+						c.dnsSrv.HandleDNSResponse(streamID, payload[4:])
+					}
 				}
-			} else {
+			default:
 				c.logger.Debug("skipping non-proxy frame", zap.Int("type", int(f.Type)))
 			}
 			f.Release()

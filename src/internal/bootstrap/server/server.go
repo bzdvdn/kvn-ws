@@ -20,6 +20,8 @@ import (
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/quic-go/quic-go"
+
 	"github.com/bzdvdn/kvn-ws/src/internal/acl"
 	"github.com/bzdvdn/kvn-ws/src/internal/admin"
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
@@ -34,7 +36,6 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
-	"github.com/quic-go/quic-go"
 )
 
 const shutdownTimeout = 5 * time.Second

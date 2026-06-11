@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"time"
 
-	"go.uber.org/zap"
 	"github.com/quic-go/quic-go"
+	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/control"
@@ -39,7 +39,6 @@ func dialStream(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logge
 		quicConn, err := quictp.Dial(ctx, quicAddr, tlsCfg, quicCfg)
 		if err != nil {
 			logger.Warn("QUIC dial failed, falling back to TCP", zap.Error(err))
-			transportType = "tcp"
 		} else {
 			if cfg.MaxMessageSize > 0 {
 				quicConn.SetMaxMessageSize(cfg.MaxMessageSize)
@@ -49,7 +48,6 @@ func dialStream(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logge
 				obfConn, obfErr := quictp.NewObfuscatedQUICConn(quicConn)
 				if obfErr != nil {
 					logger.Warn("QUIC obfuscation init failed, falling back to TCP", zap.Error(obfErr))
-					transportType = "tcp"
 				} else {
 					return obfConn, nil
 				}

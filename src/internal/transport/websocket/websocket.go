@@ -254,7 +254,7 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 		wsCfg = cfg[0]
 	}
 	d := websocket.Dialer{
-		HandshakeTimeout:  10 * time.Second,
+		HandshakeTimeout: 10 * time.Second,
 	}
 	if wsCfg.Multiplex {
 		d.Subprotocols = []string{MultiplexSubprotocol}
@@ -347,7 +347,7 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	}
 
 	upgrader := websocket.Upgrader{
-		CheckOrigin:       checkOrigin,
+		CheckOrigin: checkOrigin,
 	}
 	if cfg.Multiplex {
 		upgrader.Subprotocols = []string{MultiplexSubprotocol}

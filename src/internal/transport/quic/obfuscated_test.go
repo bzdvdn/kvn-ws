@@ -172,12 +172,12 @@ type memStream struct {
 	w io.Writer
 }
 
-func (s *memStream) Read(b []byte) (int, error)  { return s.r.Read(b) }
-func (s *memStream) Write(b []byte) (int, error) { return s.w.Write(b) }
-func (s *memStream) Close() error                 { return nil }
-func (s *memStream) SetReadDeadline(t time.Time) error  { return nil }
-func (s *memStream) SetWriteDeadline(t time.Time) error { return nil }
-func (s *memStream) StreamID() quic.StreamID            { return 0 }
+func (s *memStream) Read(b []byte) (int, error)            { return s.r.Read(b) }
+func (s *memStream) Write(b []byte) (int, error)           { return s.w.Write(b) }
+func (s *memStream) Close() error                          { return nil }
+func (s *memStream) SetReadDeadline(t time.Time) error     { return nil }
+func (s *memStream) SetWriteDeadline(t time.Time) error    { return nil }
+func (s *memStream) StreamID() quic.StreamID               { return 0 }
 func (s *memStream) CancelRead(code quic.StreamErrorCode)  {}
 func (s *memStream) CancelWrite(code quic.StreamErrorCode) {}
 func (s *memStream) Context() context.Context              { return context.Background() }

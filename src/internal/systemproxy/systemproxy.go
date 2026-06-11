@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	envHTTPProxy  = "HTTP_PROXY"
-	envHTTPSProxy = "HTTPS_PROXY"
-	envNOProxy    = "NO_PROXY"
+	envHTTPProxy   = "HTTP_PROXY"
+	envHTTPSProxy  = "HTTPS_PROXY"
+	envNOProxy     = "NO_PROXY"
 	envHTTPProxyL  = "http_proxy"
 	envHTTPSProxyL = "https_proxy"
 	envNOProxyL    = "no_proxy"
@@ -29,13 +29,13 @@ type PlatformManager interface {
 
 // @sk-task system-proxy#T1.1: State holds original env values and platform manager (AC-002)
 type State struct {
-	origHTTP   string
-	origHTTPS  string
-	origNO     string
-	hadHTTP    bool
-	hadHTTPS   bool
-	hadNO      bool
-	platform   PlatformManager
+	origHTTP  string
+	origHTTPS string
+	origNO    string
+	hadHTTP   bool
+	hadHTTPS  bool
+	hadNO     bool
+	platform  PlatformManager
 }
 
 func New(cfg *config.ClientConfig) *State {
@@ -44,7 +44,7 @@ func New(cfg *config.ClientConfig) *State {
 
 // @sk-task system-proxy#T1.1: set system proxy (env vars + platform API) (AC-001, AC-002, AC-003)
 // @sk-task system-proxy#T3.3: recovery check — detect orphaned proxy from crashed instance (AC-006)
-func (s *State) Set(ctx context.Context, logger *zap.Logger, addr string, noProxy string) error {
+func (s *State) Set(ctx context.Context, logger *zap.Logger, addr, noProxy string) error {
 	proxyURL := fmt.Sprintf("http://%s", addr)
 
 	// recovery: if current HTTP_PROXY points to us, it's orphaned from a crash

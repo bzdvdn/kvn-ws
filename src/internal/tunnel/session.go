@@ -1,4 +1,5 @@
 package tunnel
+
 import (
 	"context"
 	"encoding/binary"
@@ -394,8 +395,11 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 			framing.ReturnBuffer(encoded)
 		}
 	}()
-	buf := proxyBufPool.Get().([]byte)
-	defer proxyBufPool.Put(buf)
+	buf, ok := proxyBufPool.Get().([]byte)
+	if !ok {
+		return
+	}
+	defer proxyBufPool.Put(buf) //nolint:staticcheck // SA6002: []byte is acceptable in Go 1.23+
 	for {
 		if err := tcp.SetReadDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
 			return

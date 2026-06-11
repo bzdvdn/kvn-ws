@@ -1,31 +1,36 @@
 package tunnel
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"net"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 	"go.uber.org/zap"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
 // mockTun satisfies tun.TunDevice for testing purposes.
 type mockTun struct{}
 
-func (m *mockTun) Open() error                                               { return nil }
-func (m *mockTun) Close() error                                              { return nil }
-func (m *mockTun) Read(b []byte) (int, error)                               { return 0, nil }
-func (m *mockTun) Write(b []byte) (int, error)                              { return len(b), nil }
-func (m *mockTun) SetIP(ip net.IP, mask *net.IPNet) error                   { return nil }
-func (m *mockTun) SetMTU(mtu int) error                                     { return nil }
-func (m *mockTun) SetGateway(gateway net.IP) error                          { return nil }
-func (m *mockTun) RemoveGateway(gateway net.IP) error                       { return nil }
+func (m *mockTun) Open() error                                                           { return nil }
+func (m *mockTun) Close() error                                                          { return nil }
+func (m *mockTun) Read(b []byte) (int, error)                                            { return 0, nil }
+func (m *mockTun) Write(b []byte) (int, error)                                           { return len(b), nil }
+func (m *mockTun) SetIP(ip net.IP, mask *net.IPNet) error                                { return nil }
+func (m *mockTun) SetMTU(mtu int) error                                                  { return nil }
+func (m *mockTun) SetGateway(gateway net.IP) error                                       { return nil }
+func (m *mockTun) RemoveGateway(gateway net.IP) error                                    { return nil }
 func (m *mockTun) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error { return nil }
-func (m *mockTun) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error { return nil }
-func (m *mockTun) DisableGSO() error                                         { return nil }
+func (m *mockTun) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
+	return nil
+}
+func (m *mockTun) DisableGSO() error { return nil }
 
 // mockStreamConn implements StreamConn with queued messages for testing.
 type mockStreamConn struct {
@@ -48,7 +53,7 @@ func (m *mockStreamConn) ReadMessage() ([]byte, error) {
 	return msg, nil
 }
 
-func (m *mockStreamConn) WriteMessage(data []byte) error { return nil }
+func (m *mockStreamConn) WriteMessage(data []byte) error     { return nil }
 func (m *mockStreamConn) SetReadDeadline(t time.Time) error  { return nil }
 func (m *mockStreamConn) SetWriteDeadline(t time.Time) error { return nil }
 func (m *mockStreamConn) Close() error                       { return nil }
@@ -59,9 +64,9 @@ type mockTunWrite struct {
 	written [][]byte
 }
 
-func (m *mockTunWrite) Open() error                                               { return nil }
-func (m *mockTunWrite) Close() error                                              { return nil }
-func (m *mockTunWrite) Read(b []byte) (int, error)                               { return 0, nil }
+func (m *mockTunWrite) Open() error                { return nil }
+func (m *mockTunWrite) Close() error               { return nil }
+func (m *mockTunWrite) Read(b []byte) (int, error) { return 0, nil }
 func (m *mockTunWrite) Write(b []byte) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -70,13 +75,17 @@ func (m *mockTunWrite) Write(b []byte) (int, error) {
 	m.written = append(m.written, buf)
 	return len(b), nil
 }
-func (m *mockTunWrite) SetIP(ip net.IP, mask *net.IPNet) error                   { return nil }
-func (m *mockTunWrite) SetMTU(mtu int) error                                     { return nil }
-func (m *mockTunWrite) SetGateway(gateway net.IP) error                          { return nil }
-func (m *mockTunWrite) RemoveGateway(gateway net.IP) error                       { return nil }
-func (m *mockTunWrite) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error { return nil }
-func (m *mockTunWrite) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error { return nil }
-func (m *mockTunWrite) DisableGSO() error                                         { return nil }
+func (m *mockTunWrite) SetIP(ip net.IP, mask *net.IPNet) error { return nil }
+func (m *mockTunWrite) SetMTU(mtu int) error                   { return nil }
+func (m *mockTunWrite) SetGateway(gateway net.IP) error        { return nil }
+func (m *mockTunWrite) RemoveGateway(gateway net.IP) error     { return nil }
+func (m *mockTunWrite) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
+	return nil
+}
+func (m *mockTunWrite) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
+	return nil
+}
+func (m *mockTunWrite) DisableGSO() error { return nil }
 
 func encodeFrame(t *testing.T, f *framing.Frame) []byte {
 	t.Helper()
@@ -112,7 +121,7 @@ func TestWsToTunDataFrame(t *testing.T) {
 	if len(tunW.written) != 1 {
 		t.Fatalf("expected 1 write to tun, got %d", len(tunW.written))
 	}
-	if string(tunW.written[0]) != string(payload) {
+	if !bytes.Equal(tunW.written[0], payload) {
 		t.Fatalf("tun write = %q, want %q", tunW.written[0], payload)
 	}
 }
@@ -156,7 +165,7 @@ func TestWsToTunUnknownFrame(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := s.wsToTun(ctx)
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }

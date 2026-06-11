@@ -336,8 +336,6 @@ func (c *prependConn) Read(b []byte) (int, error) {
 	return c.reader.Read(b)
 }
 
-
-
 // @sk-task local-proxy-mode#T3.1: HTTP CONNECT handler (AC-002)
 func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) (handedOff bool) {
 	br := bufio.NewReader(io.MultiReader(

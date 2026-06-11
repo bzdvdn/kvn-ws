@@ -11,7 +11,7 @@ import (
 type RouteAction int
 
 const (
-	RouteNone   RouteAction = iota
+	RouteNone RouteAction = iota
 	RouteServer
 	RouteDirect
 )

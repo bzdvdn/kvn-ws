@@ -45,7 +45,7 @@ func (oc *ObfuscatedQUICConn) initNonce() error {
 }
 
 // @sk-task whitelist-obfuscation#T4.1: xorBytes helper for payload obfuscation (AC-006)
-func xorBytes(dst, src []byte, nonce []byte) {
+func xorBytes(dst, src, nonce []byte) {
 	for i := range src {
 		dst[i] = src[i] ^ nonce[i%len(nonce)]
 	}
@@ -63,7 +63,7 @@ func (oc *ObfuscatedQUICConn) ReadMessage() ([]byte, error) {
 	}
 	xorBytes(lenBuf[:], lenBuf[:], oc.nonce[:])
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
-	if msgLen > uint32(oc.maxMessageSize) { // #nosec G115 — maxMessageSize >= 0 per SetMaxMessageSize
+	if oc.maxMessageSize >= 0 && msgLen > uint32(oc.maxMessageSize) { //nolint:gosec // maxMessageSize >= 0 per SetMaxMessageSize
 		return nil, ErrMessageTooLarge
 	}
 	buf := make([]byte, msgLen)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -38,7 +39,7 @@ type Server struct {
 	origResolves []string
 }
 
-func New(listenAddr string, upstream string) *Server {
+func New(listenAddr, upstream string) *Server {
 	if upstream == "" {
 		upstream = "1.1.1.1:53"
 	}
@@ -94,7 +95,8 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = s.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 		n, raddr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
 				continue
 			}
 			return err
@@ -205,27 +207,28 @@ func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDP
 		return
 	}
 	for _, ns := range resolvers {
-		nsAddr, err := net.ResolveUDPAddr("udp", ns)
-		if err != nil {
-			continue
-		}
-		conn, err := net.DialUDP("udp", nil, nsAddr)
-		if err != nil {
-			continue
-		}
-		defer conn.Close()
-
-		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-		if _, err := conn.Write(query); err != nil {
-			continue
-		}
-		resp := make([]byte, 1500)
-		n, err := conn.Read(resp)
-		if err != nil {
-			continue
-		}
-		_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
-		_, _ = s.conn.WriteToUDP(resp[:n], raddr)
+		func(ns string) {
+			nsAddr, err := net.ResolveUDPAddr("udp", ns)
+			if err != nil {
+				return
+			}
+			conn, err := net.DialUDP("udp", nil, nsAddr)
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+			if _, err := conn.Write(query); err != nil {
+				return
+			}
+			resp := make([]byte, 1500)
+			n, err := conn.Read(resp)
+			if err != nil {
+				return
+			}
+			_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+			_, _ = s.conn.WriteToUDP(resp[:n], raddr)
+		}(ns)
 		return
 	}
 }
@@ -303,8 +306,8 @@ func (s *Server) forwardViaTunnel(ctx context.Context, query []byte, raddr *net.
 
 // @sk-task transparent-proxy#T2.3: resolv.conf backup/restore (AC-009)
 type ResolvConfBackup struct {
-	original  string
-	saved     bool
+	original    string
+	saved       bool
 	nameservers []string
 }
 
@@ -321,7 +324,7 @@ func BackupResolvConf() (*ResolvConfBackup, error) {
 			if len(parts) >= 2 {
 				ns := parts[1]
 				if !strings.Contains(ns, ":") {
-					ns = ns + ":53"
+					ns += ":53"
 				}
 				nss = append(nss, ns)
 			}
@@ -330,7 +333,6 @@ func BackupResolvConf() (*ResolvConfBackup, error) {
 	return &ResolvConfBackup{original: string(data), saved: true, nameservers: nss}, nil
 }
 
-// @sk-task transparent-proxy#T5.3: return original nameservers from resolv.conf backup
 func (b *ResolvConfBackup) Nameservers() []string {
 	return b.nameservers
 }
@@ -339,7 +341,7 @@ func (b *ResolvConfBackup) Restore() error {
 	if !b.saved {
 		return nil
 	}
-	return os.WriteFile(resolvConfPath, []byte(b.original), 0644) // #nosec G306
+	return os.WriteFile(resolvConfPath, []byte(b.original), 0o644) // #nosec G306
 }
 
 func OverrideResolvConf(addr string) error {
@@ -347,7 +349,7 @@ func OverrideResolvConf(addr string) error {
 	if err != nil {
 		host = addr
 	}
-	return os.WriteFile(resolvConfPath, []byte("nameserver "+host+"\n"), 0644) // #nosec G306
+	return os.WriteFile(resolvConfPath, []byte("nameserver "+host+"\n"), 0o644) // #nosec G306
 }
 
 func readNameserver() (string, error) {
@@ -362,7 +364,7 @@ func readNameserver() (string, error) {
 			if len(parts) >= 2 {
 				ns := parts[1]
 				if !strings.Contains(ns, ":") {
-					ns = ns + ":53"
+					ns += ":53"
 				}
 				return ns, nil
 			}

@@ -6,7 +6,7 @@ import (
 
 // buildDNSQuery builds a minimal IPv4 UDP DNS query packet for the given domain and qtype.
 func buildDNSQuery(domain string, qtype uint16) []byte {
-	var labels []byte
+	labels := make([]byte, 0, len(domain))
 	for _, label := range splitDomain(domain) {
 		labels = append(labels, byte(len(label)))
 		labels = append(labels, []byte(label)...)
@@ -45,9 +45,9 @@ func buildDNSQuery(domain string, qtype uint16) []byte {
 	qStart := dnsStart + 12
 	copy(pkt[qStart:], labels)
 	qtStart := qStart + len(labels)
-	pkt[qtStart+0] = byte(qtype >> 8)   // QTYPE
+	pkt[qtStart+0] = byte(qtype >> 8) // QTYPE
 	pkt[qtStart+1] = byte(qtype)
-	pkt[qtStart+2] = 0x00               // QCLASS=IN
+	pkt[qtStart+2] = 0x00 // QCLASS=IN
 	pkt[qtStart+3] = 0x01
 
 	return pkt

@@ -2,7 +2,7 @@ package client
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -22,11 +22,11 @@ import (
 )
 
 type Client struct {
-	cfg        *config.ClientConfig
-	logger     *zap.Logger
-	masterKey  []byte
-	tunDev     tun.TunDevice
-	dnsSrv     *dnsproxy.Server
+	cfg       *config.ClientConfig
+	logger    *zap.Logger
+	masterKey []byte
+
+	dnsSrv *dnsproxy.Server
 }
 
 func (c *Client) SetLogger(l *zap.Logger) {
@@ -35,7 +35,7 @@ func (c *Client) SetLogger(l *zap.Logger) {
 
 // @sk-task kvn-web#T2.2: NewFromConfig creates Client from existing config (AC-003)
 func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
-	logger, _, err := logger.New(cfg.Log.Level) //nolint:forbidigo
+	logger, _, err := logger.New(cfg.Log.Level) //nolint:forbidigo // allow logging before zap init
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func New() (*Client, error) {
 		return nil, err
 	}
 
-	logger, _, err := logger.New(cfg.Log.Level) //nolint:forbidigo
+	logger, _, err := logger.New(cfg.Log.Level) //nolint:forbidigo // allow logging before zap init
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (c *Client) Run(ctx context.Context) error {
 
 	tunDev := tun.NewTunDevice()
 	if err := tunDev.Open(); err != nil {
-		log.Fatalf("open tun: %v", err)
+		return fmt.Errorf("open tun: %w", err)
 	}
 	defer func() { _ = tunDev.Close() }()
 

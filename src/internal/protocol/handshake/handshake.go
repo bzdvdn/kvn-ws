@@ -76,7 +76,7 @@ func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 	pos := 4 + int(tokenLen)
 	if (data[1] & FlagMTU) != 0 {
 		if len(data) >= pos+2 {
-		hello.Mtu = int(binary.BigEndian.Uint16(data[pos:]))
+			hello.Mtu = int(binary.BigEndian.Uint16(data[pos:]))
 			pos += 2
 		}
 	}
@@ -247,13 +247,16 @@ func DecodeServerHello(frame *framing.Frame) (*ServerHello, error) {
 		if pos+length > len(data) {
 			break
 		}
-		if tag == CryptoTag {
+		switch tag {
+		case CryptoTag:
 			salt := make([]byte, length)
 			copy(salt, data[pos:pos+length])
 			hello.CryptoSalt = salt
-		} else if tag == GatewayTag && length == 4 {
-			hello.GatewayIp = net.IP(data[pos : pos+4]).To4()
-		} else if tag == TransportTag {
+		case GatewayTag:
+			if length == 4 {
+				hello.GatewayIp = net.IP(data[pos : pos+4]).To4()
+			}
+		case TransportTag:
 			hello.Transport = string(data[pos : pos+length])
 		}
 		pos += length

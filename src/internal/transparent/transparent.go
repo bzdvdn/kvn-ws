@@ -12,13 +12,13 @@ type TransparentManager interface {
 	Restore(ctx context.Context, logger *zap.Logger) error
 }
 
-type noopManager struct{}
+type noopManager struct{} //nolint:unused // used on !linux via transparent_stub.go
 
-func (m *noopManager) Set(_ context.Context, _ *zap.Logger, _ int, _ []string) error {
+func (m *noopManager) Set(_ context.Context, _ *zap.Logger, _ int, _ []string) error { //nolint:unused // used on !linux via transparent_stub.go
 	return nil
 }
 
-func (m *noopManager) Restore(_ context.Context, _ *zap.Logger) error {
+func (m *noopManager) Restore(_ context.Context, _ *zap.Logger) error { //nolint:unused // used on !linux via transparent_stub.go
 	return nil
 }
 

@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"go.uber.org/zap"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
 // @sk-test arch-refactoring#T4.1: dialStream tests (AC-004)

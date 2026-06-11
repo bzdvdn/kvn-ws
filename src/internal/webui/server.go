@@ -30,7 +30,7 @@ func New(port int) (*Server, error) {
 		return nil, err
 	}
 	configDir := filepath.Join(userCfgDir, "kvn")
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return nil, err
 	}
 

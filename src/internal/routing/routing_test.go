@@ -200,7 +200,7 @@ func TestBothExcludeAndInclude(t *testing.T) {
 // @sk-test dns-routing#T7.2: RuleSet MatchDomain exclude (AC-001)
 func TestRuleSetMatchDomainExclude(t *testing.T) {
 	cfg := &config.RoutingCfg{
-		DefaultRoute:  "server",
+		DefaultRoute:   "server",
 		ExcludeDomains: []string{".ru", ".ozon.ru"},
 	}
 	rs, err := NewRuleSet(cfg, nopLogger)
@@ -222,7 +222,7 @@ func TestRuleSetMatchDomainExclude(t *testing.T) {
 // @sk-test dns-routing#T7.2: RuleSet MatchDomain include (AC-002)
 func TestRuleSetMatchDomainInclude(t *testing.T) {
 	cfg := &config.RoutingCfg{
-		DefaultRoute:  "direct",
+		DefaultRoute:   "direct",
 		IncludeDomains: []string{".corp"},
 	}
 	rs, err := NewRuleSet(cfg, nopLogger)

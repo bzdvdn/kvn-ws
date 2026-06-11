@@ -24,9 +24,9 @@ type wrappedTimeoutErr struct {
 }
 
 func (e *wrappedTimeoutErr) Error() string   { return e.msg }
-func (e *wrappedTimeoutErr) Unwrap() error    { return e.err }
-func (e *wrappedTimeoutErr) Timeout() bool    { return true }
-func (e *wrappedTimeoutErr) Temporary() bool  { return false }
+func (e *wrappedTimeoutErr) Unwrap() error   { return e.err }
+func (e *wrappedTimeoutErr) Timeout() bool   { return true }
+func (e *wrappedTimeoutErr) Temporary() bool { return false }
 
 // @sk-test fix-critical-leaks#T6.1: TestTypeAssertionErrorsAs (AC-011)
 func TestTypeAssertionErrorsAs(t *testing.T) {

@@ -9,18 +9,14 @@ import (
 )
 
 func dnsQuery(domain string) []byte {
-	var buf []byte
-	// 12-byte header: ID=0x0001, flags=0x0100 (recursion desired),
-	// QDCOUNT=1, ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
 	header := []byte{0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	buf := make([]byte, 0, len(header)+len(domain)+len(domain)+8)
 	buf = append(buf, header...)
 	for _, label := range strings.Split(domain, ".") {
 		buf = append(buf, byte(len(label)))
 		buf = append(buf, []byte(label)...)
 	}
-	buf = append(buf, 0x00)          // terminator
-	buf = append(buf, 0x00, 0x01)    // QTYPE: A
-	buf = append(buf, 0x00, 0x01)    // QCLASS: IN
+	buf = append(buf, 0x00, 0x00, 0x01, 0x00, 0x01) // terminator + QTYPE A + QCLASS IN
 	return buf
 }
 
@@ -43,7 +39,7 @@ func TestReadNameserver(t *testing.T) {
 	defer func() { resolvConfPath = origPath }()
 
 	content := "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
-	if err := os.WriteFile(resolvConfPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(resolvConfPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -75,7 +71,7 @@ func TestReadNameserverEmptyNoNameserver(t *testing.T) {
 	resolvConfPath = filepath.Join(dir, "resolv.conf")
 	defer func() { resolvConfPath = origPath }()
 
-	if err := os.WriteFile(resolvConfPath, []byte("# no nameserver here\n"), 0644); err != nil {
+	if err := os.WriteFile(resolvConfPath, []byte("# no nameserver here\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +101,7 @@ func TestBackupResolvConfRestore(t *testing.T) {
 	defer func() { resolvConfPath = origPath }()
 
 	original := "nameserver 192.168.1.1\n"
-	if err := os.WriteFile(resolvConfPath, []byte(original), 0644); err != nil {
+	if err := os.WriteFile(resolvConfPath, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,7 +140,7 @@ func TestBackupResolvConfNameservers(t *testing.T) {
 	defer func() { resolvConfPath = origPath }()
 
 	content := "nameserver 10.0.0.1\nnameserver 10.0.0.2\n"
-	if err := os.WriteFile(resolvConfPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(resolvConfPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

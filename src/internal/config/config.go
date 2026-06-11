@@ -34,7 +34,7 @@ func (a *AtomicConfig[T]) Store(cfg *T) {
 }
 
 // @sk-task foundation#T2.3: config loader with viper (AC-006, AC-007)
-func load(path, prefix string, cfg interface{}) error {
+func load(path, prefix string, cfg interface{}) error { //nolint:unused // shared loader for server config
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetEnvPrefix(prefix)

@@ -23,7 +23,7 @@ func main() {
 	handshakeSpec := loadHandshake(handshakePath)
 
 	goDir := filepath.Join(repoRoot, "src")
-	kotlinDir := filepath.Join(repoRoot, "src/android/app/src/main/kotlin/com/kvn/client/protocol")
+	kotlinDir := filepath.Join(repoRoot, "src", "android", "app", "src", "main", "kotlin", "com", "kvn", "client", "protocol")
 
 	// Generate Go framing types
 	goFraming := filepath.Join(goDir, framesSpec.GoPkgRel())
@@ -91,25 +91,25 @@ func loadHandshake(path string) *HandshakeSpec {
 }
 
 func mkdirAll(dir string) {
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		log.Fatalf("mkdir %s: %v", dir, err)
 	}
 }
 
-func writeFile(path string, content string) {
+func writeFile(path, content string) {
 	// #nosec G306 — generated source files need to be readable
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		log.Fatalf("write %s: %v", path, err)
 	}
 }
 
 type FramesSpec struct {
-	Package       string            `yaml:"package"`
-	GoPkg         string            `yaml:"go_package"`
-	KotlinPkg     string            `yaml:"kotlin_package"`
-	FrameTypes    map[string]int    `yaml:"frame_types"`
-	FrameFlags    map[string]int    `yaml:"frame_flags"`
-	Frame         FrameDef          `yaml:"frame"`
+	Package    string         `yaml:"package"`
+	GoPkg      string         `yaml:"go_package"`
+	KotlinPkg  string         `yaml:"kotlin_package"`
+	FrameTypes map[string]int `yaml:"frame_types"`
+	FrameFlags map[string]int `yaml:"frame_flags"`
+	Frame      FrameDef       `yaml:"frame"`
 }
 
 func (s *FramesSpec) GoPkgRel() string {
@@ -137,15 +137,15 @@ type FrameFieldDef struct {
 }
 
 type HandshakeSpec struct {
-	Package        string           `yaml:"package"`
-	GoPkg          string           `yaml:"go_package"`
-	KotlinPkg      string           `yaml:"kotlin_package"`
-	ProtoVersion   int              `yaml:"protocol_version"`
-	SessionIDLen   int              `yaml:"session_id_len"`
-	Constants      []ConstDef       `yaml:"constants"`
-	ClientHello    MessageDef       `yaml:"client_hello"`
-	ServerHello    MessageDef       `yaml:"server_hello"`
-	AuthError      MessageDef       `yaml:"auth_error"`
+	Package      string     `yaml:"package"`
+	GoPkg        string     `yaml:"go_package"`
+	KotlinPkg    string     `yaml:"kotlin_package"`
+	ProtoVersion int        `yaml:"protocol_version"`
+	SessionIDLen int        `yaml:"session_id_len"`
+	Constants    []ConstDef `yaml:"constants"`
+	ClientHello  MessageDef `yaml:"client_hello"`
+	ServerHello  MessageDef `yaml:"server_hello"`
+	AuthError    MessageDef `yaml:"auth_error"`
 }
 
 func (s *HandshakeSpec) GoPkgRel() string {
@@ -164,8 +164,8 @@ type ConstDef struct {
 }
 
 type MessageDef struct {
-	Name   string       `yaml:"name"`
-	Fields []FieldDef   `yaml:"fields"`
+	Name   string     `yaml:"name"`
+	Fields []FieldDef `yaml:"fields"`
 }
 
 type FieldDef struct {
@@ -176,12 +176,12 @@ type FieldDef struct {
 func generateGoFraming(spec *FramesSpec) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("// Code generated from protocol/frames.yaml. DO NOT EDIT.\n"))
+	b.WriteString("// Code generated from protocol/frames.yaml. DO NOT EDIT.\n")
 	b.WriteString(fmt.Sprintf("package %s\n\n", spec.Package))
 	b.WriteString("import \"errors\"\n\n")
 
 	// Frame type constants
-	b.WriteString(fmt.Sprintf("// @sk-task kvn-android#T1.1: protocol frame types (AC-004)\n"))
+	b.WriteString("// @sk-task kvn-android#T1.1: protocol frame types (AC-004)\n")
 	b.WriteString("const (\n")
 	for _, name := range sortedKeys(spec.FrameTypes) {
 		b.WriteString(fmt.Sprintf("\t%s = 0x%02X\n", name, spec.FrameTypes[name]))
@@ -218,7 +218,7 @@ func generateGoFraming(spec *FramesSpec) string {
 func generateGoHandshake(spec *HandshakeSpec) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("// Code generated from protocol/handshake.yaml. DO NOT EDIT.\n"))
+	b.WriteString("// Code generated from protocol/handshake.yaml. DO NOT EDIT.\n")
 	b.WriteString(fmt.Sprintf("package %s\n\n", spec.Package))
 	b.WriteString("import \"net\"\n\n")
 
@@ -260,7 +260,7 @@ func generateGoHandshake(spec *HandshakeSpec) string {
 func generateKotlinFrames(frames *FramesSpec, handshake *HandshakeSpec) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("// Code generated from protocol/frames.yaml. DO NOT EDIT.\n"))
+	b.WriteString("// Code generated from protocol/frames.yaml. DO NOT EDIT.\n")
 	b.WriteString(fmt.Sprintf("package %s\n\n", frames.KotlinPkg))
 
 	b.WriteString("// @sk-task kvn-android#T1.1: Kotlin frame type constants (AC-004)\n")
@@ -301,7 +301,7 @@ func generateKotlinFrames(frames *FramesSpec, handshake *HandshakeSpec) string {
 func generateKotlinHandshake(spec *HandshakeSpec) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("// Code generated from protocol/handshake.yaml. DO NOT EDIT.\n"))
+	b.WriteString("// Code generated from protocol/handshake.yaml. DO NOT EDIT.\n")
 	b.WriteString(fmt.Sprintf("package %s\n\n", spec.KotlinPkg))
 
 	// @sk-task kvn-android#T5.19: Kotlin handshake constants (AC-004)
@@ -442,7 +442,7 @@ func kotlinConstName(name string) string {
 }
 
 func lowerFirst(s string) string {
-	if len(s) == 0 {
+	if s == "" {
 		return s
 	}
 	return strings.ToLower(string(s[0])) + s[1:]
@@ -450,8 +450,7 @@ func lowerFirst(s string) string {
 
 func sortedKeys(m interface{}) []string {
 	var keys []string
-	switch v := m.(type) {
-	case map[string]int:
+	if v, ok := m.(map[string]int); ok {
 		for k := range v {
 			keys = append(keys, k)
 		}
