@@ -146,6 +146,30 @@ class QrConfigTest {
         assertEquals("x.com", config!!.serverAddress)
     }
 
+    // @sk-test: parse kvn-web config with null routing slices (Go nil slice serialization)
+    @Test
+    fun testParseWebWithNullRoutingSlices() {
+        val jsonStr = """{
+            "server": "wss://example.com:443/kvn",
+            "transport": "tcp",
+            "auth": {"token": "tok"},
+            "tls": {"verify_mode": "verify", "server_name": "", "sni": null},
+            "mtu": 1400, "ipv6": false, "auto_reconnect": true,
+            "routing": {"default_route": "server", "include_ranges": null, "exclude_ranges": null, "include_ips": null, "exclude_ips": null, "include_domains": null, "exclude_domains": null},
+            "kill_switch": null, "reconnect": null,
+            "mode": "tun", "crypto": {"enabled": false, "key": ""},
+            "max_message_size": 65535
+        }"""
+        val config = parseQrConfig(jsonStr)
+        assertNotNull(config)
+        assertEquals("example.com", config!!.serverAddress)
+        assertEquals(443, config.port)
+        assertEquals("/kvn", config.serverPath)
+        assertEquals(emptyList<String>(), config.routingIncludeRanges)
+        assertEquals(emptyList<String>(), config.routingExcludeRanges)
+        assertEquals(emptyList<String>(), config.tlsSni)
+    }
+
     // @sk-test: parse kvn-web full config with URL, nested obfuscation, null kill_switch
     @Test
     fun testParseWebFullConfig() {
