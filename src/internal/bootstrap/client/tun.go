@@ -18,6 +18,18 @@ import (
 )
 
 // @sk-task arch-refactoring#T3.1: use common dialStream (AC-004)
+// @sk-task domain-routing: resolve server hostname for exclude route
+func resolveServerIP(host string) net.IP {
+	addrs, err := net.LookupHost(host)
+	if err != nil || len(addrs) == 0 {
+		return nil
+	}
+	if ip := net.ParseIP(addrs[0]); ip != nil {
+		return ip
+	}
+	return nil
+}
+
 func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 	minBackoff, maxBackoff := parseBackoff(c.cfg.Reconnect)
 
@@ -159,6 +171,14 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 						bits = 128
 					}
 					excludeCIDRs = append(excludeCIDRs, host+"/"+strconv.Itoa(bits))
+				} else {
+					if resolved := resolveServerIP(host); resolved != nil {
+						bits := 32
+						if resolved.To4() == nil {
+							bits = 128
+						}
+						excludeCIDRs = append(excludeCIDRs, resolved.String()+"/"+strconv.Itoa(bits))
+					}
 				}
 			}
 			if c.cfg.Routing != nil {

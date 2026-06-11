@@ -175,6 +175,9 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		}
 	}
 	cfg.Routing.ExcludeRanges = unique
+	if len(cfg.TLS.SNI) > 0 && cfg.TLS.VerifyMode == "verify" {
+		log.Printf("[config] WARNING: tls.sni=%v with verify_mode=verify will fail — SNI domain doesn't match server certificate. Set verify_mode=insecure when using custom SNI.", cfg.TLS.SNI)
+	}
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		cfg.Crypto.Enabled = false
 	}

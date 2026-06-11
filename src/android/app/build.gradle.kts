@@ -1,4 +1,6 @@
 // @sk-task kvn-android#T1.3: Android app module (AC-001)
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -8,6 +10,20 @@ plugins {
 android {
     namespace = "com.kvn.client"
     compileSdk = 35
+
+    signingConfigs {
+        create("release") {
+            val keystoreProps = rootProject.file("keystore.properties")
+            if (keystoreProps.exists()) {
+                val props = Properties()
+                props.load(keystoreProps.inputStream())
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.kvn.client"
@@ -33,6 +49,21 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+
+base {
+    archivesName = "kvn-client"
 }
 
 dependencies {

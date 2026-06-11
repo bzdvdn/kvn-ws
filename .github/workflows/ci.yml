@@ -72,15 +72,29 @@ jobs:
         run: |
           cd src/android
           gradle wrapper --gradle-version 8.5
-      - name: Build APK
+      - name: Generate debug keystore for CI
+        run: |
+          keytool -genkey -v \
+            -keystore /tmp/kvn-ci.keystore \
+            -alias kvn -keyalg RSA -keysize 2048 \
+            -validity 365 \
+            -storepass android -keypass android \
+            -dname "CN=KVN-CI, OU=CI, O=KVN, L=Unknown, ST=Unknown, C=Unknown"
+          cat > src/android/keystore.properties <<EOF
+          storePassword=android
+          keyPassword=android
+          keyAlias=kvn
+          storeFile=/tmp/kvn-ci.keystore
+          EOF
+      - name: Build APK (release)
         run: |
           cd src/android
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: kvn-android-apk
-          path: src/android/app/build/outputs/apk/debug/app-debug.apk
+          path: src/android/app/build/outputs/apk/release/kvn-client-release.apk
           retention-days: 30
 
   release:

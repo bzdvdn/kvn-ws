@@ -23,12 +23,21 @@ import (
 )
 
 func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg websocket.WSConfig) {
+	if !isWebSocketRequest(r) {
+		http.Error(w, "404 not found", http.StatusNotFound)
+		return
+	}
 	wsConn, err := websocket.Accept(w, r, s.logger, s.originChecker, wsCfg)
 	if err != nil {
 		s.logger.Error("ws upgrade", zap.Error(err))
 		return
 	}
 	s.handleStream(r.Context(), wsConn, wsCfg.MTU, r.RemoteAddr)
+}
+
+// @sk-task decoy-hardening: return 404 for non-WebSocket requests
+func isWebSocketRequest(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
 // @sk-task whitelist-obfuscation#T2.2: WS path allowlist check (AC-003)

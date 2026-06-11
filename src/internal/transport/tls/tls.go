@@ -150,6 +150,7 @@ func DialWithUTLS(network, addr string, tlsCfg *tls.Config, fallback bool) (net.
 		InsecureSkipVerify: tlsCfg.InsecureSkipVerify,
 		RootCAs:            tlsCfg.RootCAs,
 		MinVersion:         tlsCfg.MinVersion,
+		NextProtos:         tlsCfg.NextProtos,
 	}
 
 	uconn := utls.UClient(rawConn, utlsCfg, randomPreset())

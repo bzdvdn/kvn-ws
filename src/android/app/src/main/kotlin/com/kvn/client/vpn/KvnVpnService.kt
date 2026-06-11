@@ -1,5 +1,8 @@
 package com.kvn.client.vpn
 
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.LinkProperties
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -220,9 +223,6 @@ class KvnVpnService : VpnService() {
                     if (hostname == config.serverAddress && preResolvedServerIps != null) {
                         return preResolvedServerIps!!
                     }
-                    if (hostname == config.serverAddress) {
-                        throw java.net.UnknownHostException("DNS not resolved before VPN")
-                    }
                     return okhttp3.Dns.SYSTEM.lookup(hostname)
                 }
             })
@@ -344,11 +344,30 @@ class KvnVpnService : VpnService() {
     private fun computeVpnRoutes(include: List<String>, exclude: List<String>): List<Pair<InetAddress, Int>> {
         val effectiveExclude = exclude.toMutableList()
         // Always exclude the server IP from VPN to prevent routing loop
-        if (preResolvedServerIps != null) {
-            for (ip in preResolvedServerIps!!) {
-                val host = ip.hostAddress
-                if (host != null && effectiveExclude.none { it.startsWith("$host/") || it == host }) {
-                    effectiveExclude.add("$host/32")
+        val serverIps = preResolvedServerIps ?: try {
+            InetAddress.getAllByName(config.serverAddress).toList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        for (ip in serverIps) {
+            val host = ip.hostAddress
+            if (host != null && effectiveExclude.none { it.startsWith("$host/") || it == host }) {
+                effectiveExclude.add("$host/32")
+            }
+        }
+        // Exclude current network gateways (WiFi / mobile carrier)
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = cm?.activeNetwork
+        val caps = if (network != null) cm.getNetworkCapabilities(network) else null
+        val lp = if (network != null) cm.getLinkProperties(network) else null
+        if (lp != null) {
+            val isCellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ?: false
+            for (route in lp.routes) {
+                if (!route.hasGateway()) continue
+                val gw = route.gateway ?: continue
+                if (gw.isLoopbackAddress || gw.isLinkLocalAddress || gw is java.net.Inet6Address) continue
+                if (isCellular) {
+                    effectiveExclude.add("${gw.hostAddress}/32")
                 }
             }
         }
