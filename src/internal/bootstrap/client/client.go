@@ -120,11 +120,16 @@ func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
 
 // @sk-task system-proxy#T2.1: integrate system proxy with client lifecycle (AC-001, AC-002, AC-003, AC-007)
 // @sk-task transparent-proxy#T3.1: integrate transparent proxy + DNS proxy (AC-001, AC-005, AC-008, AC-009)
+// @sk-task client-relay-mode#T2.1: relay mode branch (AC-003)
 func (c *Client) Run(ctx context.Context) error {
 	defer c.logger.Info("client stopped")
 
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+
+	if c.cfg.Mode == "relay" {
+		return c.runRelayMode(ctx)
+	}
 
 	if c.cfg.Mode == "proxy" {
 		if c.cfg.SystemProxy != nil && *c.cfg.SystemProxy {

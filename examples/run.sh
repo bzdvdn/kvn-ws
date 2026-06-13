@@ -29,6 +29,7 @@ rm -f certs/server.csr certs/ca-key.pem certs/ca.srl
 echo "TLS certificate generated in ./certs (ca.pem, server.pem, server-key.pem)"
 
 # Start services
+docker compose build
 docker compose up -d
 
 echo "Waiting for client connection..."

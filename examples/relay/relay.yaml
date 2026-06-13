@@ -1,0 +1,11 @@
+mode: relay
+server: wss://server:443/tunnel
+relay:
+  listen: 0.0.0.0:8443
+  ws_paths:
+    - /tunnel
+  max_connections: 200
+tls:
+  verify_mode: insecure
+log:
+  level: info

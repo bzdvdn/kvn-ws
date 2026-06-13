@@ -35,3 +35,10 @@ routing:
   exclude_ips: []
   include_domains: []
   exclude_domains: []
+
+# mode: relay
+# relay:
+#   listen: 0.0.0.0:8443
+#   ws_paths:
+#     - /tunnel
+#   max_connections: 100

@@ -34,7 +34,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/proxy/` — SOCKS5 + HTTP CONNECT proxy listener for local proxy mode
 - `src/internal/acl/` — CIDR-based ACL (radix tree matcher, allow/deny lists)
 - `src/internal/admin/` — Admin API server (chi router, session mgmt, pprof)
-- `src/internal/bootstrap/client/` — Client bootstrap (dial, reconnect, kill switch, proxy, TUN)
+- `src/internal/bootstrap/client/` — Client bootstrap (dial, reconnect, kill switch, proxy, TUN, relay)
 - `src/internal/bootstrap/server/` — Server bootstrap (handler, lifecycle, graceful shutdown)
 - `src/internal/ratelimit/` — IP-based rate limiter (token bucket per IP/session)
 - `src/internal/systemproxy/` — Platform-specific system proxy manager (Linux env vars, macOS networksetup, Windows registry)
@@ -78,6 +78,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `examples/client.yaml` — standalone client config example
 - `examples/server.yaml` — standalone server config example
 - `examples/run.sh` — TLS gen + docker compose up script
+- `examples/relay/` — relay mode docker-compose example (relay→server→client)
 - `README.md` — root readme with badges, quickstart, doc links
 - `CHANGELOG.md` — version history (Keep a Changelog)
 - `docs/en/` — English documentation
@@ -88,7 +89,8 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Core tunnel logic — `src/internal/tun/`, `src/internal/tunnel/`, `src/internal/transport/{websocket,quic,framing}/*`, `src/internal/protocol/*`
 - Routing/rules — `src/internal/routing/`, `src/internal/nat/`, `src/internal/dns/`, `src/internal/acl/`
 - Session/auth — `src/internal/session/`, `src/internal/protocol/auth/`, `src/internal/logger/`
-- Client bootstrap — `src/internal/bootstrap/client/`
+- Client bootstrap (TUN/proxy) — `src/internal/bootstrap/client/`
+- Relay mode — `src/internal/bootstrap/client/relay.go`, `src/internal/config/client.go` (RelayCfg)
 - Server bootstrap — `src/internal/bootstrap/server/`
 - Admin API — `src/internal/admin/`
 - Config changes — `src/internal/config/`

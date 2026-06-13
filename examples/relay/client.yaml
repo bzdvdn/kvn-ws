@@ -1,0 +1,20 @@
+mode: tun
+server: wss://relay:8443/tunnel
+transport: tcp
+obfuscation:
+  enabled: true
+  utls:
+    enabled: true
+    fallback: true
+  padding:
+    enabled: true
+    size: 512
+auth:
+  token: your-token-here
+tls:
+  verify_mode: insecure
+mtu: 1400
+ipv6: false
+auto_reconnect: true
+log:
+  level: info

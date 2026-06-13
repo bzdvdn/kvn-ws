@@ -22,6 +22,7 @@ import (
 // @sk-task arch-refactoring#T1.1: add MaxMessageSize, TunnelTimeout, ProxyMaxConcurrency fields (AC-006)
 // @sk-task system-proxy#T1.2: add SystemProxy field (AC-001)
 // @sk-task transparent-proxy#T1.1: add Transparent and DNSProxyCfg fields (AC-001, AC-008, AC-009)
+// @sk-task client-relay-mode#T1.1: add Relay field (AC-003)
 type ClientConfig struct {
 	Server              string          `json:"server" mapstructure:"server"`
 	Transport           string          `json:"transport" mapstructure:"transport"`
@@ -46,6 +47,21 @@ type ClientConfig struct {
 	SystemProxy         *bool           `json:"system_proxy" mapstructure:"system_proxy"`
 	Transparent         bool            `json:"transparent" mapstructure:"transparent"`
 	DNSProxy            DNSProxyCfg     `json:"dns_proxy" mapstructure:"dns_proxy"`
+	Relay               *RelayCfg       `json:"relay,omitempty" mapstructure:"relay"`
+}
+
+// @sk-task client-relay-mode#T1.1: relay config struct (AC-003)
+type RelayCfg struct {
+	Listen         string        `json:"listen" mapstructure:"listen"`
+	WSPaths        []string      `json:"ws_paths,omitempty" mapstructure:"ws_paths"`
+	MaxConnections int           `json:"max_connections" mapstructure:"max_connections"`
+	TLS            *RelayTLSCfg  `json:"tls,omitempty" mapstructure:"tls"`
+}
+
+// @sk-task client-relay-mode#T1.1: relay TLS config (AC-003)
+type RelayTLSCfg struct {
+	Cert string `json:"cert" mapstructure:"cert"`
+	Key  string `json:"key" mapstructure:"key"`
 }
 
 type DNSProxyCfg struct {
@@ -197,6 +213,24 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	}
 	if cfg.DNSProxy.Upstream == "" {
 		cfg.DNSProxy.Upstream = "1.1.1.1:53"
+	}
+
+	// @sk-task client-relay-mode#T1.1: relay config defaults and validation (AC-003)
+	if cfg.Mode == "relay" {
+		if cfg.Relay == nil {
+			return nil, fmt.Errorf("mode is 'relay' but relay config block is missing")
+		}
+		if cfg.Relay.Listen == "" {
+			return nil, fmt.Errorf("relay.listen is required when mode is 'relay'")
+		}
+		if cfg.Relay.MaxConnections <= 0 {
+			cfg.Relay.MaxConnections = 100
+		}
+		if len(cfg.Relay.WSPaths) == 0 {
+			cfg.Relay.WSPaths = []string{"/tunnel"}
+		}
+	} else if cfg.Relay != nil {
+		log.Println("[config] WARNING: relay config block present but mode is not 'relay', ignoring")
 	}
 
 	// @sk-task production-readiness-gap#T1: warn when secrets come from config file (AC-001)

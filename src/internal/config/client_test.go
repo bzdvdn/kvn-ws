@@ -191,3 +191,87 @@ server: wss://example.com/tunnel
 		t.Fatal("Obfuscation = non-nil when not in config, want nil")
 	}
 }
+
+// @sk-test client-relay-mode#T4.1: relay mode without relay block (AC-003)
+func TestRelayModeMissingBlock(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+mode: relay
+`)
+	_, err := LoadClientConfig(path)
+	if err == nil {
+		t.Fatal("LoadClientConfig: expected error for mode=relay without relay block")
+	}
+}
+
+// @sk-test client-relay-mode#T4.1: relay mode with valid config (AC-003)
+func TestRelayModeValidConfig(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+mode: relay
+relay:
+  listen: 0.0.0.0:443
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.Relay == nil {
+		t.Fatal("Relay is nil, want non-nil")
+	}
+	if cfg.Relay.Listen != "0.0.0.0:443" {
+		t.Fatalf("Relay.Listen = %q, want %q", cfg.Relay.Listen, "0.0.0.0:443")
+	}
+	if cfg.Relay.MaxConnections != 100 {
+		t.Fatalf("Relay.MaxConnections = %d, want 100", cfg.Relay.MaxConnections)
+	}
+	if len(cfg.Relay.WSPaths) != 1 || cfg.Relay.WSPaths[0] != "/tunnel" {
+		t.Fatalf("Relay.WSPaths = %v, want [\"/tunnel\"]", cfg.Relay.WSPaths)
+	}
+}
+
+// @sk-test client-relay-mode#T4.1: relay mode with full custom config (AC-003)
+func TestRelayModeCustomConfig(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+mode: relay
+relay:
+  listen: 0.0.0.0:8443
+  ws_paths:
+    - /api/v1/events
+  max_connections: 200
+  tls:
+    cert: /etc/relay/cert.pem
+    key: /etc/relay/key.pem
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.Relay.Listen != "0.0.0.0:8443" {
+		t.Fatalf("Relay.Listen = %q, want %q", cfg.Relay.Listen, "0.0.0.0:8443")
+	}
+	if len(cfg.Relay.WSPaths) != 1 || cfg.Relay.WSPaths[0] != "/api/v1/events" {
+		t.Fatalf("Relay.WSPaths = %v, want [\"/api/v1/events\"]", cfg.Relay.WSPaths)
+	}
+	if cfg.Relay.MaxConnections != 200 {
+		t.Fatalf("Relay.MaxConnections = %d, want 200", cfg.Relay.MaxConnections)
+	}
+	if cfg.Relay.TLS == nil || cfg.Relay.TLS.Cert != "/etc/relay/cert.pem" || cfg.Relay.TLS.Key != "/etc/relay/key.pem" {
+		t.Fatal("Relay.TLS config mismatch")
+	}
+}
+
+// @sk-test client-relay-mode#T4.1: relay mode missing listen (AC-003)
+func TestRelayModeMissingListen(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+mode: relay
+relay:
+  max_connections: 50
+`)
+	_, err := LoadClientConfig(path)
+	if err == nil {
+		t.Fatal("LoadClientConfig: expected error for missing relay.listen")
+	}
+}
