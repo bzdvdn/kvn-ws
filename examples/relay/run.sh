@@ -30,9 +30,31 @@ fi
 cd examples/relay
 docker compose up -d
 
-echo "Waiting for relay and client..."
+echo "Waiting for relay and clients..."
 sleep 4
-docker compose logs client | grep -q "handshake complete" && \
-  echo "SUCCESS: client -> relay -> server tunnel established" || \
-  echo "Check logs: docker compose logs client"
+
+ws_ok=false
+quic_ok=false
+
+if docker compose logs client | grep -q "handshake complete"; then
+  echo "SUCCESS: WS client -> relay -> server tunnel established"
+  ws_ok=true
+else
+  echo "WARN: WS client tunnel not established (check logs: docker compose logs client)"
+fi
+
+if docker compose logs quic-client | grep -q "handshake complete"; then
+  echo "SUCCESS: QUIC client -> relay -> server tunnel established"
+  quic_ok=true
+else
+  echo "WARN: QUIC client tunnel not established (check logs: docker compose logs quic-client)"
+fi
+
+if [ "$ws_ok" = false ] && [ "$quic_ok" = false ]; then
+  echo "FAIL: no clients connected"
+  docker compose logs
+  docker compose down -v
+  exit 1
+fi
+
 docker compose down -v

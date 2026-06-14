@@ -275,3 +275,72 @@ relay:
 		t.Fatal("LoadClientConfig: expected error for missing relay.listen")
 	}
 }
+
+// @sk-test quic-relay-mode#T4.1: valid quic config (AC-003)
+func TestRelayQUICValid(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+mode: relay
+relay:
+  listen: 0.0.0.0:8443
+  quic:
+    keep_alive: 10
+    idle_timeout: 60
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.Relay.Quic == nil {
+		t.Fatal("Relay.Quic is nil, want non-nil")
+	}
+	if cfg.Relay.Quic.KeepAlive != 10 {
+		t.Fatalf("Relay.Quic.KeepAlive = %d, want 10", cfg.Relay.Quic.KeepAlive)
+	}
+	if cfg.Relay.Quic.IdleTimeout != 60 {
+		t.Fatalf("Relay.Quic.IdleTimeout = %d, want 60", cfg.Relay.Quic.IdleTimeout)
+	}
+}
+
+// @sk-test quic-relay-mode#T4.1: idle_timeout=0 returns error (AC-003)
+func TestRelayQUICIdleTimeoutZero(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+mode: relay
+relay:
+  listen: 0.0.0.0:8443
+  quic:
+    keep_alive: 10
+    idle_timeout: 0
+`)
+	_, err := LoadClientConfig(path)
+	if err == nil {
+		t.Fatal("LoadClientConfig: expected error for idle_timeout=0")
+	}
+}
+
+// @sk-test quic-relay-mode#T4.1: keep_alive defaults to 7 (AC-003)
+func TestRelayQUICDefaults(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+mode: relay
+relay:
+  listen: 0.0.0.0:8443
+  quic:
+    keep_alive: 0
+    idle_timeout: 30
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.Relay.Quic == nil {
+		t.Fatal("Relay.Quic is nil, want non-nil")
+	}
+	if cfg.Relay.Quic.KeepAlive != 7 {
+		t.Fatalf("Relay.Quic.KeepAlive = %d, want 7 (default)", cfg.Relay.Quic.KeepAlive)
+	}
+	if cfg.Relay.Quic.IdleTimeout != 30 {
+		t.Fatalf("Relay.Quic.IdleTimeout = %d, want 30", cfg.Relay.Quic.IdleTimeout)
+	}
+}

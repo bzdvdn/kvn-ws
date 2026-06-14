@@ -168,6 +168,53 @@ tunnel_timeout: 30
 proxy_max_concurrency: 1000
 ```
 
+## Relay config (`mode: relay`)
+
+When `mode: relay`, the client acts as an intermediary node that accepts WebSocket (TCP) and optionally QUIC (UDP) incoming connections and proxies them to the upstream server.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `relay.listen` | string | — | Address and port for incoming connections (required) |
+| `relay.ws_paths` | []string | `["/tunnel"]` | Allowed WebSocket paths (404 if not in list) |
+| `relay.max_connections` | int | `100` | Max concurrent incoming connections (shared for WS and QUIC) |
+| `relay.tls.cert` | string | auto (self-signed) | Path to TLS certificate for WS and QUIC |
+| `relay.tls.key` | string | auto (self-signed) | Path to private key |
+| `relay.quic.keep_alive` | int | `7` | QUIC KeepAlive period in seconds |
+| `relay.quic.idle_timeout` | int | — | QUIC idle timeout in seconds (required, >0) |
+
+### Example
+
+```yaml
+mode: relay
+server: wss://vpn.example.com/tunnel
+relay:
+  listen: 0.0.0.0:8443
+  ws_paths:
+    - /tunnel
+  max_connections: 200
+  quic:
+    keep_alive: 7
+    idle_timeout: 60
+tls:
+  verify_mode: insecure
+log:
+  level: info
+```
+
+### Client connecting through QUIC relay
+
+```yaml
+mode: tun
+server: quic://relay:8443
+transport: quic
+auth:
+  token: your-token
+tls:
+  verify_mode: insecure
+```
+
+See also: [relay.md](relay.md)
+
 ## Environment variables
 
 All config keys can be overridden by environment variables with the `KVN_SERVER_` / `KVN_CLIENT_` prefix and dots replaced by underscores:

@@ -1,14 +1,8 @@
 mode: tun
 server: wss://relay:8443/tunnel
 transport: tcp
-obfuscation:
-  enabled: true
-  utls:
-    enabled: true
-    fallback: true
-  padding:
-    enabled: true
-    size: 512
+# Obfuscation disabled — relay is an opaque pipe; padding would be forwarded upstream
+# and corrupt frame decoding on the server side.
 auth:
   token: your-token-here
 tls:

@@ -5,6 +5,9 @@ relay:
   ws_paths:
     - /tunnel
   max_connections: 200
+  quic:
+    keep_alive: 7
+    idle_timeout: 60
 tls:
   verify_mode: insecure
 log:

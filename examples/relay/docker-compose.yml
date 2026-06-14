@@ -21,6 +21,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8443:8443"
+      - "8443:8443/udp"
     depends_on:
       - server
     entrypoint: ["/usr/local/bin/client"]
@@ -43,6 +44,23 @@ services:
     volumes:
       - /dev/net/tun:/dev/net/tun
       - ./client.yaml:/etc/kvn-ws/client.yaml
+      - ../certs:/etc/kvn-ws/certs:ro
+    command: ["--config", "/etc/kvn-ws/client.yaml"]
+    restart: unless-stopped
+
+  quic-client:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      - relay
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    entrypoint: ["/usr/local/bin/client"]
+    volumes:
+      - /dev/net/tun:/dev/net/tun
+      - ./quic-client.yaml:/etc/kvn-ws/client.yaml
       - ../certs:/etc/kvn-ws/certs:ro
     command: ["--config", "/etc/kvn-ws/client.yaml"]
     restart: unless-stopped

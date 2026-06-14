@@ -3,10 +3,7 @@ transport: tcp
 ws_paths:
   - /tunnel
 obfuscation:
-  enabled: true
-  padding:
-    enabled: true
-    size: 512
+  enabled: false
 tls:
   cert: /etc/kvn-ws/certs/server.pem
   key: /etc/kvn-ws/certs/server-key.pem

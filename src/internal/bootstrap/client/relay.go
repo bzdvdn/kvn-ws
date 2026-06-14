@@ -15,68 +15,117 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quic-go/quic-go"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/control"
 )
 
 // @sk-task client-relay-mode#T2.1: relay mode entry point (AC-003)
 // @sk-task client-relay-mode#T3.1: max_connections semaphore (RQ-011)
+// @sk-task quic-relay-mode#T2.1: dual listener via errgroup (AC-001)
+// @sk-task quic-relay-mode#T3.1: QUIC accept loop (AC-001)
 func (c *Client) runRelayMode(ctx context.Context) error {
 	tlsCfg, err := c.relayTLSConfig()
 	if err != nil {
 		return fmt.Errorf("relay tls: %w", err)
 	}
 
-	listener, err := tls.Listen("tcp", c.cfg.Relay.Listen, tlsCfg)
+	tlsListener, err := tls.Listen("tcp", c.cfg.Relay.Listen, tlsCfg)
 	if err != nil {
-		return fmt.Errorf("relay listen: %w", err)
+		return fmt.Errorf("relay tls listen: %w", err)
 	}
-	defer listener.Close()
+	defer tlsListener.Close()
 
 	c.logger.Info("relay listening", zap.String("addr", c.cfg.Relay.Listen))
 
-	maxConns := c.cfg.Relay.MaxConnections
-	sem := make(chan struct{}, maxConns)
+	sem := make(chan struct{}, c.cfg.Relay.MaxConnections)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case sem <- struct{}{}:
-			defer func() { <-sem }()
-		default:
-		http.Error(w, "403 forbidden", http.StatusForbidden)
-			return
-		}
-		c.relayHandler(w, r)
-	})
+	eg, egCtx := errgroup.WithContext(ctx)
 
 	srv := &http.Server{
-		Handler:           mux,
+		Handler:           c.relayServeMux(sem),
 		ReadHeaderTimeout: 20 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 
-	errCh := make(chan error, 1)
-	go func() {
-		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+	eg.Go(func() error {
+		if err := srv.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
+			return err
 		}
-	}()
+		return nil
+	})
 
-	select {
-	case <-ctx.Done():
+	if c.cfg.Relay.Quic != nil {
+		quicCfg := &quic.Config{
+			KeepAlivePeriod: time.Duration(c.cfg.Relay.Quic.KeepAlive) * time.Second,
+			MaxIdleTimeout:  time.Duration(c.cfg.Relay.Quic.IdleTimeout) * time.Second,
+		}
+		quicListener, err := quictp.Listen(c.cfg.Relay.Listen, tlsCfg, quicCfg)
+		if err != nil {
+			return fmt.Errorf("relay quic listen: %w", err)
+		}
+		defer quicListener.Close()
+
+		c.logger.Info("quic relay listening", zap.String("addr", c.cfg.Relay.Listen))
+
+		eg.Go(func() error {
+			return c.runRelayQUICAccept(egCtx, quicListener, sem)
+		})
+	}
+
+	eg.Go(func() error {
+		<-egCtx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
-	case err := <-errCh:
-		return err
+	})
+
+	return eg.Wait()
+}
+
+// @sk-task quic-relay-mode#T3.1: QUIC accept loop (AC-001, AC-005)
+func (c *Client) runRelayQUICAccept(ctx context.Context, listener *quictp.Listener, sem chan struct{}) error {
+	for {
+		quicConn, err := listener.Accept(ctx)
+		if err != nil {
+			return err
+		}
+		select {
+		case sem <- struct{}{}:
+		default:
+			c.logger.Warn("relay: max connections reached, rejecting quic client")
+			_ = quicConn.Close()
+			continue
+		}
+		go func(conn transport.StreamConn) {
+			defer func() { <-sem }()
+			c.bridgeRelayConn(ctx, conn, fmt.Sprintf("quic-stream-%d", conn.(*quictp.QUICConn).StreamID()))
+		}(quicConn)
 	}
+}
+
+// @sk-task quic-relay-mode#T2.1: relay HTTP mux with WS handler and global semaphore (AC-001)
+func (c *Client) relayServeMux(sem chan struct{}) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		default:
+			http.Error(w, "403 forbidden", http.StatusForbidden)
+			return
+		}
+		c.relayHandler(w, r)
+	})
+	return mux
 }
 
 // @sk-task client-relay-mode#T3.1: self-signed TLS fallback (AC-003)
@@ -198,6 +247,8 @@ func (c *Client) bridgeRelayConn(ctx context.Context, clientConn transport.Strea
 		return
 	}
 	defer func() { _ = upstreamConn.Close() }()
+
+	c.logger.Debug("relay: forwarding clientHello", zap.Int("len", len(clientHello)))
 
 	if err := upstreamConn.WriteMessage(clientHello); err != nil {
 		c.logger.Warn("relay: forward client hello failed", zap.Error(err))

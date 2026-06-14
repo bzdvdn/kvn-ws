@@ -140,6 +140,72 @@ func TestQUICDialContextCancel(t *testing.T) {
 	t.Logf("dial error with cancelled ctx: %v", err)
 }
 
+// duplexStream implements quic.Stream over two independent buffers (one per direction).
+type duplexStream struct {
+	r *controlledBuf
+	w *controlledBuf
+}
+
+func (s *duplexStream) Read(b []byte) (int, error)                    { return s.r.Read(b) }
+func (s *duplexStream) Write(b []byte) (int, error)                   { return s.w.Write(b) }
+func (s *duplexStream) Close() error                                   { return nil }
+func (s *duplexStream) SetReadDeadline(t time.Time) error              { return nil }
+func (s *duplexStream) SetWriteDeadline(t time.Time) error             { return nil }
+func (s *duplexStream) StreamID() quic.StreamID                        { return 0 }
+func (s *duplexStream) CancelRead(code quic.StreamErrorCode)           {}
+func (s *duplexStream) CancelWrite(code quic.StreamErrorCode)          {}
+func (s *duplexStream) Context() context.Context                       { return context.Background() }
+func (s *duplexStream) SetDeadline(t time.Time) error                  { return nil }
+
+// @sk-test quic-relay-mode#T4: QUICConn round-trip — WriteMessage on one end, ReadMessage on the other,
+// verify no length prefix contamination in payload (AC-001).
+func TestQUICConnRoundTrip(t *testing.T) {
+	clientToServer := &controlledBuf{}
+	serverToClient := &controlledBuf{}
+
+	clientStream := &duplexStream{r: serverToClient, w: clientToServer}
+	serverStream := &duplexStream{r: clientToServer, w: serverToClient}
+
+	client := NewQUICConn(nil, clientStream)
+	server := NewQUICConn(nil, serverStream)
+
+	payload := []byte{0x02, 0x00, 0x00, 0x11, 0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d}
+	if err := client.WriteMessage(payload); err != nil {
+		t.Fatalf("client WriteMessage: %v", err)
+	}
+
+	got, err := server.ReadMessage()
+	if err != nil {
+		t.Fatalf("server ReadMessage: %v", err)
+	}
+	if len(got) != len(payload) {
+		t.Fatalf("len mismatch: want %d, got %d", len(payload), len(got))
+	}
+	for i := range payload {
+		if got[i] != payload[i] {
+			t.Fatalf("byte %d: want 0x%02x, got 0x%02x", i, payload[i], got[i])
+		}
+	}
+
+	// server → client reverse direction
+	reply := []byte{0x02, 0x00, 0x00, 0x05, 0xaa, 0xbb, 0xcc, 0xdd, 0xee}
+	if err := server.WriteMessage(reply); err != nil {
+		t.Fatalf("server WriteMessage: %v", err)
+	}
+	gotReply, err := client.ReadMessage()
+	if err != nil {
+		t.Fatalf("client ReadMessage: %v", err)
+	}
+	if len(gotReply) != len(reply) {
+		t.Fatalf("reply len mismatch: want %d, got %d", len(reply), len(gotReply))
+	}
+	for i := range reply {
+		if gotReply[i] != reply[i] {
+			t.Fatalf("reply byte %d: want 0x%02x, got 0x%02x", i, reply[i], gotReply[i])
+		}
+	}
+}
+
 func TestQUICDialTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

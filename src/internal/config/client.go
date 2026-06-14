@@ -51,17 +51,25 @@ type ClientConfig struct {
 }
 
 // @sk-task client-relay-mode#T1.1: relay config struct (AC-003)
+// @sk-task quic-relay-mode#T1.1: add Quic field (AC-003)
 type RelayCfg struct {
-	Listen         string        `json:"listen" mapstructure:"listen"`
-	WSPaths        []string      `json:"ws_paths,omitempty" mapstructure:"ws_paths"`
-	MaxConnections int           `json:"max_connections" mapstructure:"max_connections"`
-	TLS            *RelayTLSCfg  `json:"tls,omitempty" mapstructure:"tls"`
+	Listen         string         `json:"listen" mapstructure:"listen"`
+	WSPaths        []string       `json:"ws_paths,omitempty" mapstructure:"ws_paths"`
+	MaxConnections int            `json:"max_connections" mapstructure:"max_connections"`
+	TLS            *RelayTLSCfg   `json:"tls,omitempty" mapstructure:"tls"`
+	Quic           *RelayQuicCfg  `json:"quic,omitempty" mapstructure:"quic"`
 }
 
 // @sk-task client-relay-mode#T1.1: relay TLS config (AC-003)
 type RelayTLSCfg struct {
 	Cert string `json:"cert" mapstructure:"cert"`
 	Key  string `json:"key" mapstructure:"key"`
+}
+
+// @sk-task quic-relay-mode#T1.1: QUIC relay config (AC-003)
+type RelayQuicCfg struct {
+	KeepAlive   int `json:"keep_alive" mapstructure:"keep_alive"`
+	IdleTimeout int `json:"idle_timeout" mapstructure:"idle_timeout"`
 }
 
 type DNSProxyCfg struct {
@@ -216,6 +224,7 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	}
 
 	// @sk-task client-relay-mode#T1.1: relay config defaults and validation (AC-003)
+	// @sk-task quic-relay-mode#T1.1: RelayQuicCfg defaults and validation (AC-003)
 	if cfg.Mode == "relay" {
 		if cfg.Relay == nil {
 			return nil, fmt.Errorf("mode is 'relay' but relay config block is missing")
@@ -228,6 +237,14 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		}
 		if len(cfg.Relay.WSPaths) == 0 {
 			cfg.Relay.WSPaths = []string{"/tunnel"}
+		}
+		if cfg.Relay.Quic != nil {
+			if cfg.Relay.Quic.KeepAlive <= 0 {
+				cfg.Relay.Quic.KeepAlive = 7
+			}
+			if cfg.Relay.Quic.IdleTimeout <= 0 {
+				return nil, fmt.Errorf("relay.quic.idle_timeout must be > 0")
+			}
 		}
 	} else if cfg.Relay != nil {
 		log.Println("[config] WARNING: relay config block present but mode is not 'relay', ignoring")

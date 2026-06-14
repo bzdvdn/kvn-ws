@@ -50,6 +50,7 @@ Web UI: http://127.0.0.1:2311
 | [Quickstart](docs/en/quickstart.md)     | [Быстрый старт](docs/ru/quickstart.md) |
 | [Deployment](docs/en/deployment.md)     | [Развёртывание](docs/ru/deployment.md) |
 | [Configuration](docs/en/config.md)      | [Конфигурация](docs/ru/config.md)      |
+| [Relay Mode](docs/en/relay.md)          | [Режим Relay](docs/ru/relay.md)        |
 | [Architecture](docs/en/architecture.md) | [Архитектура](docs/ru/architecture.md) |
 
 ## Installation
@@ -134,12 +135,64 @@ auth:
 
 Два транспорта: TCP (WebSocket) и QUIC (UDP). QUIC используется по умолчанию, при недоступности — автоматический fallback на TCP.
 
+## Relay Mode
+
+Режим ретрансляции (relay) позволяет запустить промежуточный узел, который принимает клиентские подключения и проксирует их на upstream-сервер. Relay работает как прозрачный pipe:
+
+- **WebSocket** (TCP) — всегда активен, поддерживает path allowlist
+- **QUIC** (UDP) — опционально, без path filter, разделяет semaphore с WS
+
+Оба транспорта используют общий bridge (`bridgeRelayConn`) и единый лимит подключений (`max_connections`).
+
+### Пример relay
+
+```yaml
+mode: relay
+server: wss://vpn.example.com/tunnel
+relay:
+  listen: 0.0.0.0:8443
+  ws_paths:
+    - /tunnel
+  max_connections: 200
+  quic:
+    keep_alive: 7
+    idle_timeout: 60
+```
+
+### Клиент через WS relay
+
+```yaml
+mode: tun
+server: wss://relay:8443/tunnel
+# Obfuscation/padding ОБЯЗАТЕЛЬНО отключить — relay прозрачный pipe,
+# padding сломает декодирование фреймов на upstream-сервере.
+auth:
+  token: your-token
+tls:
+  verify_mode: insecure
+```
+
+### Клиент через QUIC relay
+
+```yaml
+mode: tun
+server: quic://relay:8443
+transport: quic
+auth:
+  token: your-token
+tls:
+  verify_mode: insecure
+```
+
+Подробнее: [docs/en/relay.md](docs/en/relay.md) · [docs/ru/relay.md](docs/ru/relay.md)
+
 ## Examples
 
 Готовые к запуску примеры в [examples/](examples/):
 
-- `docker-compose.yml` — сервер + клиент
+- `docker-compose.yml` — сервер + клиент (WS и QUIC)
 - `server.yaml` / `client.yaml` — конфиги
+- `relay/docker-compose.yml` — relay-пример (WS + QUIC клиенты)
 - `run.sh` — генерация TLS-сертификата и запуск
 
 ## Changelog
