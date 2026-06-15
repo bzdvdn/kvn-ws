@@ -127,10 +127,6 @@ func (c *Client) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	if c.cfg.Mode == "relay" {
-		return c.runRelayMode(ctx)
-	}
-
 	if c.cfg.Mode == "proxy" {
 		if c.cfg.SystemProxy != nil && *c.cfg.SystemProxy {
 			sysProxy := systemproxy.New(c.cfg)

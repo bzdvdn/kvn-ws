@@ -102,6 +102,54 @@ bash run.sh
 
 Оба клиента устанавливают туннель через relay к вышестоящему серверу.
 
+## Режим Terminator
+
+Terminator — режим relay, в котором узел выступает полноценным endpoint'ом VPN: принимает клиентов, выделяет IP из пула, поднимает TUN и маршрутизирует трафик. В отличие от bridge-режима (прозрачный pipe), terminator **расшифровывает** и **маршрутизирует** трафик клиента.
+
+### Архитектура
+
+```
+                    ┌──────────────┐      Direct CIDR     ┌──────────────┐
+                    │              │◀──── ─ ─ ─ ─ ─ ─ ─ ─▶│   Internet   │
+  WS client ───────▶│  Terminator  │                       │  (via TUN)   │
+                    │ (mode:term)  │      WebSocket       ┌──────────────┐
+  QUIC client ─────▶│              ├─────────────────────▶│    Server    │
+                    └──────────────┘      (upstream)      │  (upstream)  │
+                                                           └──────────────┘
+```
+
+- **Direct CIDR** — трафик в указанные диапазоны идёт напрямую через TUN relay.
+- **Upstream** — остальной трафик шифруется и отправляется на вышестоящий VPN-сервер.
+- Relay выделяет клиентам IP из собственного пула (`relay.network.pool_ipv4`).
+
+### Конфигурация terminator
+
+```yaml
+mode: relay
+server: wss://vpn.example.com/tunnel
+relay:
+  mode: terminator
+  listen: 0.0.0.0:8443
+  routing:
+    direct_ranges:
+      - 10.0.0.0/8
+      - 192.168.0.0/16
+    direct_domains:
+      - .internal.example
+  network:
+    pool_ipv4:
+      subnet: 172.16.0.0/24
+      gateway: 172.16.0.1
+tls:
+  verify_mode: insecure
+```
+
+### Требования
+
+- Relay требует `NET_ADMIN` и `/dev/net/tun` (TUN-устройство).
+- `relay.network.pool_ipv4` обязателен для terminator-режима.
+- Для upstream-соединения relay использует переменную окружения `KVN_RELAY_AUTH_TOKEN`.
+
 ## Примечания
 
 - Relay не требует TUN-устройства или root-прав (самому relay не нужен `NET_ADMIN`)

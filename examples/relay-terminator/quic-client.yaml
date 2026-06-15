@@ -1,0 +1,13 @@
+# @sk-task relay-terminator#T4.1: quic client config for terminator (AC-001)
+mode: tun
+server: quic://relay:8443
+transport: quic
+auth:
+  token: your-token-here
+tls:
+  verify_mode: insecure
+mtu: 1400
+ipv6: false
+auto_reconnect: true
+log:
+  level: info

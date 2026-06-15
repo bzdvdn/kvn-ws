@@ -102,6 +102,54 @@ This starts:
 
 Both clients establish a tunnel through the relay to the upstream server.
 
+## Terminator Mode
+
+Terminator is a relay mode where the node acts as a full VPN endpoint: accepts clients, allocates IPs from a pool, sets up TUN, and routes traffic. Unlike bridge mode (transparent pipe), the terminator **decrypts** and **routes** client traffic.
+
+### Architecture
+
+```
+                    ┌──────────────┐      Direct CIDR     ┌──────────────┐
+                    │              │◀──── ─ ─ ─ ─ ─ ─ ─ ─▶│   Internet   │
+  WS client ───────▶│  Terminator  │                       │  (via TUN)   │
+                    │ (mode:term)  │      WebSocket       ┌──────────────┐
+  QUIC client ─────▶│              ├─────────────────────▶│    Server    │
+                    └──────────────┘      (upstream)      │  (upstream)  │
+                                                           └──────────────┘
+```
+
+- **Direct CIDR** — traffic to specified ranges goes directly through the relay's TUN.
+- **Upstream** — remaining traffic is encrypted and sent to the upstream VPN server.
+- Relay allocates IPs to clients from its own pool (`relay.network.pool_ipv4`).
+
+### Terminator Configuration
+
+```yaml
+mode: relay
+server: wss://vpn.example.com/tunnel
+relay:
+  mode: terminator
+  listen: 0.0.0.0:8443
+  routing:
+    direct_ranges:
+      - 10.0.0.0/8
+      - 192.168.0.0/16
+    direct_domains:
+      - .internal.example
+  network:
+    pool_ipv4:
+      subnet: 172.16.0.0/24
+      gateway: 172.16.0.1
+tls:
+  verify_mode: insecure
+```
+
+### Requirements
+
+- Relay requires `NET_ADMIN` capability and `/dev/net/tun` (TUN device).
+- `relay.network.pool_ipv4` is required for terminator mode.
+- For the upstream connection, the relay uses the `KVN_RELAY_AUTH_TOKEN` environment variable.
+
 ## Notes
 
 - Relay does not require TUN device or root privileges (no `NET_ADMIN` needed for the relay itself)

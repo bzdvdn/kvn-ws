@@ -319,6 +319,80 @@ relay:
 	}
 }
 
+// @sk-test relay-terminator#T4.2: LoadRelayConfig terminator defaults (AC-001)
+func TestLoadRelayConfigTerminator(t *testing.T) {
+	path := writeConfig(t, `
+mode: relay
+server: wss://server:443/tunnel
+relay:
+  mode: terminator
+  listen: 0.0.0.0:8443
+  routing:
+    direct_ranges:
+      - 10.0.0.0/8
+    direct_domains:
+      - .local
+  network:
+    pool_ipv4:
+      subnet: 172.16.0.0/24
+      gateway: 172.16.0.1
+auth:
+  tokens:
+    - name: default
+      secret: test-token
+      bandwidth_bps: 0
+      max_sessions: 0
+tls:
+  verify_mode: insecure
+`)
+	cfg, err := LoadRelayConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRelayConfig: %v", err)
+	}
+	if cfg.Mode != "relay" {
+		t.Fatalf("Mode = %q, want %q", cfg.Mode, "relay")
+	}
+	if cfg.Relay.Mode != "terminator" {
+		t.Fatalf("Relay.Mode = %q, want %q", cfg.Relay.Mode, "terminator")
+	}
+	if cfg.Relay.Listen != "0.0.0.0:8443" {
+		t.Fatalf("Relay.Listen = %q, want %q", cfg.Relay.Listen, "0.0.0.0:8443")
+	}
+	if cfg.Relay.Routing == nil {
+		t.Fatal("Relay.Routing is nil, want non-nil")
+	}
+	if len(cfg.Relay.Routing.DirectRanges) != 1 || cfg.Relay.Routing.DirectRanges[0] != "10.0.0.0/8" {
+		t.Fatalf("Relay.Routing.DirectRanges = %v, want [\"10.0.0.0/8\"]", cfg.Relay.Routing.DirectRanges)
+	}
+	if len(cfg.Relay.Routing.DirectDomains) != 1 || cfg.Relay.Routing.DirectDomains[0] != ".local" {
+		t.Fatalf("Relay.Routing.DirectDomains = %v, want [\".local\"]", cfg.Relay.Routing.DirectDomains)
+	}
+	if cfg.Relay.Network == nil {
+		t.Fatal("Relay.Network is nil, want non-nil")
+	}
+	if cfg.Relay.Network.PoolIPv4.Subnet != "172.16.0.0/24" {
+		t.Fatalf("Relay.Network.PoolIPv4.Subnet = %q, want %q", cfg.Relay.Network.PoolIPv4.Subnet, "172.16.0.0/24")
+	}
+	if cfg.Relay.MaxConnections != 100 {
+		t.Fatalf("Relay.MaxConnections = %d, want 100", cfg.Relay.MaxConnections)
+	}
+	if len(cfg.Relay.WSPaths) != 1 || cfg.Relay.WSPaths[0] != "/tunnel" {
+		t.Fatalf("Relay.WSPaths = %v, want [\"/tunnel\"]", cfg.Relay.WSPaths)
+	}
+	if cfg.TLS.VerifyMode != "insecure" {
+		t.Fatalf("TLS.VerifyMode = %q, want %q", cfg.TLS.VerifyMode, "insecure")
+	}
+	if len(cfg.Auth.Tokens) != 1 {
+		t.Fatalf("Auth.Tokens = %d items, want 1", len(cfg.Auth.Tokens))
+	}
+	if cfg.Auth.Tokens[0].Secret != "test-token" {
+		t.Fatalf("Auth.Tokens[0].Secret = %q, want %q", cfg.Auth.Tokens[0].Secret, "test-token")
+	}
+	if cfg.Auth.Tokens[0].Name != "default" {
+		t.Fatalf("Auth.Tokens[0].Name = %q, want %q", cfg.Auth.Tokens[0].Name, "default")
+	}
+}
+
 // @sk-test quic-relay-mode#T4.1: keep_alive defaults to 7 (AC-003)
 func TestRelayQUICDefaults(t *testing.T) {
 	path := writeConfig(t, `

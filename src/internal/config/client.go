@@ -305,6 +305,79 @@ func SaveClientConfig(path string, cfg *ClientConfig) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
+// @sk-task relay-terminator#T1.1: RelayConfig for cmd/relay (AC-001)
+type RelayConfig struct {
+	Mode        string        `json:"mode" mapstructure:"mode"`
+	Relay       RelayTermCfg  `json:"relay" mapstructure:"relay"`
+	Server      string        `json:"server" mapstructure:"server"`
+	Transport   string        `json:"transport" mapstructure:"transport"`
+	Obfuscation *ObfuscationCfg `json:"obfuscation,omitempty" mapstructure:"obfuscation"`
+	Crypto      CryptoCfg     `json:"crypto" mapstructure:"crypto"`
+	TLS         ClientTLSCfg  `json:"tls" mapstructure:"tls"`
+	Auth        ServerAuth    `json:"auth" mapstructure:"auth"`
+	Log         LogConfig     `json:"log" mapstructure:"log"`
+}
+
+// @sk-task relay-terminator#T1.1: relay terminator config section (AC-001)
+type RelayTermCfg struct {
+	Mode           string            `json:"mode" mapstructure:"mode"`
+	Listen         string            `json:"listen" mapstructure:"listen"`
+	WSPaths        []string          `json:"ws_paths,omitempty" mapstructure:"ws_paths"`
+	MaxConnections int               `json:"max_connections" mapstructure:"max_connections"`
+	TLS            *RelayTLSCfg      `json:"tls,omitempty" mapstructure:"tls"`
+	Quic           *RelayQuicCfg     `json:"quic,omitempty" mapstructure:"quic"`
+	Routing        *RelayRoutingCfg  `json:"routing,omitempty" mapstructure:"routing"`
+	Network        *NetworkCfg       `json:"network,omitempty" mapstructure:"network"`
+}
+
+type RelayRoutingCfg struct {
+	DirectRanges  []string `json:"direct_ranges" mapstructure:"direct_ranges"`
+	DirectDomains []string `json:"direct_domains" mapstructure:"direct_domains"`
+}
+
+// @sk-task relay-terminator#T1.1: load relay config (AC-001)
+func LoadRelayConfig(path string) (*RelayConfig, error) {
+	v := viper.New()
+	v.SetConfigFile(path)
+	v.SetEnvPrefix("KVN_RELAY")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	if err := v.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("read config %s: %w", path, err)
+	}
+
+	cfg := &RelayConfig{}
+	if err := v.Unmarshal(cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal config %s: %w", path, err)
+	}
+
+	if cfg.Mode == "" {
+		cfg.Mode = "relay"
+	}
+	if cfg.Relay.MaxConnections <= 0 {
+		cfg.Relay.MaxConnections = 100
+	}
+	if len(cfg.Relay.WSPaths) == 0 {
+		cfg.Relay.WSPaths = []string{"/tunnel"}
+	}
+	if cfg.Relay.Quic != nil {
+		if cfg.Relay.Quic.KeepAlive <= 0 {
+			cfg.Relay.Quic.KeepAlive = 7
+		}
+		if cfg.Relay.Quic.IdleTimeout <= 0 {
+			return nil, fmt.Errorf("relay.quic.idle_timeout must be > 0")
+		}
+	}
+	if cfg.TLS.VerifyMode == "" {
+		cfg.TLS.VerifyMode = "insecure"
+	}
+	if w := warnSecretInFile("KVN_RELAY", []string{"crypto.key"}); w {
+		log.Println("[config] WARNING: secrets (crypto.key) loaded from config file. Use environment variable KVN_RELAY_CRYPTO_KEY for production.")
+	}
+	return cfg, nil
+}
+
 var DefaultExcludeRanges = []string{
 	"127.0.0.0/8",
 	"::1/128",

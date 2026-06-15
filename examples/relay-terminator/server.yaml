@@ -1,0 +1,35 @@
+# @sk-task relay-terminator#T4.1: upstream server config (AC-001, AC-004)
+listen: :443
+transport: tcp
+ws_paths:
+  - /tunnel
+obfuscation:
+  enabled: false
+tls:
+  cert: /etc/kvn-ws/certs/server.pem
+  key: /etc/kvn-ws/certs/server-key.pem
+network:
+  pool_ipv4:
+    subnet: 10.10.0.0/24
+    gateway: 10.10.0.1
+session:
+  max_clients: 100
+  idle_timeout_sec: 120
+rate_limiting:
+  packets_per_sec: 5000
+auth:
+  tokens:
+    - name: default
+      secret: your-token-here
+      bandwidth_bps: 0
+      max_sessions: 0
+origin:
+  allow_empty: true
+crypto:
+  enabled: false
+logging:
+  level: info
+admin:
+  enabled: true
+  listen: localhost:8443
+  token: your-admin-token-here

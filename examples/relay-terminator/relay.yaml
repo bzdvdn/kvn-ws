@@ -1,0 +1,33 @@
+# @sk-task relay-terminator#T4.1: terminator relay config (AC-001, AC-002)
+mode: relay
+server: wss://server:443/tunnel
+relay:
+  mode: terminator
+  listen: 0.0.0.0:8443
+  ws_paths:
+    - /tunnel
+  max_connections: 200
+  quic:
+    keep_alive: 7
+    idle_timeout: 60
+  routing:
+    direct_ranges:
+      - 10.10.0.0/24
+      - 192.168.0.0/16
+    direct_domains:
+      - .internal.example
+      - .local
+  network:
+    pool_ipv4:
+      subnet: 172.16.0.0/24
+      gateway: 172.16.0.1
+auth:
+  tokens:
+    - name: default
+      secret: your-token-here
+      bandwidth_bps: 0
+      max_sessions: 0
+tls:
+  verify_mode: insecure
+log:
+  level: info

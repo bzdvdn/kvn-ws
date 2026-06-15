@@ -7,6 +7,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/cmd/server/main.go` — CLI entrypoint: KVN-over-WS server
 - `src/cmd/gatetest/main.go` — routing gate test program (AC-010 simulation)
 - `src/cmd/stability/main.go` — stability gate / soak test program (AC-012)
+- `src/cmd/relay/main.go` — CLI entrypoint: relay (bridge + terminator modes)
 - `src/cmd/web/main.go` — Web UI entrypoint: browser-based tunnel client manager
 - `protocol/codegen/main.go` — protocol codegen: generates Go+Kotlin types from YAML
 - `src/android/app/src/main/kotlin/com/kvn/client/ui/MainActivity.kt` — Android app entrypoint (Jetpack Compose)
@@ -34,7 +35,8 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/proxy/` — SOCKS5 + HTTP CONNECT proxy listener for local proxy mode
 - `src/internal/acl/` — CIDR-based ACL (radix tree matcher, allow/deny lists)
 - `src/internal/admin/` — Admin API server (chi router, session mgmt, pprof)
-- `src/internal/bootstrap/client/` — Client bootstrap (dial, reconnect, kill switch, proxy, TUN, relay)
+- `src/internal/bootstrap/client/` — Client bootstrap (dial, reconnect, kill switch, proxy, TUN)
+- `src/internal/bootstrap/relay/` — Relay bootstrap (bridge/terminator, self-signed TLS, WS/QUIC relay)
 - `src/internal/bootstrap/server/` — Server bootstrap (handler, lifecycle, graceful shutdown)
 - `src/internal/ratelimit/` — IP-based rate limiter (token bucket per IP/session)
 - `src/internal/systemproxy/` — Platform-specific system proxy manager (Linux env vars, macOS networksetup, Windows registry)
@@ -90,7 +92,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Routing/rules — `src/internal/routing/`, `src/internal/nat/`, `src/internal/dns/`, `src/internal/acl/`
 - Session/auth — `src/internal/session/`, `src/internal/protocol/auth/`, `src/internal/logger/`
 - Client bootstrap (TUN/proxy) — `src/internal/bootstrap/client/`
-- Relay mode — `src/internal/bootstrap/client/relay.go`, `src/internal/config/client.go` (RelayCfg)
+- Relay mode — `src/internal/bootstrap/relay/`, `src/internal/config/client.go` (RelayConfig, RelayCfg)
 - Server bootstrap — `src/internal/bootstrap/server/`
 - Admin API — `src/internal/admin/`
 - Config changes — `src/internal/config/`

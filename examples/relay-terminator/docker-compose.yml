@@ -1,0 +1,73 @@
+# @sk-task relay-terminator#T4.1: terminator docker-compose example (AC-001, AC-002)
+services:
+  server:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "443:443"
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    volumes:
+      - /dev/net/tun:/dev/net/tun
+      - ./server.yaml:/etc/kvn-ws/server.yaml
+      - ../certs:/etc/kvn-ws/certs:ro
+    command: ["--config", "/etc/kvn-ws/server.yaml"]
+    restart: unless-stopped
+
+  relay:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "8443:8443"
+      - "8443:8443/udp"
+    depends_on:
+      - server
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    entrypoint: ["/usr/local/bin/relay"]
+    environment:
+      KVN_RELAY_AUTH_TOKEN: your-token-here
+    volumes:
+      - /dev/net/tun:/dev/net/tun
+      - ./relay.yaml:/etc/kvn-ws/relay.yaml
+      - ../certs:/etc/kvn-ws/certs:ro
+    command: ["--config", "/etc/kvn-ws/relay.yaml"]
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      - relay
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    entrypoint: ["/usr/local/bin/client"]
+    volumes:
+      - /dev/net/tun:/dev/net/tun
+      - ./client.yaml:/etc/kvn-ws/client.yaml
+      - ../certs:/etc/kvn-ws/certs:ro
+    command: ["--config", "/etc/kvn-ws/client.yaml"]
+    restart: unless-stopped
+
+  quic-client:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      - relay
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    entrypoint: ["/usr/local/bin/client"]
+    volumes:
+      - /dev/net/tun:/dev/net/tun
+      - ./quic-client.yaml:/etc/kvn-ws/client.yaml
+      - ../certs:/etc/kvn-ws/certs:ro
+    command: ["--config", "/etc/kvn-ws/client.yaml"]
+    restart: unless-stopped

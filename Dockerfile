@@ -7,11 +7,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /app/bin/client ./src/cmd/client \
- && CGO_ENABLED=0 go build -o /app/bin/server ./src/cmd/server
+ && CGO_ENABLED=0 go build -o /app/bin/server ./src/cmd/server \
+ && CGO_ENABLED=0 go build -o /app/bin/relay ./src/cmd/relay
 
 # Runtime stage
 FROM alpine:3.19
 RUN apk add --no-cache iproute2 ca-certificates nftables
 COPY --from=build /app/bin/client /usr/local/bin/client
 COPY --from=build /app/bin/server /usr/local/bin/server
+COPY --from=build /app/bin/relay /usr/local/bin/relay
 ENTRYPOINT ["/usr/local/bin/server"]
