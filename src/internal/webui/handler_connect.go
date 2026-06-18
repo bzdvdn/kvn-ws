@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -21,6 +20,7 @@ type connectResponse struct {
 }
 
 // @sk-task kvn-web#T2.2: connect/disconnect handlers (AC-003, AC-004)
+// @sk-task multi-server#T2.2: use selected server config (AC-006)
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if s.state.Status() == StatusConnected || s.state.Status() == StatusConnecting {
 		writeJSON(w, http.StatusConflict, connectResponse{Status: s.state.Status()})
@@ -30,15 +30,30 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	s.state.setStatus(StatusConnecting)
 	writeJSON(w, http.StatusOK, connectResponse{Status: StatusConnecting})
 
-	cfgPath := filepath.Join(s.configDir, "config.yaml")
-	cfg, err := config.LoadClientConfig(cfgPath)
+	wcfg, err := s.loadWebUIConfig()
 	if err != nil {
 		s.state.setStatus(StatusError)
-		s.state.PushLog(LogEntry{Line: "load config: " + err.Error(), Level: "error"})
+		s.state.PushLog(LogEntry{Line: "load webui config: " + err.Error(), Level: "error"})
 		return
 	}
 
-	cl, err := client.NewFromConfig(cfg)
+	// @sk-task multi-server#T2.2: merge active server config with global (AC-006)
+	cfg := wcfg.ClientConfig
+	if wcfg.ActiveServer != "" {
+		for i := range wcfg.Servers {
+			if wcfg.Servers[i].Name == wcfg.ActiveServer {
+				cfg = mergeConfig(&cfg, &wcfg.Servers[i].ClientConfig)
+				break
+			}
+		}
+	}
+	if cfg.Server == "" {
+		s.state.setStatus(StatusError)
+		s.state.PushLog(LogEntry{Line: "no server URL configured for active server", Level: "error"})
+		return
+	}
+
+	cl, err := client.NewFromConfig(&cfg)
 	if err != nil {
 		s.state.setStatus(StatusError)
 		s.state.PushLog(LogEntry{Line: "create client: " + err.Error(), Level: "error"})
@@ -85,6 +100,97 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		}
 		s.state.setStatus(StatusDisconnected)
 	}()
+}
+
+// @sk-task multi-server#T2.2: mergeConfig — merge server over global (AC-006)
+func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
+	merged := *global
+	if server.Server != "" {
+		merged.Server = server.Server
+	}
+	if server.Transport != "" {
+		merged.Transport = server.Transport
+	}
+	if server.Mode != "" {
+		merged.Mode = server.Mode
+	}
+	if server.MTU != 0 {
+		merged.MTU = server.MTU
+	}
+	if server.Auth.Token != "" {
+		merged.Auth.Token = server.Auth.Token
+	}
+	if server.ProxyListen != "" {
+		merged.ProxyListen = server.ProxyListen
+	}
+	if server.MaxMessageSize != 0 {
+		merged.MaxMessageSize = server.MaxMessageSize
+	}
+	if server.TunnelTimeout != 0 {
+		merged.TunnelTimeout = server.TunnelTimeout
+	}
+	if server.ProxyMaxConcurrency != 0 {
+		merged.ProxyMaxConcurrency = server.ProxyMaxConcurrency
+	}
+	if server.Log.Level != "" {
+		merged.Log.Level = server.Log.Level
+	}
+	if server.IPv6 {
+		merged.IPv6 = true
+	}
+	if server.Multiplex {
+		merged.Multiplex = true
+	}
+	if server.Transparent {
+		merged.Transparent = true
+	}
+	if server.AutoReconnect != nil {
+		merged.AutoReconnect = server.AutoReconnect
+	}
+	if server.SystemProxy != nil {
+		merged.SystemProxy = server.SystemProxy
+	}
+	if server.Obfuscation != nil {
+		merged.Obfuscation = server.Obfuscation
+	}
+	if server.TLS.CAFile != "" || server.TLS.ServerName != "" || server.TLS.VerifyMode != "" || len(server.TLS.SNI) > 0 {
+		merged.TLS = server.TLS
+	}
+	if server.Routing != nil {
+		merged.Routing = server.Routing
+	}
+	if merged.Routing != nil {
+		if merged.Routing.DefaultRoute == "" {
+			merged.Routing.DefaultRoute = "server"
+		}
+		if len(merged.Routing.ExcludeRanges) == 0 {
+			merged.Routing.ExcludeRanges = config.DefaultExcludeRanges
+		}
+	} else {
+		merged.Routing = &config.RoutingCfg{
+			DefaultRoute:  "server",
+			ExcludeRanges: config.DefaultExcludeRanges,
+		}
+	}
+	if server.KillSwitch != nil {
+		merged.KillSwitch = server.KillSwitch
+	}
+	if server.Reconnect != nil {
+		merged.Reconnect = server.Reconnect
+	}
+	if server.ProxyAuth != nil {
+		merged.ProxyAuth = server.ProxyAuth
+	}
+	if server.Crypto.Enabled || server.Crypto.Key != "" {
+		merged.Crypto = server.Crypto
+	}
+	if server.DNSProxy.Listen != "" || server.DNSProxy.Upstream != "" {
+		merged.DNSProxy = server.DNSProxy
+	}
+	if server.Relay != nil {
+		merged.Relay = server.Relay
+	}
+	return merged
 }
 
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {

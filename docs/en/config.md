@@ -231,3 +231,51 @@ For auth tokens in production, use a JSON array via environment variable:
 ```bash
 KVN_SERVER_AUTH_TOKENS_JSON='[{"name":"admin","secret":"a1b2c3"},{"name":"guest","secret":"x9y8z7"}]'
 ```
+
+## Web UI config (`webui.yaml`)
+
+kvn-web stores configuration in `~/.config/kvn-ws/webui.yaml`. The format extends `ClientConfig` with multi-server support:
+
+```yaml
+# Global settings (applied to all servers)
+mode: proxy
+proxy_listen: 127.0.0.1:2310
+mtu: 1400
+log:
+  level: info
+routing:
+  default_route: server
+  exclude_ranges:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+# Active server selection
+active_server: Work
+
+# Per-server configurations
+servers:
+  - name: Work
+    server: wss://vpn.company.com/tunnel
+    auth:
+      token: work-token
+    transport: quic
+    tls:
+      verify_mode: verify
+      server_name: vpn.company.com
+    routing:
+      default_route: direct
+
+  - name: Home
+    server: wss://vpn.example.com/tunnel
+    auth:
+      token: home-token
+    tls:
+      verify_mode: insecure
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `active_server` | string | first server name | Currently selected server name |
+| `servers[].name` | string | — | Server entry name (unique identifier) |
+| `servers[].*` | — | — | All `ClientConfig` fields (server, auth, tls, routing, etc.) |

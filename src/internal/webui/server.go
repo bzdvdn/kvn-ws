@@ -43,7 +43,11 @@ func New(port int) (*Server, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/config", s.handleGetConfig)
-	mux.HandleFunc("POST /api/config", s.handleSaveConfig)
+	mux.HandleFunc("PUT /api/config/global", s.handleSaveGlobalConfig)
+	mux.HandleFunc("GET /api/servers", s.handleListServers)
+	mux.HandleFunc("POST /api/servers", s.handleCreateServer)
+	mux.HandleFunc("PUT /api/servers/{name}", s.handleUpdateServer)
+	mux.HandleFunc("DELETE /api/servers/{name}", s.handleDeleteServer)
 	mux.HandleFunc("POST /api/connect", s.handleConnect)
 	mux.HandleFunc("POST /api/disconnect", s.handleDisconnect)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)

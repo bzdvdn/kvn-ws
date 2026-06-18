@@ -231,3 +231,51 @@ KVN_CLIENT_LOG_LEVEL=debug
 ```bash
 KVN_SERVER_AUTH_TOKENS_JSON='[{"name":"admin","secret":"a1b2c3"},{"name":"guest","secret":"x9y8z7"}]'
 ```
+
+## Конфигурация Web UI (`webui.yaml`)
+
+kvn-web хранит конфигурацию в `~/.config/kvn-ws/webui.yaml`. Формат расширяет `ClientConfig` поддержкой нескольких серверов:
+
+```yaml
+# Глобальные настройки (применяются ко всем серверам)
+mode: proxy
+proxy_listen: 127.0.0.1:2310
+mtu: 1400
+log:
+  level: info
+routing:
+  default_route: server
+  exclude_ranges:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+# Активный сервер
+active_server: Work
+
+# Конфигурации серверов
+servers:
+  - name: Work
+    server: wss://vpn.company.com/tunnel
+    auth:
+      token: work-token
+    transport: quic
+    tls:
+      verify_mode: verify
+      server_name: vpn.company.com
+    routing:
+      default_route: direct
+
+  - name: Home
+    server: wss://vpn.example.com/tunnel
+    auth:
+      token: home-token
+    tls:
+      verify_mode: insecure
+```
+
+| Ключ | Тип | По умолч. | Описание |
+|------|-----|-----------|----------|
+| `active_server` | string | имя первого сервера | Имя выбранного сервера |
+| `servers[].name` | string | — | Имя сервера (уникальный идентификатор) |
+| `servers[].*` | — | — | Все поля `ClientConfig` (server, auth, tls, routing и т.д.) |

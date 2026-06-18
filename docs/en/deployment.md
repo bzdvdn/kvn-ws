@@ -298,10 +298,14 @@ Get-Service KVNWeb
 
 ### Configuration via Web UI
 
-All client settings (server, auth, TLS, routing, proxy, advanced) are available through the web interface:
+All client settings are available through the web interface. **kvn-web** supports **multi-server management** — you can add, switch, and delete multiple server configurations:
+- **Global settings** (mode, proxy listen, log level, MTU, routing defaults) apply to all servers
+- **Per-server settings** (server URL, token, TLS, routing overrides, obfuscation, encryption) are stored individually
+- A **server selector dropdown** lets you switch between configurations; unsaved changes trigger a confirmation dialog
 
 | Section | Fields |
 |---------|--------|
+| Servers | Add/Delete/Import server entries, Export/QR per-server config |
 | Connection | Server, Token, Mode (proxy/TUN), Proxy Listen/Auth |
 | TLS | Verify Mode, Server Name (SNI), CA File |
 | Routing | Default Route, CIDR Include/Exclude, IP Include/Exclude |

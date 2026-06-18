@@ -2,77 +2,249 @@ package webui
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
-// @sk-task kvn-web#T2.1: config API handlers (AC-005, AC-007)
+// @sk-task multi-server#T2.1: multi-server API handlers (AC-001, AC-002, AC-003)
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	cfgPath := filepath.Join(s.configDir, "config.yaml")
-	cfg, err := config.LoadClientConfig(cfgPath)
+	cfg, err := s.loadWebUIConfig()
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			writeJSON(w, http.StatusOK, configResponse{Config: defaultConfig()})
-			return
-		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, configResponse{Config: cfg})
+	writeJSON(w, http.StatusOK, map[string]any{"config": cfg.ClientConfig})
 }
 
-func boolPtr(b bool) *bool { return &b }
-
-func defaultConfig() *config.ClientConfig {
-	autoReconnect := true
-	return &config.ClientConfig{
-		MTU:                 1400,
-		ProxyListen:         "127.0.0.1:2310",
-		AutoReconnect:       &autoReconnect,
-		Log:                 config.LogConfig{Level: "info"},
-		Mode:                "proxy",
-		Transport:           "quic",
-		Obfuscation:         &config.ObfuscationCfg{Enabled: true},
-		TLS:                 config.ClientTLSCfg{VerifyMode: "verify"},
-		MaxMessageSize:      10 * 1024 * 1024,
-		TunnelTimeout:       30,
-		ProxyMaxConcurrency: 1000,
-		SystemProxy:         boolPtr(false),
-		Transparent:         false,
-		DNSProxy:            config.DNSProxyCfg{Listen: "127.0.0.54:53", Upstream: "1.1.1.1:53"},
-		Routing: &config.RoutingCfg{
-			DefaultRoute:  "server",
-			ExcludeRanges: append([]string{}, config.DefaultExcludeRanges...),
-		},
+// @sk-task multi-server#T2.1: save global settings + active_server (AC-006)
+func (s *Server) handleSaveGlobalConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.loadWebUIConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-}
 
-type configResponse struct {
-	Config *config.ClientConfig `json:"config"`
-}
-
-type configSaveRequest struct {
-	Config *config.ClientConfig `json:"config"`
-}
-
-func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
-	var req configSaveRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var body struct {
+		ActiveServer string `json:"active_server"`
+		config.ClientConfig
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	cfgPath := filepath.Join(s.configDir, "config.yaml")
-	if err := config.SaveClientConfig(cfgPath, req.Config); err != nil {
+	if body.ActiveServer != "" {
+		cfg.ActiveServer = body.ActiveServer
+	}
+	cfg.ClientConfig = body.ClientConfig
+
+	if err := s.saveWebUIConfig(cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// @sk-task multi-server#T2.1: list servers (AC-001)
+func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.loadWebUIConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"active_server": cfg.ActiveServer,
+		"servers":       cfg.Servers,
+	})
+}
+
+// @sk-task multi-server#T2.1: create server (AC-003)
+func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.loadWebUIConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var entry config.ServerEntry
+	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if entry.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	for i := range cfg.Servers {
+		if cfg.Servers[i].Name == entry.Name {
+			http.Error(w, "server name already exists", http.StatusConflict)
+			return
+		}
+	}
+
+	// @sk-task multi-server: ensure routing defaults on create (AC-001)
+	if entry.Routing == nil {
+		entry.Routing = &config.RoutingCfg{
+			DefaultRoute:  "server",
+			ExcludeRanges: config.DefaultExcludeRanges,
+		}
+	} else {
+		if entry.Routing.DefaultRoute == "" {
+			entry.Routing.DefaultRoute = "server"
+		}
+		if len(entry.Routing.ExcludeRanges) == 0 {
+			entry.Routing.ExcludeRanges = config.DefaultExcludeRanges
+		}
+	}
+
+	cfg.Servers = append(cfg.Servers, entry)
+	if err := s.saveWebUIConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{"name": entry.Name})
+}
+
+// @sk-task multi-server#T2.1: update server (AC-002, AC-003)
+func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := s.loadWebUIConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var entry config.ServerEntry
+	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	idx := -1
+	for i := range cfg.Servers {
+		if cfg.Servers[i].Name == name {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		http.Error(w, "server not found", http.StatusNotFound)
+		return
+	}
+
+	// Check for name conflicts when renaming
+	if entry.Name != "" && entry.Name != name {
+		for i := range cfg.Servers {
+			if cfg.Servers[i].Name == entry.Name {
+				http.Error(w, "server name already exists", http.StatusConflict)
+				return
+			}
+		}
+	}
+
+	if entry.Name != "" {
+		cfg.Servers[idx].Name = entry.Name
+	}
+	cfg.Servers[idx].ClientConfig = entry.ClientConfig
+
+	// @sk-task multi-server: ensure routing defaults on update (AC-001)
+	sv := &cfg.Servers[idx]
+	if sv.Routing == nil {
+		sv.Routing = &config.RoutingCfg{
+			DefaultRoute:  "server",
+			ExcludeRanges: config.DefaultExcludeRanges,
+		}
+	} else {
+		if sv.Routing.DefaultRoute == "" {
+			sv.Routing.DefaultRoute = "server"
+		}
+		if len(sv.Routing.ExcludeRanges) == 0 {
+			sv.Routing.ExcludeRanges = config.DefaultExcludeRanges
+		}
+	}
+
+	// Update active_server if the renamed server was active
+	if cfg.ActiveServer == name {
+		cfg.ActiveServer = cfg.Servers[idx].Name
+	}
+
+	if err := s.saveWebUIConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"name": cfg.Servers[idx].Name})
+}
+
+// @sk-task multi-server#T2.1: delete server (AC-003)
+func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := s.loadWebUIConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if len(cfg.Servers) <= 1 {
+		http.Error(w, "cannot delete the last server", http.StatusConflict)
+		return
+	}
+
+	idx := -1
+	for i := range cfg.Servers {
+		if cfg.Servers[i].Name == name {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		http.Error(w, "server not found", http.StatusNotFound)
+		return
+	}
+
+	cfg.Servers = append(cfg.Servers[:idx], cfg.Servers[idx+1:]...)
+
+	// Update active_server if the deleted server was active
+	if cfg.ActiveServer == name {
+		if len(cfg.Servers) > 0 {
+			cfg.ActiveServer = cfg.Servers[0].Name
+		} else {
+			cfg.ActiveServer = ""
+		}
+	}
+
+	if err := s.saveWebUIConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) cfgPath() string {
+	return filepath.Join(s.configDir, "config.yaml")
+}
+
+func (s *Server) loadWebUIConfig() (*config.WebUIConfig, error) {
+	return config.LoadWebUIConfig(s.cfgPath())
+}
+
+func (s *Server) saveWebUIConfig(cfg *config.WebUIConfig) error {
+	return config.SaveWebUIConfig(s.cfgPath(), cfg)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
