@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -23,9 +25,12 @@ type WebUIConfig struct {
 
 // @sk-task multi-server#T1.1: LoadWebUIConfig (AC-001)
 func LoadWebUIConfig(path string) (*WebUIConfig, error) {
-	data, err := os.ReadFile(path)
+	dir := filepath.Dir(path)
+	name := filepath.Base(path)
+	root := os.DirFS(dir)
+	data, err := fs.ReadFile(root, name)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return defaultWebUIConfig(), nil
 		}
 		return nil, fmt.Errorf("read webui config %s: %w", path, err)

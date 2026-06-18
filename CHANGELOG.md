@@ -6,6 +6,59 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — 2026-06-18
+
+### Added
+
+- **Relay mode** — новый тип узла `relay`, работающий как транзитный сервер между client ↔ relay ↔ server.
+  Поддерживает TUN-режим (relay-terminator) и proxy-режим. Управление upstream через `RelayConfig.Upstreams`.
+  - `src/cmd/relay/main.go` — точка входа relay-узла.
+  - `src/internal/bootstrap/relay/` — bootstrap: сервер, handler, bridge, NAT, upstream selection.
+  - `RelayRouter` — маршрутизация по `label` из `RelayConfig.Routes`, клиент указывает `relay_label`.
+  - `RelayBridge` — проброс трафика между downstream и upstream через `transport.StreamConn`.
+  - **QUIC relay mode** — relay-транспорт поверх QUIC с переключением по `config.Transport`.
+  - **Relay terminator** — relay может завершать TUN-туннель (режим terminator) или проксировать.
+  - Документация: `docs/en/relay.md`, `docs/ru/relay.md`, примеры в `examples/relay/` и `examples/relay-terminator/`.
+  - CI: сборка relay-бинарника в `scripts/build.sh`.
+- **kvn-web: multi-server** — Web UI теперь поддерживает несколько серверов.
+  - `WebUIConfig` с `ActiveServer` + `Servers: []ServerEntry` и автоматической миграцией.
+  - CRUD через admin API: create, update, delete, select active.
+  - `loadWebUIConfig()` / `saveWebUIConfig()` — загрузка и сохранение списка серверов.
+  - `mergeConfig()` / handler_config.go: обновление `ActiveServer` + `Servers` при create/update.
+  - Frontend: селектор серверов, кнопки Add/Copy/Rename/Delete в `App.tsx`.
+  - DDD spec + plan + data-model в `specs/archived/multi-server/`.
+- **Android client: multi-server** — полноценное управление несколькими серверами.
+  - `AppConfig` (activeServer + servers[]), `ServerEntry` (name + config), `AppConfigStore` с автоМиграцией.
+  - `MainViewModel`: CRUD методы, dirty-флаг, сортировка (активный сверху, остальные A→Z).
+  - `ConnectScreen`: `ExposedDropdownMenuBox` селектор, кнопки Add/Copy/Rename/Delete с иконками и семантическими цветами, dirty-диалог.
+  - QR: импорт добавляет новый сервер (`Imported <timestamp>`), экспорт — активный сервер.
+  - Data model: `data-model.md`, spec, plan, tasks, verify.
+- **Android client: dark theme** — Material 3 darkColorScheme в цветах kvn-web.
+  - `Color.kt`: палитра #161616/#222/#1a5a9e/#2e7d32/#b71c1c/#ff9800.
+  - `MainActivity.kt`: обёртка в `MaterialTheme(colorScheme = DarkKvnWebColorScheme)`.
+
+### Changed
+
+- **Android: CRUD кнопки** — заменены с `OutlinedButton` + текст на `Button` + иконки (`Add`, `ContentCopy`, `Edit`, `Delete`) с семантическими цветами (зелёный/синий/оранжевый/красный).
+- **Android: зависимость `material-icons-extended`** — добавлена для иконки `ContentCopy`.
+- **Android: QR парсинг** — `WebConfig.auto_reconnect` изменён с `Boolean` на `Boolean?` для совместимости с web JSON.
+- **CI: сборка relay** — в `scripts/build.sh` добавлена сборка relay-бинарника.
+
+### Fixed
+
+- **Android: QR не парсился из kvn-web** — `auto_reconnect: null` в web JSON вызывал ошибку десериализации. Исправлено: `Boolean → Boolean?`, fallback `?: true`.
+- **Gosec G304 (CWE-22) в `config/webui.go`** — `os.ReadFile(path)` заменён на `os.DirFS(dir) + fs.ReadFile(root, name)` для scoped file access (Go 1.24+).
+
+### Removed
+
+- **examples/relay/** — старые примеры заменены на `examples/relay-terminator/`. Архив: `specs/archived/relay-terminator/`.
+
+## [0.3.1] — 2026-06-12
+
+### Fixed
+
+- **Android: reconnect loop** — исправлен бесконечный цикл переподключения при потере соединения.
+
 ## [0.3.0] — 2026-06-09
 
 ### Added
