@@ -34,7 +34,7 @@
 <!-- Проверка качества обязательна для обеих платформ -->
 
 - Observable proof: изменённые файлы, вывод тестов, результат команды.
-- Go: `go test ./...`, race detector, golangci-lint.
+- Go: `go test -race ./...`, `go vet ./...`, `gosec ./...`, `golangci-lint run ./...`.
 - Android: `./gradlew test`, `./gradlew assembleDebug`.
 - Docker-сборка (Go) через `scripts/docker-build.sh`.
 
@@ -91,28 +91,46 @@
 ```
 kvn-ws/            # github.com/bzdvdn/kvn-ws
 ├── src/
-│   ├── cmd/
-│   │   ├── client/         # точка входа Go-клиента (CLI)
-│   │   └── server/         # точка входа сервера
+│   ├── cmd/                # точки входа
+│   │   ├── client/         # Go-клиент (CLI)
+│   │   ├── server/         # сервер
+│   │   ├── relay/          # relay-терминатор
+│   │   ├── web/            # web-ui сервер
+│   │   ├── gatetest/       # интеграционные тесты
+│   │   └── stability/      # stability test tool
 │   ├── internal/           # Go-пакеты (ядро)
-│   │   ├── config/         # парсинг YAML + env
-│   │   ├── tun/            # TUN device abstraction
-│   │   ├── transport/
-│   │   │   ├── websocket/  # WS dial/accept
-│   │   │   ├── tls/        # TLS-конфиг
-│   │   │   └── framing/    # бинарный фрейм-протокол
-│   │   ├── protocol/
-│   │   │   ├── handshake/  # Client/Server Hello
-│   │   │   ├── auth/       # token, jwt, basic
-│   │   │   └── control/    # PING, CLOSE, ROUTE_UPDATE
-│   │   ├── routing/        # маршрутизация пакетов
-│   │   ├── nat/            # MASQUERADE/SNAT
-│   │   ├── session/        # менеджмент сессий + IP pool
+│   │   ├── acl/            # access control lists
+│   │   ├── admin/          # admin API
+│   │   ├── bootstrap/
+│   │   │   ├── client/     # клиентский bootstrap (dial, proxy, killswitch, tun, reconnect)
+│   │   │   ├── relay/      # relay bootstrap (bridge, handler, nat, router, upstream)
+│   │   │   └── server/     # серверный bootstrap (handler)
+│   │   ├── config/         # парсинг YAML + env (client, server)
 │   │   ├── crypto/         # доп. шифрование (app-layer)
+│   │   ├── dns/            # DNS resolver + cache
+│   │   ├── dnsproxy/       # DNS proxy (встроенный DNS-сервер)
+│   │   ├── logger/         # zap-логгер
 │   │   ├── metrics/        # Prometheus метрики
-│   │   └── logger/         # zap-логгер
-│   ├── pkg/
-│   │   └── api/            # публичное Go API
+│   │   ├── nat/            # MASQUERADE/SNAT + nftables
+│   │   ├── protocol/
+│   │   │   ├── auth/       # token, jwt, basic
+│   │   │   ├── control/    # PING, CLOSE, ROUTE_UPDATE
+│   │   │   └── handshake/  # Client/Server Hello
+│   │   ├── proxy/          # transparent proxy listener
+│   │   ├── ratelimit/      # rate limiting
+│   │   ├── routing/        # маршрутизация (matcher, dns, domain, rule_set)
+│   │   ├── session/        # менеджмент сессий + IP pool + BoltDB
+│   │   ├── systemproxy/    # system proxy (linux/darwin/windows)
+│   │   ├── transparent/    # iptables redirect
+│   │   ├── transport/
+│   │   │   ├── framing/    # бинарный фрейм-протокол
+│   │   │   ├── quic/       # QUIC dial/listen + обфускация
+│   │   │   ├── tls/        # TLS-конфиг
+│   │   │   └── websocket/  # WS dial/accept
+│   │   ├── tun/            # TUN device abstraction
+│   │   ├── tunnel/         # session/stream/demux
+│   │   └── webui/          # web-ui backend (Go) + frontend (React/TypeScript)
+│   ├── integration/        # integration tests
 │   └── android/            # Android-клиент (Kotlin, Gradle)
 │       └── app/
 │           ├── src/main/kotlin/com/kvn/client/
@@ -121,15 +139,19 @@ kvn-ws/            # github.com/bzdvdn/kvn-ws
 │           │   ├── vpn/         # VpnService, TUN fd
 │           │   └── ui/          # Compose UI (экраны, ViewModel)
 │           └── build.gradle.kts
+├── protocol/
+│   ├── frames.yaml         # спецификация фреймов
+│   ├── handshake.yaml      # спецификация handshake
+│   └── codegen/            # генератор типов по YAML-схемам
 ├── docs/
 │   ├── ru/
 │   └── en/
 ├── examples/
-├── configs/
-│   ├── client.yaml
-│   └── server.yaml
-├── scripts/
-├── tests/
+│   └── relay-terminator/   # пример конфигов для relay
+├── configs/                # примеры конфигов
+├── scripts/                # сборочные и установочные скрипты
+├── certs/                  # тестовые TLS-сертификаты
+├── relay/                  # runtime-данные relay (runtime)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── go.mod
@@ -195,6 +217,7 @@ kvn-ws/            # github.com/bzdvdn/kvn-ws
 - Существующие trace-маркеры сохраняются; покрытие новой задачи добавляется доп. маркерами (без перезаписи).
 - Если один метод/тест покрывает несколько задач, на нем одновременно остаются несколько маркеров.
 - Перед archive в verify должна быть подтверждена покрываемость acceptance criteria.
+- После завершения каждой spec обязателен прогон: `go test -race ./...`, `go vet ./...`, `gosec ./...`, `golangci-lint run ./...` (Go); для Android — `./gradlew test`.
 
 ## Политика Repository Map
 
@@ -212,10 +235,11 @@ kvn-ws/            # github.com/bzdvdn/kvn-ws
 
 ## Метаданные конституции
 
-- Version: 1.1.0
+- Version: 1.1.1
 - Ratified: 2026-05-13
-- Last Amended: 2026-06-11
+- Last Amended: 2026-06-18
 
 ## Последнее обновление
 
+2026-06-18 — добавлены обязательные проверки go vet, gosec, golangci-lint после каждой spec
 2026-06-11 — добавлен Android-клиент (Kotlin), обновлён стек и архитектура

@@ -18,7 +18,7 @@
 **Workflow/DoD:**
 - Каждая фича в `feature/<slug>`; observable proof (файлы, тесты, команда)
 - Trace-маркеры на объявлениях функций/методов/структур/классов
-- Go: `go test ./...` + race + golangci-lint; Android: `./gradlew test` + `assembleDebug`
+- Go: `go test -race ./...` + `go vet ./...` + `gosec ./...` + `golangci-lint`; Android: `./gradlew test` + `assembleDebug`
 - Docker-сборка и smoke-test для Go; APK-сборка для Android
 
 **Repo Map Policy:**

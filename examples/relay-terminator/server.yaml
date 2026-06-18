@@ -4,7 +4,7 @@ transport: tcp
 ws_paths:
   - /tunnel
 obfuscation:
-  enabled: false
+  enabled: true                      # QUIC upstream obfuscation from relay
 tls:
   cert: /etc/kvn-ws/certs/server.pem
   key: /etc/kvn-ws/certs/server-key.pem
@@ -29,7 +29,3 @@ crypto:
   enabled: false
 logging:
   level: info
-admin:
-  enabled: true
-  listen: localhost:8443
-  token: your-admin-token-here

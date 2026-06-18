@@ -146,16 +146,16 @@ type duplexStream struct {
 	w *controlledBuf
 }
 
-func (s *duplexStream) Read(b []byte) (int, error)                    { return s.r.Read(b) }
-func (s *duplexStream) Write(b []byte) (int, error)                   { return s.w.Write(b) }
-func (s *duplexStream) Close() error                                   { return nil }
-func (s *duplexStream) SetReadDeadline(t time.Time) error              { return nil }
-func (s *duplexStream) SetWriteDeadline(t time.Time) error             { return nil }
-func (s *duplexStream) StreamID() quic.StreamID                        { return 0 }
-func (s *duplexStream) CancelRead(code quic.StreamErrorCode)           {}
-func (s *duplexStream) CancelWrite(code quic.StreamErrorCode)          {}
-func (s *duplexStream) Context() context.Context                       { return context.Background() }
-func (s *duplexStream) SetDeadline(t time.Time) error                  { return nil }
+func (s *duplexStream) Read(b []byte) (int, error)            { return s.r.Read(b) }
+func (s *duplexStream) Write(b []byte) (int, error)           { return s.w.Write(b) }
+func (s *duplexStream) Close() error                          { return nil }
+func (s *duplexStream) SetReadDeadline(t time.Time) error     { return nil }
+func (s *duplexStream) SetWriteDeadline(t time.Time) error    { return nil }
+func (s *duplexStream) StreamID() quic.StreamID               { return 0 }
+func (s *duplexStream) CancelRead(code quic.StreamErrorCode)  {}
+func (s *duplexStream) CancelWrite(code quic.StreamErrorCode) {}
+func (s *duplexStream) Context() context.Context              { return context.Background() }
+func (s *duplexStream) SetDeadline(t time.Time) error         { return nil }
 
 // @sk-test quic-relay-mode#T4: QUICConn round-trip — WriteMessage on one end, ReadMessage on the other,
 // verify no length prefix contamination in payload (AC-001).

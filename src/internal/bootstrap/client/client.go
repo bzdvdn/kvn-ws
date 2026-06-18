@@ -174,6 +174,7 @@ func (c *Client) Run(ctx context.Context) error {
 	if err := tunDev.Open(); err != nil {
 		return fmt.Errorf("open tun: %w", err)
 	}
+	// @sk-task relay-terminator#T9.3: TUN cleanup on graceful disconnect (AC-006)
 	defer func() { _ = tunDev.Close() }()
 
 	c.reconnectLoop(ctx, tunDev)

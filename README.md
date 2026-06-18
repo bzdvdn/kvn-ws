@@ -137,14 +137,44 @@ auth:
 
 ## Relay Mode
 
-Режим ретрансляции (relay) позволяет запустить промежуточный узел, который принимает клиентские подключения и проксирует их на upstream-сервер. Relay работает как прозрачный pipe:
+Режим ретрансляции (relay) — два подрежима:
 
-- **WebSocket** (TCP) — всегда активен, поддерживает path allowlist
-- **QUIC** (UDP) — опционально, без path filter, разделяет semaphore с WS
+**Bridge** — прозрачный pipe: принимает клиентов, проксирует трафик на upstream, не расшифровывает.
+**Terminator** — полноценный VPN-endpoint: расшифровывает, маршрутизирует (direct/upstream по CIDR + доменам), перехватывает DNS.
 
-Оба транспорта используют общий bridge (`bridgeRelayConn`) и единый лимит подключений (`max_connections`).
+### Terminator
 
-### Пример relay
+Terminator принимает WS/QUIC клиентов, выделяет IP из пула, поднимает TUN и маршрутизирует:
+
+- **Direct** — CIDR (`10.0.0.0/8`) и домены (`.internal.example`) → напрямую через TUN relay
+- **Upstream** — остальной трафик → через upstream VPN-сервер (WS или QUIC)
+- **DNS interception** — для direct-доменов relay форвардит DNS на `1.1.1.1:53` (настраивается)
+
+```yaml
+mode: relay
+server: wss://vpn.example.com/tunnel
+upstream_token: your-token           # токен для upstream (или env KVN_RELAY_AUTH_TOKEN)
+relay:
+  mode: terminator
+  listen: 0.0.0.0:443
+  routing:
+    direct_ranges:
+      - 10.0.0.0/8
+    direct_domains:
+      - .internal.example
+    dns:
+      upstream: "1.1.1.1:53"
+  network:
+    pool_ipv4:
+      subnet: 172.16.0.0/24
+      gateway: 172.16.0.1
+tls:
+  verify_mode: insecure
+```
+
+### Bridge relay
+
+Прозрачный pipe — relay не расшифровывает трафик:
 
 ```yaml
 mode: relay
@@ -159,25 +189,11 @@ relay:
     idle_timeout: 60
 ```
 
-### Клиент через WS relay
+### Клиент через relay (bridge)
 
 ```yaml
 mode: tun
 server: wss://relay:8443/tunnel
-# Obfuscation/padding ОБЯЗАТЕЛЬНО отключить — relay прозрачный pipe,
-# padding сломает декодирование фреймов на upstream-сервере.
-auth:
-  token: your-token
-tls:
-  verify_mode: insecure
-```
-
-### Клиент через QUIC relay
-
-```yaml
-mode: tun
-server: quic://relay:8443
-transport: quic
 auth:
   token: your-token
 tls:
@@ -185,6 +201,7 @@ tls:
 ```
 
 Подробнее: [docs/en/relay.md](docs/en/relay.md) · [docs/ru/relay.md](docs/ru/relay.md)
+Пример terminator: `examples/relay-terminator/`
 
 ## Examples
 

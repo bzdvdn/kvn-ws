@@ -1,6 +1,8 @@
 # @sk-task relay-terminator#T4.1: terminator relay config (AC-001, AC-002)
 mode: relay
 server: wss://server:443/tunnel
+transport: quic  # upstream transport: tcp or quic
+
 relay:
   mode: terminator
   listen: 0.0.0.0:8443
@@ -17,10 +19,24 @@ relay:
     direct_domains:
       - .internal.example
       - .local
+    dns:
+      upstream: "1.1.1.1:53"
+      cache_ttl: 60
+      transparent: false
   network:
     pool_ipv4:
       subnet: 172.16.0.0/24
       gateway: 172.16.0.1
+
+upstream_token: your-upstream-token  # or env KVN_RELAY_AUTH_TOKEN
+obfuscation:
+  enabled: true                      # QUIC upstream uses ObfuscatedQUICConn
+  padding:
+    enabled: true
+    size: 512
+crypto:
+  key: relay-master-key              # for handshake with clients
+
 auth:
   tokens:
     - name: default

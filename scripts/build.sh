@@ -36,17 +36,25 @@ build_web() {
   go build -ldflags="-s -w" -o bin/kvn-web ./src/cmd/web
 }
 
+build_relay() {
+  generate_protocol
+  echo "Building relay..."
+  go build -ldflags="-s -w" -o bin/relay ./src/cmd/relay
+}
+
 case "$TARGET" in
   client) build_client ;;
   server) build_server ;;
   web) build_web ;;
+  relay) build_relay ;;
   both)
     build_client
     build_server
     build_web
+    build_relay
     ;;
   *)
-    echo "Usage: $0 [client|server|web|both]" >&2
+    echo "Usage: $0 [client|server|web|relay|both]" >&2
     exit 1
     ;;
 esac

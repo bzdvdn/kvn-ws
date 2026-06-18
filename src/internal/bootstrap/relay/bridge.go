@@ -11,10 +11,13 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
-	"strings"
+	"net/netip"
 	"os/signal"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
+
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -25,31 +28,46 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/control"
+	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
-	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
 )
 
 // @sk-task relay-terminator#T1.3: Relay struct (AC-001)
 // @sk-task relay-terminator#T2.1: add terminator fields (AC-001, AC-004)
-// @sk-task relay-terminator#T3.1: add routingTun field (AC-002, AC-003)
 type Relay struct {
 	cfg    *config.RelayConfig
 	logger *zap.Logger
+	ctx    context.Context
 
-	// terminator state (initialized in bootstrap.go)
-	pool    *session.IPPool
-	pool6   *session.IPPool
-	sm      *session.SessionManager
-	tunDev  tun.TunDevice
-	rt      *routingTun
-	tunDemux *tunnel.TunDemux
-	tlsCfg  *tls.Config
+	pool       *session.IPPool
+	pool6      *session.IPPool
+	sm         *session.SessionManager
+	tunDev     tun.TunDevice
+	tunDemux   *tunnel.TunDemux
+	tlsCfg     *tls.Config
 	httpServer *http.Server
+
+	clientTransport string
+
+	upstreamMu   sync.Mutex
+	upstreamConn bool
+
+	// Routing and forwarding state
+	ruleSet  *routing.RuleSet
+	nat      *natTracker
+	upstream atomic.Pointer[upstreamSession]
+
+	dnsUpstream string
+	dnsCache    map[netip.Addr]time.Time
+	dnsCacheMu  sync.RWMutex
+	cacheTTL    time.Duration
+	dnsEnabled  bool
 }
 
 // @sk-task relay-terminator#T1.3: New creates Relay with CLI flags (AC-001)
@@ -168,7 +186,12 @@ func (r *Relay) runBridgeQUICAccept(ctx context.Context, listener *quictp.Listen
 		}
 		go func(conn transport.StreamConn) {
 			defer func() { <-sem }()
-			r.bridgeRelayConn(ctx, conn, fmt.Sprintf("quic-stream-%d", conn.(*quictp.QUICConn).StreamID()))
+			qConn, ok := conn.(*quictp.QUICConn)
+			if !ok {
+				r.logger.Warn("bridge: unexpected QUIC stream type")
+				return
+			}
+			r.bridgeRelayConn(ctx, conn, fmt.Sprintf("quic-stream-%d", qConn.StreamID()))
 		}(quicConn)
 	}
 }
@@ -302,13 +325,13 @@ func relayTLSConfig(cfg *config.RelayConfig) (*tls.Config, error) {
 func (r *Relay) bridgeRelayConn(ctx context.Context, clientConn transport.StreamConn, remoteAddr string) {
 	defer func() { _ = clientConn.Close() }()
 
-	clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	_ = clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	clientHello, err := clientConn.ReadMessage()
 	if err != nil {
 		r.logger.Warn("relay: read client hello timeout", zap.Error(err))
 		return
 	}
-	clientConn.SetReadDeadline(time.Time{})
+	_ = clientConn.SetReadDeadline(time.Time{})
 
 	upstreamConn, err := r.dialRelayUpstream(ctx)
 	if err != nil {

@@ -53,11 +53,11 @@ type ClientConfig struct {
 // @sk-task client-relay-mode#T1.1: relay config struct (AC-003)
 // @sk-task quic-relay-mode#T1.1: add Quic field (AC-003)
 type RelayCfg struct {
-	Listen         string         `json:"listen" mapstructure:"listen"`
-	WSPaths        []string       `json:"ws_paths,omitempty" mapstructure:"ws_paths"`
-	MaxConnections int            `json:"max_connections" mapstructure:"max_connections"`
-	TLS            *RelayTLSCfg   `json:"tls,omitempty" mapstructure:"tls"`
-	Quic           *RelayQuicCfg  `json:"quic,omitempty" mapstructure:"quic"`
+	Listen         string        `json:"listen" mapstructure:"listen"`
+	WSPaths        []string      `json:"ws_paths,omitempty" mapstructure:"ws_paths"`
+	MaxConnections int           `json:"max_connections" mapstructure:"max_connections"`
+	TLS            *RelayTLSCfg  `json:"tls,omitempty" mapstructure:"tls"`
+	Quic           *RelayQuicCfg `json:"quic,omitempty" mapstructure:"quic"`
 }
 
 // @sk-task client-relay-mode#T1.1: relay TLS config (AC-003)
@@ -307,32 +307,42 @@ func SaveClientConfig(path string, cfg *ClientConfig) error {
 
 // @sk-task relay-terminator#T1.1: RelayConfig for cmd/relay (AC-001)
 type RelayConfig struct {
-	Mode        string        `json:"mode" mapstructure:"mode"`
-	Relay       RelayTermCfg  `json:"relay" mapstructure:"relay"`
-	Server      string        `json:"server" mapstructure:"server"`
-	Transport   string        `json:"transport" mapstructure:"transport"`
-	Obfuscation *ObfuscationCfg `json:"obfuscation,omitempty" mapstructure:"obfuscation"`
-	Crypto      CryptoCfg     `json:"crypto" mapstructure:"crypto"`
-	TLS         ClientTLSCfg  `json:"tls" mapstructure:"tls"`
-	Auth        ServerAuth    `json:"auth" mapstructure:"auth"`
-	Log         LogConfig     `json:"log" mapstructure:"log"`
+	Mode          string          `json:"mode" mapstructure:"mode"`
+	Relay         RelayTermCfg    `json:"relay" mapstructure:"relay"`
+	Server        string          `json:"server" mapstructure:"server"`
+	Transport     string          `json:"transport" mapstructure:"transport"`
+	Obfuscation   *ObfuscationCfg `json:"obfuscation,omitempty" mapstructure:"obfuscation"`
+	Crypto        CryptoCfg       `json:"crypto" mapstructure:"crypto"`
+	TLS           ClientTLSCfg    `json:"tls" mapstructure:"tls"`
+	Auth          ServerAuth      `json:"auth" mapstructure:"auth"`
+	UpstreamToken string          `json:"upstream_token" mapstructure:"upstream_token"`
+	Log           LogConfig       `json:"log" mapstructure:"log"`
 }
 
 // @sk-task relay-terminator#T1.1: relay terminator config section (AC-001)
 type RelayTermCfg struct {
-	Mode           string            `json:"mode" mapstructure:"mode"`
-	Listen         string            `json:"listen" mapstructure:"listen"`
-	WSPaths        []string          `json:"ws_paths,omitempty" mapstructure:"ws_paths"`
-	MaxConnections int               `json:"max_connections" mapstructure:"max_connections"`
-	TLS            *RelayTLSCfg      `json:"tls,omitempty" mapstructure:"tls"`
-	Quic           *RelayQuicCfg     `json:"quic,omitempty" mapstructure:"quic"`
-	Routing        *RelayRoutingCfg  `json:"routing,omitempty" mapstructure:"routing"`
-	Network        *NetworkCfg       `json:"network,omitempty" mapstructure:"network"`
+	Mode           string           `json:"mode" mapstructure:"mode"`
+	Listen         string           `json:"listen" mapstructure:"listen"`
+	WSPaths        []string         `json:"ws_paths,omitempty" mapstructure:"ws_paths"`
+	MaxConnections int              `json:"max_connections" mapstructure:"max_connections"`
+	TLS            *RelayTLSCfg     `json:"tls,omitempty" mapstructure:"tls"`
+	Quic           *RelayQuicCfg    `json:"quic,omitempty" mapstructure:"quic"`
+	Routing        *RelayRoutingCfg `json:"routing,omitempty" mapstructure:"routing"`
+	Network        *NetworkCfg      `json:"network,omitempty" mapstructure:"network"`
 }
 
+// @sk-task relay-terminator#T6.1: DNS config for relay routing (RQ-008, RQ-011)
+type RelayDNSCfg struct {
+	Upstream    string `json:"upstream" mapstructure:"upstream"`
+	CacheTTL    int    `json:"cache_ttl" mapstructure:"cache_ttl"`
+	Transparent bool   `json:"transparent" mapstructure:"transparent"`
+}
+
+// @sk-task relay-terminator#T6.1: routing config for relay terminator (RQ-008, RQ-011)
 type RelayRoutingCfg struct {
-	DirectRanges  []string `json:"direct_ranges" mapstructure:"direct_ranges"`
-	DirectDomains []string `json:"direct_domains" mapstructure:"direct_domains"`
+	DirectRanges  []string     `json:"direct_ranges" mapstructure:"direct_ranges"`
+	DirectDomains []string     `json:"direct_domains" mapstructure:"direct_domains"`
+	DNS           *RelayDNSCfg `json:"dns,omitempty" mapstructure:"dns"`
 }
 
 // @sk-task relay-terminator#T1.1: load relay config (AC-001)
@@ -371,6 +381,14 @@ func LoadRelayConfig(path string) (*RelayConfig, error) {
 	}
 	if cfg.TLS.VerifyMode == "" {
 		cfg.TLS.VerifyMode = "insecure"
+	}
+	if cfg.Relay.Routing != nil && cfg.Relay.Routing.DNS != nil {
+		if cfg.Relay.Routing.DNS.Upstream == "" {
+			cfg.Relay.Routing.DNS.Upstream = "1.1.1.1:53"
+		}
+		if cfg.Relay.Routing.DNS.CacheTTL <= 0 {
+			cfg.Relay.Routing.DNS.CacheTTL = 60
+		}
 	}
 	if w := warnSecretInFile("KVN_RELAY", []string{"crypto.key"}); w {
 		log.Println("[config] WARNING: secrets (crypto.key) loaded from config file. Use environment variable KVN_RELAY_CRYPTO_KEY for production.")

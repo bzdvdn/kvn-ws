@@ -3,13 +3,16 @@ package relay
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/quic-go/quic-go"
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
@@ -17,91 +20,191 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
 // @sk-task relay-terminator#T3.2: upstream session (AC-004)
 type upstreamSession struct {
-	stream transport.StreamConn
-	tunDev tun.TunDevice
-	logger *zap.Logger
+	stream     transport.StreamConn
+	tunDev     tun.TunDevice
+	logger     *zap.Logger
 	assignedIP net.IP
+	nat        *natTracker
 
 	mu     sync.Mutex
 	closed bool
 }
 
+func (us *upstreamSession) isClosed() bool {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+	return us.closed
+}
+
 // @sk-task relay-terminator#T3.2: dial upstream + handshake (AC-004)
-func dialUpstream(ctx context.Context, cfg *config.RelayConfig, tunDev tun.TunDevice, logger *zap.Logger) (*upstreamSession, error) {
+// @sk-task relay-terminator#T5.1: QUIC upstream dial (AC-004)
+func dialUpstream(ctx, sessionCtx context.Context, cfg *config.RelayConfig, tunDev tun.TunDevice, logger *zap.Logger, transportHint string, nat *natTracker) (*upstreamSession, error) {
 	tlsCfg, err := relayTLSConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("upstream tls: %w", err)
 	}
 
-	conn, err := websocket.Dial(cfg.Server, tlsCfg, logger)
+	upTransport := cfg.Transport
+	if upTransport == "" {
+		upTransport = transportHint
+	}
+	if upTransport == "" {
+		upTransport = "tcp"
+	}
+
+	var (
+		conn        transport.StreamConn
+		assignedIP  net.IP
+		handshakeOk bool
+	)
+	if upTransport == "quic" {
+		var hErr error
+		conn, assignedIP, hErr = dialAndHandshake(ctx, cfg, tlsCfg, logger)
+		if hErr == nil {
+			handshakeOk = true
+		} else {
+			logger.Warn("QUIC upstream failed, falling back to TCP", zap.Error(hErr))
+		}
+	}
+	if !handshakeOk {
+		var hErr error
+		conn, assignedIP, hErr = dialAndHandshakeWS(ctx, cfg, tlsCfg, logger)
+		if hErr != nil {
+			return nil, fmt.Errorf("upstream dial: %w", hErr)
+		}
+	}
+
+	us, hErr := buildSession(sessionCtx, conn, tunDev, logger, assignedIP, nat)
+	if hErr != nil {
+		_ = conn.Close()
+		return nil, hErr
+	}
+	return us, nil
+}
+
+// @sk-task relay-terminator#T8.7: dial upstream with QUIC obfuscation support (AC-004)
+func dialAndHandshake(ctx context.Context, cfg *config.RelayConfig, tlsCfg *tls.Config, logger *zap.Logger) (transport.StreamConn, net.IP, error) {
+	conn, err := dialQUICUpstream(ctx, cfg.Server, tlsCfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("upstream dial: %w", err)
+		return nil, nil, err
+	}
+	if cfg.Obfuscation != nil && cfg.Obfuscation.Enabled {
+		qConn, ok := conn.(*quictp.QUICConn)
+		if !ok {
+			_ = conn.Close()
+			return nil, nil, fmt.Errorf("upstream conn is not QUIC")
+		}
+		obfConn, obfErr := quictp.NewObfuscatedQUICConn(qConn)
+		if obfErr != nil {
+			_ = conn.Close()
+			return nil, nil, fmt.Errorf("upstream quic obfuscation: %w", obfErr)
+		}
+		conn = obfConn
+		logger.Debug("upstream QUIC obfuscation enabled")
+	}
+	assignedIP, hErr := doHandshake(conn, cfg, logger)
+	if hErr != nil {
+		_ = conn.Close()
+		return nil, nil, hErr
+	}
+	return conn, assignedIP, nil
+}
+
+// @sk-task relay-terminator#T5.1: WS upstream dial (QUIC fallback path) (AC-004)
+func dialAndHandshakeWS(ctx context.Context, cfg *config.RelayConfig, tlsCfg *tls.Config, logger *zap.Logger) (transport.StreamConn, net.IP, error) {
+	paddingEnabled := cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil && cfg.Obfuscation.Padding.Enabled
+	if !paddingEnabled && cfg.Obfuscation != nil && cfg.Obfuscation.Enabled {
+		paddingEnabled = true
+	}
+	wsCfg := websocket.WSConfig{
+		PaddingEnabled: paddingEnabled,
+		PaddingSize:    paddingSizeOrDefault(cfg.Obfuscation),
+	}
+	conn, err := websocket.Dial(cfg.Server, tlsCfg, logger, wsCfg)
+	if err != nil {
+		return nil, nil, err
 	}
 	conn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
-
-	var sidBuf [16]byte
-	if _, rerr := rand.Read(sidBuf[:]); rerr != nil {
+	assignedIP, hErr := doHandshake(conn, cfg, logger)
+	if hErr != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("generate session id: %w", rerr)
+		return nil, nil, hErr
 	}
-	sessionID := hex.EncodeToString(sidBuf[:])
+	return conn, assignedIP, nil
+}
 
-	token := os.Getenv("KVN_RELAY_AUTH_TOKEN")
+// @sk-task relay-terminator#T3.2: padding size from obfuscation config (upstream helper)
+func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
+	if oc != nil && oc.Padding != nil && oc.Padding.Size > 0 {
+		return oc.Padding.Size
+	}
+	return 512
+}
+
+// @sk-task relay-terminator#T7.1: upstream handshake with token from config or env (AC-004)
+func doHandshake(conn transport.StreamConn, cfg *config.RelayConfig, logger *zap.Logger) (net.IP, error) {
+	token := cfg.UpstreamToken
+	if token == "" {
+		token = os.Getenv("KVN_RELAY_AUTH_TOKEN")
+	}
 	clientHello, err := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,
 		Token:        token,
 		Mtu:          handshake.DefaultMTU,
 	})
 	if err != nil {
-		_ = conn.Close()
 		return nil, fmt.Errorf("encode client hello: %w", err)
 	}
 	helloData, err := clientHello.Encode()
 	if err != nil {
-		_ = conn.Close()
 		return nil, fmt.Errorf("encode hello frame: %w", err)
 	}
 	if err := conn.WriteMessage(helloData); err != nil {
 		framing.ReturnBuffer(helloData)
-		_ = conn.Close()
 		return nil, fmt.Errorf("send client hello: %w", err)
 	}
 	framing.ReturnBuffer(helloData)
 
 	resp, err := conn.ReadMessage()
 	if err != nil {
-		_ = conn.Close()
 		return nil, fmt.Errorf("read server hello: %w", err)
 	}
 	var frame framing.Frame
 	if err := frame.Decode(resp); err != nil {
-		_ = conn.Close()
 		return nil, fmt.Errorf("decode server hello frame: %w", err)
 	}
-	serverHello, err := handshake.DecodeServerHello(&frame)
+	sh, err := handshake.DecodeServerHello(&frame)
 	if err != nil {
-		_ = conn.Close()
 		return nil, fmt.Errorf("decode server hello: %w", err)
 	}
+	return sh.AssignedIp, nil
+}
 
+// @sk-task relay-terminator#T3.2: build upstreamSession from connected stream (AC-004)
+func buildSession(ctx context.Context, conn transport.StreamConn, tunDev tun.TunDevice, logger *zap.Logger, assignedIP net.IP, nat *natTracker) (*upstreamSession, error) {
+	var sidBuf [16]byte
+	if _, rerr := rand.Read(sidBuf[:]); rerr != nil {
+		return nil, fmt.Errorf("generate session id: %w", rerr)
+	}
+	sessionID := hex.EncodeToString(sidBuf[:])
 	logger.Info("upstream handshake OK",
 		zap.String("session", sessionID),
-		zap.String("assigned_ip", serverHello.AssignedIp.String()),
+		zap.String("assigned_ip", assignedIP.String()),
 	)
-
 	us := &upstreamSession{
 		stream:     conn,
 		tunDev:     tunDev,
 		logger:     logger,
-		assignedIP: serverHello.AssignedIp,
+		assignedIP: assignedIP,
+		nat:        nat,
 	}
-
 	go us.receiveLoop(ctx)
 	return us, nil
 }
@@ -124,6 +227,23 @@ func (us *upstreamSession) Send(packet []byte) error {
 	}
 	defer framing.ReturnBuffer(data)
 	return us.stream.WriteMessage(data)
+}
+
+// @sk-task relay-terminator#T5.1: QUIC upstream dial helper (AC-004)
+func dialQUICUpstream(ctx context.Context, serverURL string, tlsCfg *tls.Config, logger *zap.Logger) (transport.StreamConn, error) {
+	quicAddr := serverURL
+	if u, parseErr := url.Parse(quicAddr); parseErr == nil && u.Host != "" {
+		quicAddr = u.Host
+	}
+	quicCfg := &quic.Config{
+		KeepAlivePeriod: 7 * time.Second,
+	}
+	quicConn, err := quictp.Dial(ctx, quicAddr, tlsCfg, quicCfg)
+	if err != nil {
+		return nil, fmt.Errorf("quic dial: %w", err)
+	}
+	logger.Info("upstream QUIC dial successful", zap.String("addr", quicAddr))
+	return quicConn, nil
 }
 
 // @sk-task relay-terminator#T3.2: receive responses from upstream (AC-004)
@@ -157,7 +277,19 @@ func (us *upstreamSession) receiveLoop(ctx context.Context) {
 			f.Release()
 			continue
 		}
-		if _, err := us.tunDev.Write(f.Payload); err != nil {
+		payload := f.Payload
+		us.logger.Debug("upstream recv frame", zap.Int("len", len(payload)))
+		if us.nat != nil {
+			dnatBuf := make([]byte, len(payload))
+			copy(dnatBuf, payload)
+			if us.nat.dnat(dnatBuf) {
+				us.logger.Debug("nat dnat applied")
+				payload = dnatBuf
+			} else {
+				us.logger.Debug("nat dnat skipped")
+			}
+		}
+		if _, err := us.tunDev.Write(payload); err != nil {
 			us.logger.Warn("upstream tun write error", zap.Error(err))
 		}
 		f.Release()

@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -42,6 +42,10 @@ type tunReadResult struct {
 	buf []byte
 }
 
+// OutgoingInterceptor is called before writing a data frame to the TUN device.
+// If it returns true, the frame is considered handled and TUN write is skipped.
+type OutgoingInterceptor func(payload []byte) (handled bool, err error)
+
 // Session encapsulates bidirectional forwarding between a transport
 // stream (WebSocket or QUIC) and a TUN device.
 type Session struct {
@@ -64,6 +68,8 @@ type Session struct {
 	proxyConcurrency int
 	clientIP         net.IP
 	clientIP6        net.IP
+
+	outgoingInterceptor OutgoingInterceptor
 }
 
 // @sk-task arch-refactoring#T3.5: add tunnelTimeout and proxyConcurrency params (AC-006)
@@ -118,6 +124,10 @@ func (s *Session) SetDemux(d *TunDemux) {
 	s.demux = d
 }
 
+func (s *Session) SetOutgoingInterceptor(fn OutgoingInterceptor) {
+	s.outgoingInterceptor = fn
+}
+
 // @sk-task fix-critical-leaks#T3.1: TUN reader — permanent goroutine (AC-001)
 func (s *Session) startTunReader(ctx context.Context) {
 	s.tunReaderCh = make(chan tunReadResult, 64)
@@ -147,18 +157,43 @@ func (s *Session) startTunReader(ctx context.Context) {
 
 // Run spawns the two forwarding goroutines (WS→TUN and TUN→WS) and
 // blocks until one fails or ctx is cancelled.
-func (s *Session) Run(ctx context.Context) error {
+// @sk-task relay-terminator#T8.5: recover from panics in Run() and errgroup goroutines
+func (s *Session) Run(ctx context.Context) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("session panic: %v", r)
+			s.logger.Error("session recovered from panic", zap.Any("panic", r))
+		}
+	}()
 	s.startTunReader(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error { return s.wsToTun(ctx) })
-	eg.Go(func() error { return s.tunToWS(ctx) })
+	eg.Go(func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("wsToTun panic: %v", r)
+				s.logger.Error("wsToTun recovered from panic", zap.Any("panic", r))
+			}
+		}()
+		return s.wsToTun(ctx)
+	})
+	eg.Go(func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("tunToWS panic: %v", r)
+				s.logger.Error("tunToWS recovered from panic", zap.Any("panic", r))
+			}
+		}()
+		return s.tunToWS(ctx)
+	})
 	return eg.Wait()
 }
 
 // @sk-task fix-ping-drops#T2.1: treat read timeout as non-fatal, continue instead of aborting session
+// @sk-task relay-terminator#T8.4: timeout hardening — net.Error.Timeout() + max 10 consecutive (RQ-016)
 // @sk-task arch-refactoring#T3.3: decomposed wsToTun with handler methods (AC-005)
 func (s *Session) wsToTun(ctx context.Context) error {
 	var lastRateLimitLog time.Time
+	var consecutiveTimeouts int
 	for {
 		select {
 		case <-ctx.Done():
@@ -183,12 +218,20 @@ func (s *Session) wsToTun(ctx context.Context) error {
 		}
 		data, err := s.stream.ReadMessage()
 		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				consecutiveTimeouts++
+				if consecutiveTimeouts >= 10 {
+					s.logger.Warn("too many consecutive timeouts, ending session",
+						zap.Int("count", consecutiveTimeouts), zap.Error(err))
+					return err
+				}
 				s.logger.Debug("read timeout, continuing", zap.Error(err))
 				continue
 			}
 			return err
 		}
+		consecutiveTimeouts = 0
 		var f framing.Frame
 		if err := f.Decode(data); err != nil {
 			return err
@@ -229,6 +272,17 @@ func (s *Session) wsToTun(ctx context.Context) error {
 // @sk-task arch-refactoring#T3.3: extracted data frame handler (AC-005)
 func (s *Session) handleDataFrame(f *framing.Frame) error {
 	defer f.Release()
+
+	if s.outgoingInterceptor != nil {
+		handled, err := s.outgoingInterceptor(f.Payload)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
+	}
+
 	n, err := s.tunDev.Write(f.Payload)
 	if err != nil {
 		return err

@@ -1,68 +1,150 @@
-# Relay Mode
+# Relay Mode — Split-Tunnel Terminator
 
-Relay mode allows running an intermediary node that accepts client connections and proxies them to an upstream VPN server. The relay acts as a transparent pipe — it does not decrypt, obfuscate, or inspect tunnel traffic.
+The relay operates as a **terminator**: a full VPN endpoint that accepts client connections, decrypts traffic, routes packets (direct vs upstream), and manages a TUN device. It acts as a split-tunnel gateway — direct CIDR/domain traffic goes through the relay's own network, the rest is forwarded to an upstream VPN server.
 
 ## Architecture
 
 ```
-                    ┌──────────────┐      WebSocket       ┌──────────────┐
-  WS client ───────▶│              ├─────────────────────▶│              │
-                    │    Relay     │                       │    Server    │
-  QUIC client ─────▶│  (mode:relay)│      WebSocket       │  (upstream)  │
-                    └──────────────┘                       └──────────────┘
+                    ┌──────────────┐      Direct CIDR
+                    │              │◀──── ─ ─ ─ ─ ─ ─ ─    Internet
+  WS client ───────▶│  Terminator  │      (via relay TUN)
+                    │              │
+  QUIC client ─────▶│  (mode:term) │      WebSocket/QUIC   ┌──────────────┐
+                    │              ├────────────────────────▶    Server    │
+                    │   TUN + NAT  │       (upstream)       │  (upstream)  │
+                    └──────────────┘                        └──────────────┘
 ```
 
-- **Relay → Server**: always WebSocket (single upstream connection per client)
-- **Client → Relay**: WebSocket (TCP, always on) or QUIC (UDP, optional)
-- Both transports share the same connection limit (`max_connections`) and bridge logic
+- **Direct CIDR** — traffic to matching IP ranges goes through the relay's TUN directly to the internet.
+- **Upstream** — remaining traffic is encrypted and forwarded to the upstream VPN server via a separate tunnel.
+- **NAT** — userspace SNAT/DNAT (`nat.go`): client packets to direct IPs get source-NAT'd to the relay's TUN IP; response packets are reverse-NAT'd back to the client.
 
 ## Transport Details
 
-### WebSocket listener
-- HTTP server with TLS, always active
-- Path allowlist (`ws_paths`) — requests to non-allowed paths return 404
-- Standard WebSocket upgrade (`Upgrade: websocket` header required)
+### Client → Relay
 
-### QUIC listener
-- UDP listener on the same port as WS (different L4 protocol)
-- Active only when `relay.quic` block is configured
-- No path filtering (QUIC has no HTTP concept)
-- Same TLS config as WebSocket (TLS 1.3 required)
+Clients connect via WebSocket (TCP, always on) or QUIC (UDP, requires `relay.quic` block). Both share the same TLS config and connection limit.
+
+- **WebSocket listener**: HTTP server with TLS, path allowlist (`ws_paths`), standard WS upgrade.
+- **QUIC listener**: UDP on the same port, requires TLS 1.3, no path filtering.
+
+### Relay → Server (Upstream)
+
+The relay opens a single upstream tunnel to the configured `server`. The upstream transport is independent of the client transport — set via `transport: quic` or `transport: tcp` (default). QUIC→TCP fallback on dial failure.
+
+When `obfuscation.enabled: true`, the upstream QUIC connection is wrapped in `ObfuscatedQUICConn` (XOR via TLS keying material). The server must also have `obfuscation.enabled: true` for this to work.
 
 ## Configuration
 
-Minimal relay config:
+Full terminator config:
 
 ```yaml
 mode: relay
 server: wss://vpn.example.com/tunnel
-relay:
-  listen: 0.0.0.0:8443
-tls:
-  verify_mode: insecure
-```
+transport: quic               # upstream transport: tcp or quic
+upstream_token: your-token    # upstream auth (or env KVN_RELAY_AUTH_TOKEN)
 
-With QUIC and custom paths:
-
-```yaml
-mode: relay
-server: wss://vpn.example.com/tunnel
 relay:
+  mode: terminator
   listen: 0.0.0.0:8443
   ws_paths:
     - /tunnel
-    - /api/v1/events
   max_connections: 200
   quic:
     keep_alive: 7
     idle_timeout: 60
+  routing:
+    direct_ranges:
+      - 10.0.0.0/8
+      - 192.168.0.0/16
+    direct_domains:
+      - .internal.example
+      - .local
+    dns:
+      upstream: "1.1.1.1:53"
+      cache_ttl: 60
+      transparent: false
+  network:
+    pool_ipv4:
+      subnet: 172.16.0.0/24
+      gateway: 172.16.0.1
+
+obfuscation:
+  enabled: true
+  padding:
+    enabled: true
+    size: 512
+crypto:
+  key: relay-master-key
+
+auth:
+  tokens:
+    - name: default
+      secret: your-token-here
 tls:
   verify_mode: insecure
 log:
   level: info
 ```
 
-## Client connection examples
+### DNS Interception
+
+The terminator intercepts **all** DNS queries from clients (not just direct-domain ones):
+
+1. Client sends a DNS query (UDP port 53) through the tunnel.
+2. Terminator parses the domain name via `routing.ParseDNSQuestion`.
+3. If the domain matches a direct rule → forwards to `dns.upstream` (default `1.1.1.1:53`), caches resolved IPs, returns response directly.
+4. If the domain is NOT direct → resolved locally, response sent directly, **no caching** (so subsequent packets fall through to upstream routing).
+5. Cached IPs bypass upstream routing for the cache TTL.
+
+This ensures direct-domain traffic never touches the upstream tunnel.
+
+### Routing Decision
+
+For every outgoing packet, `routeOutgoing()` in `handler.go`:
+
+1. **DNS check** — port 53 → resolve locally (see above).
+2. **Cache check** — destination IP matches a cached direct-domain IP → direct.
+3. **CIDR/domain RuleSet** — `ruleSet.Route(ip)` → direct or server.
+4. **Direct** → SNAT + write to TUN.
+5. **Server** → SNAT + `upstream.Send()`.
+
+### Userspace NAT
+
+All NAT is done in userspace (`nat.go`), avoiding iptables:
+
+- **SNAT** in `routeOutgoing`: rewrites source IP from client's pool IP to the relay's TUN gateway IP, assigns a random port, stores the mapping.
+- **DNAT** in `receiveLoop`: on incoming responses from TUN, looks up the original client IP:port and reverses the mapping.
+- Supports TCP, UDP, and ICMP.
+
+### Upstream Reconnect
+
+If the upstream connection dies (`isClosed()` or `Send` error), the relay triggers an async reconnect via `reconnectUpstream()`. The reconnect is serialised by `upstreamMu` to prevent thundering herd. While reconnecting, direct traffic continues to work; upstream traffic is dropped with a warning.
+
+### Lazy Connect
+
+The relay does not crash if the upstream server is unavailable at startup. It logs a warning and retries when the first client arrives. Clients can connect and use direct routing immediately; upstream traffic waits for the tunnel to be established.
+
+### IPv6 Support
+
+The relay supports IPv6 if configured with `relay.network.pool_ipv6`. Both client and relay must support IPv6 for it to work:
+
+```yaml
+relay:
+  network:
+    pool_ipv4:
+      subnet: 172.16.0.0/24
+      gateway: 172.16.0.1
+    pool_ipv6:
+      subnet: "fd00::/112"
+      gateway: "fd00::1"
+```
+
+Clients request IPv6 by setting `ipv6: true` in their config. If the relay has no IPv6 pool, the client runs IPv4-only.
+
+**Note:** If a client does not need IPv6, set `ipv6: false` to prevent IPv6-first connection attempts (e.g. curl trying `2a00:1450:4010:c0f::65:80` before the IPv4 address) from failing with "network unreachable".
+
+## Client Connection Examples
 
 ### WebSocket client (via relay)
 
@@ -70,7 +152,7 @@ log:
 mode: tun
 server: wss://relay:8443/tunnel
 auth:
-  token: your-token
+  token: your-token-here
 tls:
   verify_mode: insecure
 ```
@@ -82,79 +164,32 @@ mode: tun
 server: quic://relay:8443
 transport: quic
 auth:
-  token: your-token
+  token: your-token-here
 tls:
   verify_mode: insecure
 ```
 
-## Running the example
+## Running the Example
 
 ```bash
-cd examples/relay
+cd examples/relay-terminator
 bash run.sh
 ```
 
 This starts:
-1. **server** — upstream VPN server (port 443)
-2. **relay** — relay node with WS + QUIC (port 8443 TCP+UDP)
-3. **client** — WS client connecting through relay
-4. **quic-client** — QUIC client connecting through relay
+1. **server** — upstream VPN server (port 443, QUIC-ready)
+2. **relay** — terminator with WS + QUIC (port 8443 TCP+UDP)
+3. **client** — WS client through relay
+4. **quic-client** — QUIC client through relay
 
-Both clients establish a tunnel through the relay to the upstream server.
+## Bridge Mode (Legacy)
 
-## Terminator Mode
+A legacy **bridge** mode (`relay.mode: bridge`) exists as an opaque pipe — it forwards encrypted frames without decryption. It requires no TUN or NET_ADMIN. Bridge mode persists in `cmd/relay` for backward compatibility but is not actively developed. Use `terminator` for new deployments.
 
-Terminator is a relay mode where the node acts as a full VPN endpoint: accepts clients, allocates IPs from a pool, sets up TUN, and routes traffic. Unlike bridge mode (transparent pipe), the terminator **decrypts** and **routes** client traffic.
+## Requirements
 
-### Architecture
-
-```
-                    ┌──────────────┐      Direct CIDR     ┌──────────────┐
-                    │              │◀──── ─ ─ ─ ─ ─ ─ ─ ─▶│   Internet   │
-  WS client ───────▶│  Terminator  │                       │  (via TUN)   │
-                    │ (mode:term)  │      WebSocket       ┌──────────────┐
-  QUIC client ─────▶│              ├─────────────────────▶│    Server    │
-                    └──────────────┘      (upstream)      │  (upstream)  │
-                                                           └──────────────┘
-```
-
-- **Direct CIDR** — traffic to specified ranges goes directly through the relay's TUN.
-- **Upstream** — remaining traffic is encrypted and sent to the upstream VPN server.
-- Relay allocates IPs to clients from its own pool (`relay.network.pool_ipv4`).
-
-### Terminator Configuration
-
-```yaml
-mode: relay
-server: wss://vpn.example.com/tunnel
-relay:
-  mode: terminator
-  listen: 0.0.0.0:8443
-  routing:
-    direct_ranges:
-      - 10.0.0.0/8
-      - 192.168.0.0/16
-    direct_domains:
-      - .internal.example
-  network:
-    pool_ipv4:
-      subnet: 172.16.0.0/24
-      gateway: 172.16.0.1
-tls:
-  verify_mode: insecure
-```
-
-### Requirements
-
-- Relay requires `NET_ADMIN` capability and `/dev/net/tun` (TUN device).
+- `NET_ADMIN` capability and `/dev/net/tun` (TUN device).
 - `relay.network.pool_ipv4` is required for terminator mode.
-- For the upstream connection, the relay uses the `KVN_RELAY_AUTH_TOKEN` environment variable.
-
-## Notes
-
-- Relay does not require TUN device or root privileges (no `NET_ADMIN` needed for the relay itself)
-- TLS certificate for incoming connections: if not configured, a self-signed cert is generated
-- The relay always connects to upstream via WebSocket regardless of client transport
-- `idle_timeout` for QUIC is required (must be > 0) to prevent resource leaks
-- `keep_alive` defaults to 7 seconds if not set or set to 0
-- WS clients connecting through a relay **must disable** `obfuscation.padding`: the relay is an opaque pipe and will forward padded messages upstream, corrupting frame decoding on the server side. QUIC clients have no such restriction — they never use WS padding.
+- For upstream auth, set `upstream_token` or `KVN_RELAY_AUTH_TOKEN` env.
+- Server must have `obfuscation.enabled: true` if the relay uses QUIC upstream with obfuscation.
+- `net.ipv4.ip_forward=1` is auto-enabled by the relay for response DNAT (kernel must forward TUN→public).

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
+	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
@@ -22,10 +25,16 @@ import (
 
 // @sk-task relay-terminator#T2.1: init terminator state (AC-001, AC-004, AC-005)
 // @sk-task relay-terminator#T2.2: TUN setup (AC-005)
+// @sk-task relay-terminator#T9.2: IPv6 pool support (AC-001)
+// @sk-task relay-terminator#T6.3: wire DNS config through initTerminator (RQ-008, RQ-011)
 func (r *Relay) initTerminator() error {
 	netCfg := r.cfg.Relay.Network
 	if netCfg == nil {
 		return fmt.Errorf("relay.network is required for terminator mode")
+	}
+
+	if err := r.enableIPForward(); err != nil {
+		r.logger.Warn("ip_forward enable", zap.Error(err))
 	}
 
 	pool, err := session.NewIPPool(session.PoolCfg{
@@ -88,12 +97,28 @@ func (r *Relay) initTerminator() error {
 	}
 	r.tlsCfg = tlsCfg
 
+	r.nat = newNATTracker(r.logger)
+
 	if r.cfg.Relay.Routing != nil {
 		ruleSet, err := newDirectRuleSet(r.cfg.Relay.Routing, r.logger)
 		if err != nil {
 			return fmt.Errorf("routing rule set: %w", err)
 		}
-		r.rt = newRoutingTun(r.tunDev, ruleSet, r.logger)
+		r.ruleSet = ruleSet
+
+		if dnsCfg := r.cfg.Relay.Routing.DNS; dnsCfg != nil {
+			r.dnsEnabled = true
+			r.dnsUpstream = dnsCfg.Upstream
+			if r.dnsUpstream == "" {
+				r.dnsUpstream = "1.1.1.1:53"
+			}
+			ttl := 60
+			if dnsCfg.CacheTTL > 0 {
+				ttl = dnsCfg.CacheTTL
+			}
+			r.cacheTTL = time.Duration(ttl) * time.Second
+			r.dnsCache = make(map[netip.Addr]time.Time)
+		}
 	}
 
 	return nil
@@ -101,12 +126,14 @@ func (r *Relay) initTerminator() error {
 
 // @sk-task relay-terminator#T3.1: upstream dial + routing wire (AC-002, AC-003, AC-004)
 // @sk-task relay-terminator#T3.2: upstream tunnel lifecycle (AC-004)
+// @sk-task relay-terminator#T5.2: upstream transport auto-select (AC-004)
 func (r *Relay) connectUpstream(ctx context.Context) error {
 	if r.cfg.Server == "" {
 		r.logger.Warn("no upstream server configured, upstream routing will drop packets")
+		r.upstreamConn = true
 		return nil
 	}
-	us, err := dialUpstream(ctx, r.cfg, r.tunDev, r.logger)
+	us, err := dialUpstream(ctx, r.ctx, r.cfg, r.tunDev, r.logger, r.clientTransport, r.nat)
 	if err != nil {
 		return fmt.Errorf("upstream connect: %w", err)
 	}
@@ -114,16 +141,30 @@ func (r *Relay) connectUpstream(ctx context.Context) error {
 		zap.String("server", r.cfg.Server),
 		zap.String("assigned_ip", us.assignedIP.String()),
 	)
-	if r.rt != nil {
-		r.rt.upstream.Store(us)
+	r.upstream.Store(us)
+	return nil
+}
+
+// @sk-task relay-terminator#T7.2: lazy upstream connect with retry (RQ-014)
+func (r *Relay) ensureUpstream(ctx context.Context) error {
+	r.upstreamMu.Lock()
+	defer r.upstreamMu.Unlock()
+	if r.upstreamConn {
+		return nil
 	}
+	if err := r.connectUpstream(ctx); err != nil {
+		return err
+	}
+	r.upstreamConn = true
 	return nil
 }
 
 // @sk-task relay-terminator#T2.1: terminator accept loops (AC-001, AC-004)
 // @sk-task relay-terminator#T2.2: TUN lifecycle (AC-005)
 // @sk-task relay-terminator#T2.3: cleanup at disconnect (AC-006)
+// @sk-task relay-terminator#T8.6: decouple receiveLoop context from client request (AC-001)
 func (r *Relay) runTerminator(ctx context.Context) error {
+	r.ctx = ctx
 	if err := r.initTerminator(); err != nil {
 		return fmt.Errorf("terminator init: %w", err)
 	}
@@ -132,8 +173,12 @@ func (r *Relay) runTerminator(ctx context.Context) error {
 	defer r.sm.Stop()
 	defer func() { _ = r.tunDev.Close() }()
 
-	if err := r.connectUpstream(ctx); err != nil {
-		return fmt.Errorf("upstream: %w", err)
+	if r.cfg.Transport != "" {
+		if err := r.connectUpstream(ctx); err != nil {
+			r.logger.Warn("upstream connect failed, will retry on first client", zap.Error(err))
+		}
+	} else {
+		r.logger.Info("upstream transport auto-select enabled, connecting on first client")
 	}
 
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
@@ -193,10 +238,45 @@ func (r *Relay) runTerminator(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("quic accept: %w", err)
 				}
-				go r.handleTerminatorStream(egCtx, quicConn, quicListener.Addr())
+				clientStream := transport.StreamConn(quicConn)
+				if r.cfg.Obfuscation != nil && r.cfg.Obfuscation.Enabled {
+					obfConn, obfErr := quictp.NewObfuscatedQUICConn(quicConn)
+					if obfErr != nil {
+						r.logger.Error("quic obfuscation init failed, closing connection", zap.Error(obfErr))
+						_ = quicConn.Close()
+						continue
+					}
+					clientStream = obfConn
+				}
+				go r.handleTerminatorStream(egCtx, clientStream, quicListener.Addr(), "quic")
 			}
 		})
 	}
 
 	return eg.Wait()
+}
+
+// @sk-task relay-terminator#T8.2: async upstream reconnect serialised by upstreamMu (AC-007)
+func (r *Relay) reconnectUpstream() {
+	r.upstreamMu.Lock()
+	defer r.upstreamMu.Unlock()
+
+	us := r.upstream.Load()
+	if us != nil && !us.isClosed() {
+		return
+	}
+
+	r.logger.Info("reconnecting upstream")
+	r.upstreamConn = false
+	if err := r.connectUpstream(r.ctx); err != nil {
+		r.logger.Error("upstream reconnect failed", zap.Error(err))
+		return
+	}
+	r.upstreamConn = true
+	r.logger.Info("upstream reconnected")
+}
+
+// @sk-task relay-terminator#T8.3: enable ip_forward for DNAT response routing (RQ-015)
+func (r *Relay) enableIPForward() error {
+	return exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
 }

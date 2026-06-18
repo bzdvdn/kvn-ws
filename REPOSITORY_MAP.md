@@ -80,7 +80,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `examples/client.yaml` — standalone client config example
 - `examples/server.yaml` — standalone server config example
 - `examples/run.sh` — TLS gen + docker compose up script
-- `examples/relay/` — relay mode docker-compose example (relay→server→client)
+- `examples/relay-terminator/` — relay terminator docker-compose example (split-tunnel)
 - `README.md` — root readme with badges, quickstart, doc links
 - `CHANGELOG.md` — version history (Keep a Changelog)
 - `docs/en/` — English documentation

@@ -168,6 +168,11 @@ jobs:
             GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
               go build -ldflags="-s -w" \
               -o "dist/kvn-$os-$arch/kvn-web${suffix}" ./src/cmd/web
+            if [ "$os" = "linux" ]; then
+              GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+                go build -ldflags="-s -w" \
+                -o "dist/kvn-$os-$arch/relay${suffix}" ./src/cmd/relay
+            fi
           done
 
       - name: Copy install scripts to dist
@@ -180,6 +185,7 @@ jobs:
               cp scripts/install-web.sh "$dir/"
               cp scripts/install-server.sh "$dir/"
               cp scripts/install-client.sh "$dir/"
+              cp scripts/install-relay.sh "$dir/" 2>/dev/null || true
               cp scripts/kvn-web.service "$dir/" 2>/dev/null || true
               cp scripts/kvn-web.plist "$dir/" 2>/dev/null || true
             fi

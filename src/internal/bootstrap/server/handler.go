@@ -15,6 +15,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/auth"
+	"github.com/bzdvdn/kvn-ws/src/internal/protocol/control"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
@@ -32,6 +33,8 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 		s.logger.Error("ws upgrade", zap.Error(err))
 		return
 	}
+	// @sk-task relay-terminator#T9.1: WS keepalive on accepted server connections (AC-004)
+	wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
 	s.handleStream(r.Context(), wsConn, wsCfg.MTU, r.RemoteAddr)
 }
 
