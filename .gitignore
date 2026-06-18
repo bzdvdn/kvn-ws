@@ -41,6 +41,7 @@ src/internal/webui/frontend/dist/
 # >>> speckeep: skills checkouts >>>
 .speckeep/skills/checkouts/
 # <<< speckeep: skills checkouts <<<
+
 server.lock.json
 
 # Android
