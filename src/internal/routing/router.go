@@ -3,6 +3,7 @@ package routing
 import (
 	"encoding/binary"
 	"net/netip"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 )
@@ -14,8 +15,9 @@ const (
 
 // @sk-task routing-split-tunnel#T2.4: tun router (AC-001)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+// @sk-task geoip-geosite-integration#T4.2: atomic ruleSet for refresh (AC-011)
 type TunRouter struct {
-	ruleSet     *RuleSet
+	ruleSet     atomic.Pointer[RuleSet]
 	tunRead     func([]byte) (int, error)
 	tunWrite    func([]byte) (int, error)
 	tunnelSend  func([]byte) error
@@ -25,14 +27,21 @@ type TunRouter struct {
 
 // @sk-task routing-split-tunnel#T2.4: new tun router (AC-001)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+// @sk-task geoip-geosite-integration#T4.2: atomic ruleSet for refresh (AC-011)
 func NewTunRouter(rs *RuleSet, tunRead, tunWrite func([]byte) (int, error), tunnelSend func([]byte) error, logger *zap.Logger) *TunRouter {
-	return &TunRouter{
-		ruleSet:    rs,
+	tr := &TunRouter{
 		tunRead:    tunRead,
 		tunWrite:   tunWrite,
 		tunnelSend: tunnelSend,
 		logger:     logger,
 	}
+	tr.ruleSet.Store(rs)
+	return tr
+}
+
+// @sk-task geoip-geosite-integration#T4.2: atomic ruleSet swap for refresh (AC-011)
+func (r *TunRouter) SetRuleSet(rs *RuleSet) {
+	r.ruleSet.Store(rs)
 }
 
 // @sk-task routing-split-tunnel#T3.3: set dns override (AC-008)
@@ -83,8 +92,10 @@ func (r *TunRouter) RoutePacket(packet []byte) error {
 }
 
 // @sk-task dns-routing#T5.1: domain-based DNS query routing (AC-001, AC-002)
+// @sk-task geoip-geosite-integration#T4.2: use atomic.Load for ruleSet (AC-011)
 func (r *TunRouter) routeDNSQuery(packet []byte) RouteAction {
-	if r.ruleSet == nil {
+	rs := r.ruleSet.Load()
+	if rs == nil {
 		return RouteNone
 	}
 	qname, ok := ParseDNSQuestion(packet)
@@ -92,11 +103,15 @@ func (r *TunRouter) routeDNSQuery(packet []byte) RouteAction {
 		return RouteNone
 	}
 	r.logger.Debug("dns query domain", zap.String("qname", qname))
-	return r.ruleSet.MatchDomain(qname)
+	return rs.MatchDomain(qname)
 }
 
 func (r *TunRouter) routeByRule(dstIP netip.Addr, packet []byte) error {
-	action := r.ruleSet.Route(dstIP)
+	rs := r.ruleSet.Load()
+	if rs == nil {
+		return r.sendDirect(packet)
+	}
+	action := rs.Route(dstIP)
 	switch action {
 	case RouteServer:
 		return r.sendTunnel(packet)

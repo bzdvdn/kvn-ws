@@ -52,6 +52,7 @@ func New(port int) (*Server, error) {
 	mux.HandleFunc("POST /api/disconnect", s.handleDisconnect)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)
 	mux.HandleFunc("GET /api/platform", s.handlePlatform)
+	mux.HandleFunc("POST /api/config/refresh-sources", s.handleRefreshSources)
 
 	subFS, err := fs.Sub(reactDist, "frontend/dist")
 	if err != nil {

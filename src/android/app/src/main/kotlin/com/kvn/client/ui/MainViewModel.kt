@@ -155,6 +155,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // @sk-task geoip-geosite-integration#T5.2: refresh sources — save config, reconnect to apply resolved sources
+    fun refreshSources(config: ConnectionConfig) {
+        viewModelScope.launch {
+            saveCurrentServerConfig(config)
+            if (_connectionState.value == ConnectionState.CONNECTED) {
+                KvnVpnService.stop(getApplication())
+                _connectionState.value = ConnectionState.DISCONNECTED
+            }
+        }
+    }
+
     // @sk-task kvn-android#T2.3: connect to server (AC-001, AC-006)
     // @sk-task kvn-android#T5.1: pass full ConnectionConfig (RQ-005)
     // @sk-task multi-server-android-client#T2.1: save config to active server before connect (AC-004)

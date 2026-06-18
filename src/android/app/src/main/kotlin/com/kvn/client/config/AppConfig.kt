@@ -19,6 +19,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 // @sk-task kvn-android#T5.1: full connection config matching kvn-web (RQ-003)
+// @sk-task geoip-geosite-integration#T5.2: routing source fields (include/exclude sources, geoip/geosite paths, source TTL)
 @Serializable
 data class ConnectionConfig(
     // Connection
@@ -50,6 +51,14 @@ data class ConnectionConfig(
     val routingExcludeIps: List<String> = emptyList(),
     val routingIncludeDomains: List<String> = emptyList(),
     val routingExcludeDomains: List<String> = emptyList(),
+    // Routing Sources
+    val routingIncludeSources: String = "",
+    val routingExcludeSources: String = "",
+    val geoipPath: String = "",
+    val geoipUrl: String = "",
+    val geositePath: String = "",
+    val geositeUrl: String = "",
+    val sourceTtlHours: Int = 24,
     // Encryption
     val cryptoEnabled: Boolean = false,
     val cryptoKey: String = "",

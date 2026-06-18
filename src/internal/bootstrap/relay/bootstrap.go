@@ -100,6 +100,7 @@ func (r *Relay) initTerminator() error {
 	r.nat = newNATTracker(r.logger)
 
 	if r.cfg.Relay.Routing != nil {
+		r.resolveDirectSources(r.cfg.Relay.Routing)
 		ruleSet, err := newDirectRuleSet(r.cfg.Relay.Routing, r.logger)
 		if err != nil {
 			return fmt.Errorf("routing rule set: %w", err)

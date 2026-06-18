@@ -4,6 +4,13 @@ import QRCode from "qrcode";
 
 type Status = "disconnected" | "connecting" | "connected" | "error";
 
+interface SourceRule {
+  geoip?: string;
+  geosite?: string;
+  cidr?: string;
+  url?: string;
+}
+
 interface ClientConfig {
   server?: string;
   auth?: { token?: string };
@@ -33,6 +40,13 @@ interface ClientConfig {
     exclude_ips?: string[];
     include_domains?: string[];
     exclude_domains?: string[];
+    geoip_path?: string;
+    geoip_url?: string;
+    geosite_path?: string;
+    geosite_url?: string;
+    source_ttl_hours?: number;
+    include_sources?: SourceRule[];
+    exclude_sources?: SourceRule[];
   };
   reconnect?: { min_backoff_sec?: number; max_backoff_sec?: number };
   system_proxy?: boolean;
@@ -404,6 +418,46 @@ function App() {
     setDirty(true);
   };
 
+  // @sk-task geoip-geosite-integration#T5.1: source rule editing (AC-010)
+  const updateSourceRule = (list: "include_sources" | "exclude_sources", idx: number, field: string, value: string | undefined) => {
+    setServerConfig((prev) => {
+      const routing = { ...((prev as any).routing || {}) };
+      const sources = [...(routing[list] || [])];
+      sources[idx] = { ...sources[idx], [field]: value || undefined };
+      // clear other fields
+      ["geoip", "geosite", "cidr", "url"].forEach((f) => { if (f !== field) delete sources[idx][f]; });
+      routing[list] = sources;
+      return { ...prev, routing };
+    });
+    setDirty(true);
+  };
+  const addSourceRule = (list: "include_sources" | "exclude_sources") => {
+    setServerConfig((prev) => {
+      const routing = { ...((prev as any).routing || {}) };
+      routing[list] = [...(routing[list] || []), {}];
+      return { ...prev, routing };
+    });
+    setDirty(true);
+  };
+  const removeSourceRule = (list: "include_sources" | "exclude_sources", idx: number) => {
+    setServerConfig((prev) => {
+      const routing = { ...((prev as any).routing || {}) };
+      routing[list] = (routing[list] || []).filter((_: any, i: number) => i !== idx);
+      return { ...prev, routing };
+    });
+    setDirty(true);
+  };
+  // @sk-task geoip-geosite-integration#T5.1: refresh sources (AC-011)
+  const refreshSources = useCallback(async () => {
+    try {
+      const r = await fetch("/api/config/refresh-sources", { method: "POST" });
+      const data = await r.json();
+      showToast(data.status === "ok" ? "Sources refreshed" : data.status || "Refresh done");
+    } catch {
+      showToast("Refresh failed");
+    }
+  }, [showToast]);
+
   const sc = status === "connected" ? "#4caf50" : status === "error" ? "#f44336" : status === "connecting" ? "#ff9800" : "#666";
 
   return (
@@ -661,6 +715,77 @@ function App() {
             <ChipList label="Exclude IPs" values={serverConfig.routing?.exclude_ips} onChange={(v) => nestServer("routing", "exclude_ips", v)} />
             <ChipList label="Include Domains" values={serverConfig.routing?.include_domains} onChange={(v) => nestServer("routing", "include_domains", v)} />
             <ChipList label="Exclude Domains" values={serverConfig.routing?.exclude_domains} onChange={(v) => nestServer("routing", "exclude_domains", v)} />
+            <div style={{ marginTop: 4, padding: "6px 8px", border: "1px solid #2a2a2a", borderRadius: 4 }}>
+              <div style={{ fontSize: 12, color: "#888", fontWeight: 500, marginBottom: 4 }}>GeoIP / GeoSite Databases</div>
+              <label style={lbl}>GeoIP Path
+                <input style={inp} placeholder="/etc/geoip.dat" value={serverConfig.routing?.geoip_path || ""} onChange={(e) => nestServer("routing", "geoip_path", e.target.value)} />
+              </label>
+              <label style={lbl}>GeoIP URL
+                <input style={inp} placeholder="https://example.com/geoip.dat" value={serverConfig.routing?.geoip_url || ""} onChange={(e) => nestServer("routing", "geoip_url", e.target.value)} />
+              </label>
+              <label style={lbl}>GeoSite Path
+                <input style={inp} placeholder="/etc/geosite.dat" value={serverConfig.routing?.geosite_path || ""} onChange={(e) => nestServer("routing", "geosite_path", e.target.value)} />
+              </label>
+              <label style={lbl}>GeoSite URL
+                <input style={inp} placeholder="https://example.com/geosite.dat" value={serverConfig.routing?.geosite_url || ""} onChange={(e) => nestServer("routing", "geosite_url", e.target.value)} />
+              </label>
+              <label style={lbl}>Source TTL (hours)
+                <input type="number" style={inp} value={serverConfig.routing?.source_ttl_hours ?? 24} onChange={(e) => nestServer("routing", "source_ttl_hours", parseInt(e.target.value) || 24)} />
+              </label>
+            </div>
+            {/* @sk-task geoip-geosite-integration#T5.1: routing sources UI (AC-010) */}
+            <div style={{ marginTop: 8, padding: "6px 8px", border: "1px solid #2a2a2a", borderRadius: 4 }}>
+              <div style={{ fontSize: 12, color: "#888", fontWeight: 500, marginBottom: 4 }}>Include Sources</div>
+              {(serverConfig.routing?.include_sources || []).map((src, i) => (
+                <div key={i} style={{ display: "flex", gap: 3, marginBottom: 3, alignItems: "center" }}>
+                  <select style={{ ...inp, width: 80, fontSize: 11 }} value={src.geoip ? "geoip" : src.geosite ? "geosite" : src.cidr ? "cidr" : src.url ? "url" : "geoip"}
+                    onChange={(e) => updateSourceRule("include_sources", i, e.target.value, "")}>
+                    <option value="geoip">GeoIP</option>
+                    <option value="geosite">GeoSite</option>
+                    <option value="cidr">CIDR</option>
+                    <option value="url">URL</option>
+                  </select>
+                  <input style={{ ...inp, flex: 1, fontSize: 11 }} placeholder="value"
+                    value={src.geoip || src.geosite || src.cidr || src.url || ""}
+                    onChange={(e) => {
+                      const type = src.geoip ? "geoip" : src.geosite ? "geosite" : src.cidr ? "cidr" : src.url ? "url" : "geoip";
+                      updateSourceRule("include_sources", i, type, e.target.value);
+                    }} />
+                  <button onClick={() => removeSourceRule("include_sources", i)}
+                    style={{ padding: "2px 6px", background: "#5a2a2a", border: "1px solid #7a3a3a", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 12 }}>×</button>
+                </div>
+              ))}
+              <button onClick={() => addSourceRule("include_sources")}
+                style={{ padding: "3px 8px", background: "#2a5a2a", border: "1px solid #3a7a3a", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 11, marginTop: 2 }}>+ Add Source</button>
+            </div>
+            <div style={{ marginTop: 4, padding: "6px 8px", border: "1px solid #2a2a2a", borderRadius: 4 }}>
+              <div style={{ fontSize: 12, color: "#888", fontWeight: 500, marginBottom: 4 }}>Exclude Sources</div>
+              {(serverConfig.routing?.exclude_sources || []).map((src, i) => (
+                <div key={i} style={{ display: "flex", gap: 3, marginBottom: 3, alignItems: "center" }}>
+                  <select style={{ ...inp, width: 80, fontSize: 11 }} value={src.geoip ? "geoip" : src.geosite ? "geosite" : src.cidr ? "cidr" : src.url ? "url" : "geoip"}
+                    onChange={(e) => updateSourceRule("exclude_sources", i, e.target.value, "")}>
+                    <option value="geoip">GeoIP</option>
+                    <option value="geosite">GeoSite</option>
+                    <option value="cidr">CIDR</option>
+                    <option value="url">URL</option>
+                  </select>
+                  <input style={{ ...inp, flex: 1, fontSize: 11 }} placeholder="value"
+                    value={src.geoip || src.geosite || src.cidr || src.url || ""}
+                    onChange={(e) => {
+                      const type = src.geoip ? "geoip" : src.geosite ? "geosite" : src.cidr ? "cidr" : src.url ? "url" : "geoip";
+                      updateSourceRule("exclude_sources", i, type, e.target.value);
+                    }} />
+                  <button onClick={() => removeSourceRule("exclude_sources", i)}
+                    style={{ padding: "2px 6px", background: "#5a2a2a", border: "1px solid #7a3a3a", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 12 }}>×</button>
+                </div>
+              ))}
+              <button onClick={() => addSourceRule("exclude_sources")}
+                style={{ padding: "3px 8px", background: "#2a5a2a", border: "1px solid #3a7a3a", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 11, marginTop: 2 }}>+ Add Source</button>
+            </div>
+            <button onClick={refreshSources}
+              style={{ padding: "4px 10px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 11, marginTop: 4 }}>
+              Refresh Sources
+            </button>
           </Section>
 
           <Section key={`ks-${sectionKey}`} title="Kill Switch & Reconnect" defaultOpen={allExpanded}>

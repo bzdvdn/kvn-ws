@@ -6,6 +6,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **GeoIP/GeoSite/External Sources для роутинга** — поддержка динамических источников правил роутинга:
+  GeoIP, GeoSite, CIDR и кастомные URL-списки, которые резолвятся в плоские CIDR/домены на старте.
+  - `SourceRule` тип с полями `geoip`, `geosite`, `cidr`, `url` в `RoutingCfg`.
+  - `include_sources` / `exclude_sources` для client config.
+  - Модуль `routing/resolver.go` — скачивание/кеширование geoip.dat/geosite.dat (v2fly protobuf),
+    парсинг, раскрытие в CIDR/домены, merge + dedup с плоскими списками.
+  - `geoip: "private"` — built-in alias для RFC 1918 + CGNAT + ULA.
+  - Graceful degradation: битый URL/файл → warning, работа со статикой.
+  - Refresh button в Web UI (POST `/api/config/refresh-sources`) с атомарной подменой `RuleSet`.
+  - Proto-генерация для geoip.dat/geosite.dat в `src/internal/routing/geoip/`.
+  - Web UI: карточки sources в секции Routing с выбором типа и кнопка Refresh.
+  - Android: кнопка Refresh Sources на экране настроек.
+- **Relay: direct_sources** — поддержка динамических источников (`direct_sources`) в relay terminator.
+  - `RelayRoutingCfg`: новые поля `DirectSources`, `GeoIPPath`, `GeoSitePath`, `GeoIPURL`, `GeoSiteURL`, `SourceTTL`.
+  - `Resolver.ResolveSources()` — публичный метод для резолва произвольного списка источников.
+  - `resolveDirectSources()` — резолв источников и мерж в `DirectRanges`/`DirectDomains` в relay bootstrap.
+
 ## [0.4.0] — 2026-06-18
 
 ### Added

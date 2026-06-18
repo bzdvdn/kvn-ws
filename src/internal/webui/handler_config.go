@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"go.uber.org/zap"
+
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 )
 
 // @sk-task multi-server#T2.1: multi-server API handlers (AC-001, AC-002, AC-003)
@@ -233,6 +236,37 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// @sk-task geoip-geosite-integration#T5.1: refresh sources endpoint (AC-010, AC-011)
+func (s *Server) handleRefreshSources(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.loadWebUIConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rc := cfg.ClientConfig.Routing
+	if rc == nil || (len(rc.IncludeSources) == 0 && len(rc.ExcludeSources) == 0) {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "no sources to refresh"})
+		return
+	}
+
+	cacheDir := filepath.Join(s.configDir, ".source-cache")
+	resolver := routing.NewResolver(rc, cacheDir, zap.NewNop())
+	resolved, err := resolver.Refresh()
+	if err != nil {
+		http.Error(w, "refresh failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":          "ok",
+		"include_ranges":  resolved.IncludeRanges,
+		"exclude_ranges":  resolved.ExcludeRanges,
+		"include_domains": resolved.IncludeDomains,
+		"exclude_domains": resolved.ExcludeDomains,
+	})
 }
 
 func (s *Server) cfgPath() string {

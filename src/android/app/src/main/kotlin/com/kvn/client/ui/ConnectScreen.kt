@@ -113,6 +113,14 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     var routingExcludeIps by remember { mutableStateOf("") }
     var routingIncludeDomains by remember { mutableStateOf("") }
     var routingExcludeDomains by remember { mutableStateOf("") }
+    // @sk-task geoip-geosite-integration#T5.2: routing source fields (include/exclude sources, paths, TTL)
+    var routingIncludeSources by remember { mutableStateOf("") }
+    var routingExcludeSources by remember { mutableStateOf("") }
+    var geoipPath by remember { mutableStateOf("") }
+    var geoipUrl by remember { mutableStateOf("") }
+    var geositePath by remember { mutableStateOf("") }
+    var geositeUrl by remember { mutableStateOf("") }
+    var sourceTtlHours by remember { mutableStateOf("24") }
     var cryptoEnabled by remember { mutableStateOf(false) }
     var cryptoKey by remember { mutableStateOf("") }
     var killSwitchEnabled by remember { mutableStateOf(false) }
@@ -136,6 +144,13 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
         routingExcludeIps = c.routingExcludeIps.joinToString(",")
         routingIncludeDomains = c.routingIncludeDomains.joinToString(",")
         routingExcludeDomains = c.routingExcludeDomains.joinToString(",")
+        routingIncludeSources = c.routingIncludeSources
+        routingExcludeSources = c.routingExcludeSources
+        geoipPath = c.geoipPath
+        geoipUrl = c.geoipUrl
+        geositePath = c.geositePath
+        geositeUrl = c.geositeUrl
+        sourceTtlHours = c.sourceTtlHours.toString()
         cryptoEnabled = c.cryptoEnabled; cryptoKey = c.cryptoKey
         killSwitchEnabled = c.killSwitchEnabled
         obfuscationEnabled = c.obfuscationEnabled; obfuscationUtls = c.obfuscationUtls
@@ -169,6 +184,13 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
             routingExcludeIps = routingExcludeIps.split(",").filter { it.isNotBlank() },
             routingIncludeDomains = routingIncludeDomains.split(",").filter { it.isNotBlank() },
             routingExcludeDomains = routingExcludeDomains.split(",").filter { it.isNotBlank() },
+            routingIncludeSources = routingIncludeSources,
+            routingExcludeSources = routingExcludeSources,
+            geoipPath = geoipPath,
+            geoipUrl = geoipUrl,
+            geositePath = geositePath,
+            geositeUrl = geositeUrl,
+            sourceTtlHours = sourceTtlHours.toIntOrNull() ?: 24,
             cryptoEnabled = cryptoEnabled, cryptoKey = cryptoKey,
             killSwitchEnabled = killSwitchEnabled,
             obfuscationEnabled = obfuscationEnabled, obfuscationUtls = obfuscationUtls,
@@ -592,6 +614,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
             }
 
             // @sk-task kvn-android#T5.10: Routing section (RQ-003)
+            // @sk-task geoip-geosite-integration#T5.2: routing source fields (include/exclude sources, paths, TTL, Refresh button)
             SettingsSection(title = "Routing") {
                 OutlinedTextField(
                     value = routingIncludeRanges,
@@ -645,6 +668,81 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                     modifier = Modifier.fillMaxWidth(),
                     enabled = disconnected
                 )
+                OutlinedTextField(
+                    value = routingIncludeSources,
+                    onValueChange = { routingIncludeSources = it; onFieldChange() },
+                    label = { Text("Include Sources (type:value, comma-separated)") },
+                    placeholder = { Text("geoip:RU,cidr:10.0.0.0/8") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                )
+                OutlinedTextField(
+                    value = routingExcludeSources,
+                    onValueChange = { routingExcludeSources = it; onFieldChange() },
+                    label = { Text("Exclude Sources (type:value, comma-separated)") },
+                    placeholder = { Text("geoip:CN,cidr:192.168.0.0/16") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                )
+                OutlinedTextField(
+                    value = geoipPath,
+                    onValueChange = { geoipPath = it; onFieldChange() },
+                    label = { Text("GeoIP Database Path") },
+                    placeholder = { Text("/data/geoip.dat") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                )
+                OutlinedTextField(
+                    value = geoipUrl,
+                    onValueChange = { geoipUrl = it; onFieldChange() },
+                    label = { Text("GeoIP Database URL") },
+                    placeholder = { Text("https://example.com/geoip.dat") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                )
+                OutlinedTextField(
+                    value = geositePath,
+                    onValueChange = { geositePath = it; onFieldChange() },
+                    label = { Text("GeoSite Database Path") },
+                    placeholder = { Text("/data/geosite.dat") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                )
+                OutlinedTextField(
+                    value = geositeUrl,
+                    onValueChange = { geositeUrl = it; onFieldChange() },
+                    label = { Text("GeoSite Database URL") },
+                    placeholder = { Text("https://example.com/geosite.dat") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                )
+                OutlinedTextField(
+                    value = sourceTtlHours,
+                    onValueChange = { sourceTtlHours = it; onFieldChange() },
+                    label = { Text("Source TTL (hours)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { vm.refreshSources(buildConfig()) },
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    enabled = disconnected,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = KvnPrimary,
+                        contentColor = Color.White,
+                        disabledContainerColor = KvnPrimary.copy(alpha = 0.12f),
+                        disabledContentColor = KvnPrimary.copy(alpha = 0.38f)
+                    )
+                ) { Text("Refresh Sources") }
             }
 
             // @sk-task kvn-android#T5.13: Encryption section (RQ-003)

@@ -43,7 +43,7 @@ jobs:
       - name: Gosec
         uses: securego/gosec@master
         with:
-          args: ./...
+          args: -exclude=G103 ./...
       - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:

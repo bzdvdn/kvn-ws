@@ -1,0 +1,18 @@
+// @sk-task geoip-geosite-integration#T1.1: geoip proto schema (v2fly format)
+syntax = "proto3";
+package geoip;
+option go_package = "github.com/bzdvdn/kvn-ws/src/internal/routing/geoip";
+
+message GeoIPList {
+  repeated GeoIP entry = 1;
+}
+
+message GeoIP {
+  string country_code = 1;
+  repeated CIDR cidr = 2;
+}
+
+message CIDR {
+  bytes ip = 1;
+  uint32 prefix = 2;
+}

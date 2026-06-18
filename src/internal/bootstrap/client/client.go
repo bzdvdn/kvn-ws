@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
+	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/systemproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/transparent"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
@@ -34,6 +36,7 @@ func (c *Client) SetLogger(l *zap.Logger) {
 }
 
 // @sk-task kvn-web#T2.2: NewFromConfig creates Client from existing config (AC-003)
+// @sk-task geoip-geosite-integration#T3.1: resolve routing sources (AC-002)
 func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
 	logger, _, err := logger.New(cfg.Log.Level) //nolint:forbidigo // allow logging before zap init
 	if err != nil {
@@ -51,6 +54,21 @@ func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
 		logger.Info("app-layer encryption enabled")
 	} else {
 		logger.Info("app-layer encryption disabled")
+	}
+
+	if cfg.Routing != nil && (len(cfg.Routing.IncludeSources) > 0 || len(cfg.Routing.ExcludeSources) > 0) {
+		cacheDir := filepath.Join(".", ".source-cache")
+		srcResolver := routing.NewResolver(cfg.Routing, cacheDir, logger)
+		resolved, rErr := srcResolver.Resolve()
+		if rErr != nil {
+			logger.Warn("routing source resolve failed, using original config", zap.Error(rErr))
+		} else {
+			cfg.Routing = resolved
+			logger.Info("routing sources resolved",
+				zap.Int("include_ranges", len(resolved.IncludeRanges)),
+				zap.Int("exclude_ranges", len(resolved.ExcludeRanges)),
+			)
+		}
 	}
 
 	return &Client{
@@ -87,11 +105,13 @@ func New() (*Client, error) {
 		logger.Info("app-layer encryption disabled")
 	}
 
-	return &Client{
+	cl := &Client{
 		cfg:       cfg,
 		logger:    logger,
 		masterKey: masterKey,
-	}, nil
+	}
+	cl.resolveRoutingSources(*cfgPath)
+	return cl, nil
 }
 
 // @sk-task transparent-proxy#T3.1: parse port from listen addr (AC-001)
@@ -108,6 +128,25 @@ func portFromAddr(addr string) int {
 		return 2310
 	}
 	return port
+}
+
+// @sk-task geoip-geosite-integration#T3.1: resolve routing sources in constructor (AC-002)
+func (c *Client) resolveRoutingSources(cfgPath string) {
+	if c.cfg.Routing == nil || (len(c.cfg.Routing.IncludeSources) == 0 && len(c.cfg.Routing.ExcludeSources) == 0) {
+		return
+	}
+	cacheDir := filepath.Join(filepath.Dir(cfgPath), ".source-cache")
+	srcResolver := routing.NewResolver(c.cfg.Routing, cacheDir, c.logger)
+	resolved, err := srcResolver.Resolve()
+	if err != nil {
+		c.logger.Warn("routing source resolve failed, using original config", zap.Error(err))
+		return
+	}
+	c.cfg.Routing = resolved
+	c.logger.Info("routing sources resolved",
+		zap.Int("include_ranges", len(resolved.IncludeRanges)),
+		zap.Int("exclude_ranges", len(resolved.ExcludeRanges)),
+	)
 }
 
 // @sk-task whitelist-obfuscation#T3.2: padding size default helper (AC-005)

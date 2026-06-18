@@ -40,10 +40,12 @@ import (
 
 // @sk-task relay-terminator#T1.3: Relay struct (AC-001)
 // @sk-task relay-terminator#T2.1: add terminator fields (AC-001, AC-004)
+// @sk-task geoip-geosite-integration#T3.3: add configPath for source cache
 type Relay struct {
-	cfg    *config.RelayConfig
-	logger *zap.Logger
-	ctx    context.Context
+	cfg        *config.RelayConfig
+	logger     *zap.Logger
+	ctx        context.Context
+	configPath string
 
 	pool       *session.IPPool
 	pool6      *session.IPPool
@@ -86,12 +88,13 @@ func New() (*Relay, error) {
 	}
 
 	logger.Info("starting relay", zap.String("mode", cfg.Relay.Mode), zap.String("listen", cfg.Relay.Listen))
-	return &Relay{cfg: cfg, logger: logger}, nil
+	return &Relay{cfg: cfg, logger: logger, configPath: *cfgPath}, nil
 }
 
 // @sk-task relay-terminator#T1.3: NewFromConfig creates Relay from existing config (AC-001)
-func NewFromConfig(cfg *config.RelayConfig, log *zap.Logger) *Relay {
-	return &Relay{cfg: cfg, logger: log}
+// @sk-task geoip-geosite-integration#T3.3: store configPath for source cache
+func NewFromConfig(cfg *config.RelayConfig, log *zap.Logger, configPath string) *Relay {
+	return &Relay{cfg: cfg, logger: log, configPath: configPath}
 }
 
 // @sk-task relay-terminator#T1.3: Run dispatches to bridge or terminator (AC-001)

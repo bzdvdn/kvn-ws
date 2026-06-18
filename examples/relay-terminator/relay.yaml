@@ -19,6 +19,13 @@ relay:
     direct_domains:
       - .internal.example
       - .local
+    direct_sources:
+      - geoip: "ru"
+      - geosite: "yandex"
+      - url: "https://example.com/custom-ips.txt"
+    geoip_url: "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat"
+    geosite_url: "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat"
+    source_ttl_hours: 24
     dns:
       upstream: "1.1.1.1:53"
       cache_ttl: 60

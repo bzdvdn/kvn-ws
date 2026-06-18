@@ -107,7 +107,66 @@ type ProxyAuthCfg struct {
 	Password string `json:"password" mapstructure:"password"`
 }
 
+// @sk-task geoip-geosite-integration#T1.2: SourceRule union type (AC-001)
+type SourceRule struct {
+	GeoIP   *string `json:"geoip,omitempty" yaml:"geoip,omitempty" mapstructure:"geoip,omitempty"`
+	GeoSite *string `json:"geosite,omitempty" yaml:"geosite,omitempty" mapstructure:"geosite,omitempty"`
+	CIDR    *string `json:"cidr,omitempty" yaml:"cidr,omitempty" mapstructure:"cidr,omitempty"`
+	URL     *string `json:"url,omitempty" yaml:"url,omitempty" mapstructure:"url,omitempty"`
+}
+
+// @sk-task geoip-geosite-integration#T1.2: source rule type (AC-001)
+func (s SourceRule) Type() string {
+	switch {
+	case s.GeoIP != nil:
+		return "geoip"
+	case s.GeoSite != nil:
+		return "geosite"
+	case s.CIDR != nil:
+		return "cidr"
+	case s.URL != nil:
+		return "url"
+	default:
+		return "invalid"
+	}
+}
+
+// @sk-task geoip-geosite-integration#T1.2: source rule value (AC-001)
+func (s SourceRule) Value() string {
+	switch {
+	case s.GeoIP != nil:
+		return *s.GeoIP
+	case s.GeoSite != nil:
+		return *s.GeoSite
+	case s.CIDR != nil:
+		return *s.CIDR
+	case s.URL != nil:
+		return *s.URL
+	default:
+		return ""
+	}
+}
+
+// @sk-task geoip-geosite-integration#T1.2: source rule validation (AC-001)
+func (s SourceRule) Valid() bool {
+	n := 0
+	if s.GeoIP != nil {
+		n++
+	}
+	if s.GeoSite != nil {
+		n++
+	}
+	if s.CIDR != nil {
+		n++
+	}
+	if s.URL != nil {
+		n++
+	}
+	return n == 1
+}
+
 // @sk-task routing-split-tunnel#T1.1: routing config struct (AC-009)
+// @sk-task geoip-geosite-integration#T1.2: source fields (AC-001)
 type RoutingCfg struct {
 	DefaultRoute   string   `json:"default_route" mapstructure:"default_route"`
 	IncludeRanges  []string `json:"include_ranges" mapstructure:"include_ranges"`
@@ -116,6 +175,14 @@ type RoutingCfg struct {
 	ExcludeIPs     []string `json:"exclude_ips" mapstructure:"exclude_ips"`
 	IncludeDomains []string `json:"include_domains" mapstructure:"include_domains"`
 	ExcludeDomains []string `json:"exclude_domains" mapstructure:"exclude_domains"`
+
+	GeoIPPath      string       `json:"geoip_path,omitempty" yaml:"geoip_path,omitempty" mapstructure:"geoip_path,omitempty"`
+	GeoSitePath    string       `json:"geosite_path,omitempty" yaml:"geosite_path,omitempty" mapstructure:"geosite_path,omitempty"`
+	GeoIPURL       string       `json:"geoip_url,omitempty" yaml:"geoip_url,omitempty" mapstructure:"geoip_url,omitempty"`
+	GeoSiteURL     string       `json:"geosite_url,omitempty" yaml:"geosite_url,omitempty" mapstructure:"geosite_url,omitempty"`
+	SourceTTL      int          `json:"source_ttl_hours,omitempty" yaml:"source_ttl_hours,omitempty" mapstructure:"source_ttl_hours,omitempty"`
+	IncludeSources []SourceRule `json:"include_sources,omitempty" yaml:"include_sources,omitempty" mapstructure:"include_sources,omitempty"`
+	ExcludeSources []SourceRule `json:"exclude_sources,omitempty" yaml:"exclude_sources,omitempty" mapstructure:"exclude_sources,omitempty"`
 }
 
 // @sk-task production-hardening#T1.1: kill switch config (AC-003)
@@ -339,9 +406,16 @@ type RelayDNSCfg struct {
 }
 
 // @sk-task relay-terminator#T6.1: routing config for relay terminator (RQ-008, RQ-011)
+// @sk-task geoip-geosite-integration#T3.3: direct_sources with geoip/geosite/cidr/url (AC-002, AC-003, AC-004)
 type RelayRoutingCfg struct {
 	DirectRanges  []string     `json:"direct_ranges" mapstructure:"direct_ranges"`
 	DirectDomains []string     `json:"direct_domains" mapstructure:"direct_domains"`
+	DirectSources []SourceRule `json:"direct_sources,omitempty" mapstructure:"direct_sources"`
+	GeoIPPath     string       `json:"geoip_path,omitempty" mapstructure:"geoip_path"`
+	GeoSitePath   string       `json:"geosite_path,omitempty" mapstructure:"geosite_path"`
+	GeoIPURL      string       `json:"geoip_url,omitempty" mapstructure:"geoip_url"`
+	GeoSiteURL    string       `json:"geosite_url,omitempty" mapstructure:"geosite_url"`
+	SourceTTL     int          `json:"source_ttl_hours,omitempty" mapstructure:"source_ttl_hours"`
 	DNS           *RelayDNSCfg `json:"dns,omitempty" mapstructure:"dns"`
 }
 

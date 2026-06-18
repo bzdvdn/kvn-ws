@@ -393,6 +393,160 @@ tls:
 	}
 }
 
+// @sk-test geoip-geosite-integration#T3.2: SourceRule YAML deserialization — geoip (AC-001)
+func TestSourceRuleGeoIP(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+routing:
+  exclude_sources:
+    - geoip: "ru"
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if len(cfg.Routing.ExcludeSources) != 1 {
+		t.Fatalf("ExcludeSources = %d, want 1", len(cfg.Routing.ExcludeSources))
+	}
+	src := cfg.Routing.ExcludeSources[0]
+	if src.Type() != "geoip" {
+		t.Errorf("Type() = %q, want %q", src.Type(), "geoip")
+	}
+	if src.Value() != "ru" {
+		t.Errorf("Value() = %q, want %q", src.Value(), "ru")
+	}
+	if !src.Valid() {
+		t.Error("Valid() = false, want true")
+	}
+}
+
+// @sk-test geoip-geosite-integration#T3.2: SourceRule YAML — cidr (AC-001)
+func TestSourceRuleCIDR(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+routing:
+  include_sources:
+    - cidr: "10.0.0.0/8"
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if len(cfg.Routing.IncludeSources) != 1 {
+		t.Fatalf("IncludeSources = %d, want 1", len(cfg.Routing.IncludeSources))
+	}
+	src := cfg.Routing.IncludeSources[0]
+	if src.Type() != "cidr" {
+		t.Errorf("Type() = %q, want %q", src.Type(), "cidr")
+	}
+	if src.Value() != "10.0.0.0/8" {
+		t.Errorf("Value() = %q, want %q", src.Value(), "10.0.0.0/8")
+	}
+	if !src.Valid() {
+		t.Error("Valid() = false, want true")
+	}
+}
+
+// @sk-test geoip-geosite-integration#T3.2: SourceRule YAML — url (AC-001)
+func TestSourceRuleURL(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+routing:
+  include_sources:
+    - url: "https://example.com/list.txt"
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if len(cfg.Routing.IncludeSources) != 1 {
+		t.Fatalf("IncludeSources = %d, want 1", len(cfg.Routing.IncludeSources))
+	}
+	src := cfg.Routing.IncludeSources[0]
+	if src.Type() != "url" {
+		t.Errorf("Type() = %q, want %q", src.Type(), "url")
+	}
+	if src.Value() != "https://example.com/list.txt" {
+		t.Errorf("Value() = %q, want %q", src.Value(), "https://example.com/list.txt")
+	}
+	if !src.Valid() {
+		t.Error("Valid() = false, want true")
+	}
+}
+
+// @sk-test geoip-geosite-integration#T3.2: SourceRule invalid — two fields set (AC-001)
+func TestSourceRuleInvalid(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+routing:
+  exclude_sources:
+    - geoip: "ru"
+      cidr: "10.0.0.0/8"
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if len(cfg.Routing.ExcludeSources) != 1 {
+		t.Fatalf("ExcludeSources = %d, want 1", len(cfg.Routing.ExcludeSources))
+	}
+	src := cfg.Routing.ExcludeSources[0]
+	if src.Valid() {
+		t.Error("Valid() = true, want false (two fields set)")
+	}
+	if src.Value() != "ru" {
+		t.Errorf("Value() = %q, want %q", src.Value(), "ru")
+	}
+}
+
+// @sk-test geoip-geosite-integration#T3.2: SourceRule empty — no fields set (AC-001)
+func TestSourceRuleEmpty(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+routing:
+  exclude_sources:
+    - {}
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if len(cfg.Routing.ExcludeSources) != 1 {
+		t.Fatalf("ExcludeSources = %d, want 1", len(cfg.Routing.ExcludeSources))
+	}
+	src := cfg.Routing.ExcludeSources[0]
+	if src.Type() != "invalid" {
+		t.Errorf("Type() = %q, want %q", src.Type(), "invalid")
+	}
+	if src.Valid() {
+		t.Error("Valid() = true, want false")
+	}
+}
+
+// @sk-test geoip-geosite-integration#T3.2: RoutingCfg new fields with yaml tags (AC-001)
+func TestRoutingCfgNewFields(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+routing:
+  geoip_path: "/etc/geoip.dat"
+  geosite_url: "https://example.com/geosite.dat"
+  source_ttl_hours: 48
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if cfg.Routing.GeoIPPath != "/etc/geoip.dat" {
+		t.Errorf("GeoIPPath = %q, want %q", cfg.Routing.GeoIPPath, "/etc/geoip.dat")
+	}
+	if cfg.Routing.GeoSiteURL != "https://example.com/geosite.dat" {
+		t.Errorf("GeoSiteURL = %q, want %q", cfg.Routing.GeoSiteURL, "https://example.com/geosite.dat")
+	}
+	if cfg.Routing.SourceTTL != 48 {
+		t.Errorf("SourceTTL = %d, want 48", cfg.Routing.SourceTTL)
+	}
+}
+
 // @sk-test quic-relay-mode#T4.1: keep_alive defaults to 7 (AC-003)
 func TestRelayQUICDefaults(t *testing.T) {
 	path := writeConfig(t, `

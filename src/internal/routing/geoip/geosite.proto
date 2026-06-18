@@ -1,0 +1,19 @@
+// @sk-task geoip-geosite-integration#T1.1: geosite proto schema (v2fly format)
+syntax = "proto3";
+package geoip;
+option go_package = "github.com/bzdvdn/kvn-ws/src/internal/routing/geoip";
+
+message GeoSiteList {
+  repeated GeoSite entry = 1;
+}
+
+message GeoSite {
+  string category_code = 1;
+  repeated Domain domain = 2;
+}
+
+message Domain {
+  string value = 1;
+  Type type = 2;
+  enum Type { Plain = 0; Regex = 1; Domain = 2; Full = 3; }
+}

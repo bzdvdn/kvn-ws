@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"time"
 
 	"go.uber.org/zap"
@@ -209,6 +210,21 @@ func buildDNSRespPacket(origQuery, dnsResp []byte) []byte {
 	return out
 }
 
+func dedupStrings(s []string) []string {
+	if len(s) == 0 {
+		return s
+	}
+	seen := make(map[string]bool, len(s))
+	out := make([]string, 0, len(s))
+	for _, v := range s {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 func ipv4Checksum(data []byte) uint16 {
 	var sum uint32
 	for i := 0; i < len(data)-1; i += 2 {
@@ -220,6 +236,39 @@ func ipv4Checksum(data []byte) uint16 {
 	sum = (sum >> 16) + (sum & 0xffff)
 	sum += sum >> 16
 	return ^uint16(sum)
+}
+
+// @sk-task geoip-geosite-integration#T3.3: resolve DirectSources via Resolver (AC-002, AC-003, AC-004)
+func (r *Relay) resolveDirectSources(rc *config.RelayRoutingCfg) {
+	if rc == nil || len(rc.DirectSources) == 0 {
+		return
+	}
+
+	cacheDir := filepath.Join(filepath.Dir(r.configPath), ".source-cache")
+	tmpCfg := &config.RoutingCfg{
+		GeoIPPath:   rc.GeoIPPath,
+		GeoSitePath: rc.GeoSitePath,
+		GeoIPURL:    rc.GeoIPURL,
+		GeoSiteURL:  rc.GeoSiteURL,
+		SourceTTL:   rc.SourceTTL,
+	}
+	srcResolver := routing.NewResolver(tmpCfg, cacheDir, r.logger)
+	resolved, err := srcResolver.ResolveSources(rc.DirectSources)
+	if err != nil {
+		r.logger.Warn("direct sources resolve failed, using original config", zap.Error(err))
+		return
+	}
+
+	rc.DirectRanges = append(rc.DirectRanges, resolved.CIDRs...)
+	rc.DirectDomains = append(rc.DirectDomains, resolved.Domains...)
+
+	rc.DirectRanges = dedupStrings(rc.DirectRanges)
+	rc.DirectDomains = dedupStrings(rc.DirectDomains)
+
+	r.logger.Info("direct sources resolved",
+		zap.Int("direct_ranges", len(rc.DirectRanges)),
+		zap.Int("direct_domains", len(rc.DirectDomains)),
+	)
 }
 
 // @sk-task relay-terminator#T3.1: parse dest IP from raw packet (AC-002)
