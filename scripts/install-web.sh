@@ -32,7 +32,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(dirname "$0" 2>/dev/null)" && SCRIPT_DIR="$(cd "$SCRIPT_DIR" && pwd)" || SCRIPT_DIR=""
 
 # --- detect OS/arch ---
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -100,7 +100,6 @@ case "$OS" in
       install -m 644 "$SERVICES_DIR/kvn-web.service" "$SERVICE_DIR/kvn-web.service"
     else
       cat > "$SERVICE_DIR/kvn-web.service" <<UNIT
-      cat > "$SERVICE_DIR/kvn-web.service" <<UNIT
 [Unit]
 Description=KVN Web UI
 Wants=network-online.target
@@ -116,7 +115,7 @@ Environment=HOME=/root
 [Install]
 WantedBy=multi-user.target
 UNIT
-    }
+    fi
     systemctl daemon-reload
     systemctl enable kvn-web.service
     if [ "$START" = true ]; then
@@ -127,7 +126,7 @@ UNIT
     ;;
   darwin)
     echo "Installing kvn-web for macOS (launchd)..."
-    install -m 0755 "$TMPDIR/kvn-web" "$BIN_DIR/kvn-web"
+    install -m 0755 "$BINARY_SRC" "$BIN_DIR/kvn-web"
     mkdir -p /usr/local/var/log
     install -m 644 "$TMPDIR/kvn-web.plist" "$PLIST_DIR/$PLIST_LABEL.plist" 2>/dev/null || {
       cat > "$PLIST_DIR/$PLIST_LABEL.plist" <<PLIST

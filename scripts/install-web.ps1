@@ -80,10 +80,11 @@ Write-Step "Extracting ..."
 try {
     Expand-Archive -Path $archivePath -DestinationPath $tmpDir -Force
     $extractedDir = Get-ChildItem -Path $tmpDir -Directory | Where-Object { $_.Name -like "kvn-windows-*" } | Select-Object -First 1
-    if (-not $extractedDir) {
-        $extractedDir = $tmpDir
+    if ($extractedDir) {
+        $binaryPath = Join-Path $extractedDir.FullName $BinaryName
+    } else {
+        $binaryPath = Join-Path $tmpDir $BinaryName
     }
-    $binaryPath = Join-Path $extractedDir.FullName $BinaryName
     if (-not (Test-Path $binaryPath)) {
         Write-Host "ERROR: $BinaryName not found in archive." -ForegroundColor Red
         exit 1
