@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.KvnClient" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- @sk-task multi-server-android-client#T1.2: dark base theme (AC-005) -->
+    <style name="Theme.KvnClient" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#FF161616</item>
+        <item name="android:navigationBarColor">#FF161616</item>
+    </style>
 </resources>

@@ -1,5 +1,6 @@
 package com.kvn.client.config
 
+import com.kvn.client.ui.MainViewModel
 import com.kvn.client.ui.parseQrConfig
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -205,5 +206,136 @@ class QrConfigTest {
         assertEquals(512, config.obfuscationPaddingSize)
         assertFalse(config.cryptoEnabled)
         assertEquals(10485760, config.maxMessageSize)
+    }
+}
+
+// @sk-test multi-server-android-client#T4.1: multi-server data model tests (AC-001, AC-002)
+class MultiServerConfigTest {
+
+    private val testJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+
+    // @sk-test multi-server-android-client#T4.1: old ConnectionConfig parses as AppConfig with empty servers (AC-001)
+    @Test
+    fun testOldConfigParsesAsAppConfigWithEmptyServers() {
+        val oldJson = testJson.encodeToString(ConnectionConfig(
+            serverAddress = "vpn.example.com",
+            port = 443,
+            token = "test-token"
+        ))
+        val appCfg = testJson.decodeFromString<AppConfig>(oldJson)
+        assertTrue("old config should parse as empty-servers AppConfig", appCfg.servers.isEmpty())
+        assertEquals("", appCfg.activeServer)
+    }
+
+    // @sk-test multi-server-android-client#T4.1: direct ConnectionConfig parse of old JSON succeeds (AC-001)
+    @Test
+    fun testOldConfigParsesAsConnectionConfig() {
+        val oldJson = testJson.encodeToString(ConnectionConfig(
+            serverAddress = "vpn.example.com",
+            port = 8443,
+            serverPath = "/custom",
+            token = "old-token"
+        ))
+        val cfg = testJson.decodeFromString<ConnectionConfig>(oldJson)
+        assertEquals("vpn.example.com", cfg.serverAddress)
+        assertEquals(8443, cfg.port)
+        assertEquals("/custom", cfg.serverPath)
+        assertEquals("old-token", cfg.token)
+    }
+
+    // @sk-test multi-server-android-client#T4.1: migration wraps old config in ServerEntry("Default") (AC-001)
+    @Test
+    fun testMigrationWrapInServerEntry() {
+        val oldCfg = ConnectionConfig(serverAddress = "migrate.me", token = "migrate-token")
+        val migrated = AppConfig(
+            activeServer = "Default",
+            servers = listOf(ServerEntry("Default", oldCfg))
+        )
+        assertEquals(1, migrated.servers.size)
+        assertEquals("Default", migrated.servers[0].name)
+        assertEquals("migrate.me", migrated.servers[0].config.serverAddress)
+        assertEquals("migrate-token", migrated.servers[0].config.token)
+        assertEquals("Default", migrated.activeServer)
+    }
+
+    // @sk-test multi-server-android-client#T4.1: AppConfig serialization round-trip (AC-001)
+    @Test
+    fun testAppConfigRoundTrip() {
+        val original = AppConfig(
+            activeServer = "Work",
+            servers = listOf(
+                ServerEntry("Work", ConnectionConfig(serverAddress = "work.example.com", token = "work-token")),
+                ServerEntry("Home", ConnectionConfig(serverAddress = "home.example.com", token = "home-token")),
+                ServerEntry("Dev", ConnectionConfig(serverAddress = "dev.example.com", token = "dev-token"))
+            )
+        )
+        val json = testJson.encodeToString(original)
+        val restored = testJson.decodeFromString<AppConfig>(json)
+        assertEquals(original.activeServer, restored.activeServer)
+        assertEquals(original.servers.size, restored.servers.size)
+        assertEquals(original.servers[0].name, restored.servers[0].name)
+        assertEquals(original.servers[0].config.serverAddress, restored.servers[0].config.serverAddress)
+        assertEquals(original.servers[1].config.token, restored.servers[1].config.token)
+    }
+
+    // @sk-test multi-server-android-client#T4.1: sortServers — active on top, rest A-Z (DEC-003)
+    @Test
+    fun testSortServersActiveOnTop() {
+        val servers = listOf(
+            ServerEntry("Zoo", ConnectionConfig()),
+            ServerEntry("Alpha", ConnectionConfig()),
+            ServerEntry("Work", ConnectionConfig()),
+            ServerEntry("Beta", ConnectionConfig())
+        )
+        val sorted = MainViewModel.sortServers("Work", servers)
+        assertEquals(4, sorted.size)
+        assertEquals("Work", sorted[0].name) // active first
+        assertEquals("Alpha", sorted[1].name)
+        assertEquals("Beta", sorted[2].name)
+        assertEquals("Zoo", sorted[3].name)
+    }
+
+    // @sk-test multi-server-android-client#T4.1: sortServers — active not found, returns sorted (DEC-003)
+    @Test
+    fun testSortServersActiveNotFound() {
+        val servers = listOf(
+            ServerEntry("C", ConnectionConfig()),
+            ServerEntry("A", ConnectionConfig()),
+            ServerEntry("B", ConnectionConfig())
+        )
+        val sorted = MainViewModel.sortServers("Missing", servers)
+        assertEquals(3, sorted.size)
+        assertEquals("A", sorted[0].name)
+        assertEquals("B", sorted[1].name)
+        assertEquals("C", sorted[2].name)
+    }
+
+    // @sk-test multi-server-android-client#T4.1: sortServers — active first when already first (DEC-003)
+    @Test
+    fun testSortServersActiveFirstAlreadyFirst() {
+        val servers = listOf(
+            ServerEntry("Active", ConnectionConfig()),
+            ServerEntry("B", ConnectionConfig()),
+            ServerEntry("A", ConnectionConfig())
+        )
+        val sorted = MainViewModel.sortServers("Active", servers)
+        assertEquals("Active", sorted[0].name)
+        assertEquals("A", sorted[1].name)
+        assertEquals("B", sorted[2].name)
+    }
+
+    // @sk-test multi-server-android-client#T4.1: duplicate server creates copy with "(copy)" suffix (AC-008)
+    @Test
+    fun testDuplicateServerEntry() {
+        val original = ServerEntry("Work", ConnectionConfig(
+            serverAddress = "work.example.com",
+            token = "work-token",
+            mtu = 1300
+        ))
+        val copy = original.copy(name = "Work (copy)")
+        assertEquals("Work (copy)", copy.name)
+        assertEquals(original.config.serverAddress, copy.config.serverAddress)
+        assertEquals(original.config.token, copy.config.token)
+        assertEquals(original.config.mtu, copy.config.mtu)
     }
 }

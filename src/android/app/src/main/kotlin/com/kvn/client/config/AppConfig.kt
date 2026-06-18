@@ -7,7 +7,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -60,25 +62,59 @@ data class ConnectionConfig(
     val obfuscationPaddingSize: Int = 0
 )
 
-// @sk-task kvn-android#T5.1: DataStore-backed JSON config persistence (RQ-005)
-class AppConfig(private val context: Context) {
+// @sk-task multi-server-android-client#T1.1: server entry with name + full config (AC-001)
+@Serializable
+data class ServerEntry(
+    val name: String,
+    val config: ConnectionConfig
+)
+
+// @sk-task multi-server-android-client#T1.1: multi-server AppConfig wrapper (AC-001)
+@Serializable
+data class AppConfig(
+    val activeServer: String = "",
+    val servers: List<ServerEntry> = emptyList()
+)
+
+// @sk-task multi-server-android-client#T1.1: DataStore-backed multi-server persistence (AC-001)
+class AppConfigStore(private val context: Context) {
 
     companion object {
         private val KEY_CONFIG = stringPreferencesKey("config_json")
     }
 
-    // @sk-task kvn-android#T5.1: observe saved config (AC-003, RQ-005)
-    val configFlow: Flow<ConnectionConfig> = context.dataStore.data.map { prefs ->
-        val raw = prefs[KEY_CONFIG] ?: return@map ConnectionConfig()
-        try {
-            json.decodeFromString<ConnectionConfig>(raw)
-        } catch (_: Exception) {
-            ConnectionConfig()
+    // @sk-task multi-server-android-client#T1.1: observe full AppConfig with auto-migration (AC-001)
+    val appConfigFlow: Flow<AppConfig> = context.dataStore.data.map { prefs ->
+        val raw = prefs[KEY_CONFIG] ?: return@map AppConfig()
+
+        val parsed = try {
+            json.decodeFromString<AppConfig>(raw)
+        } catch (_: Exception) { null }
+
+        if (parsed != null && parsed.servers.isNotEmpty()) {
+            return@map parsed
         }
+
+        val oldConfig = try {
+            json.decodeFromString<ConnectionConfig>(raw)
+        } catch (_: Exception) { return@map AppConfig() }
+
+        val migrated = AppConfig(
+            activeServer = "Default",
+            servers = listOf(ServerEntry("Default", oldConfig))
+        )
+        runBlocking { save(migrated) }
+        migrated
     }
 
-    // @sk-task kvn-android#T5.1: save config as JSON (AC-003, RQ-005)
-    suspend fun save(config: ConnectionConfig) {
+    // @sk-task multi-server-android-client#T1.1: derive active server's ConnectionConfig (AC-004)
+    val activeConfigFlow: Flow<ConnectionConfig?> = appConfigFlow.map { appCfg ->
+        appCfg.servers.find { it.name == appCfg.activeServer }?.config
+            ?: appCfg.servers.firstOrNull()?.config
+    }
+
+    // @sk-task multi-server-android-client#T1.1: save AppConfig as JSON (AC-001)
+    suspend fun save(config: AppConfig) {
         context.dataStore.edit { prefs ->
             prefs[KEY_CONFIG] = json.encodeToString(config)
         }
