@@ -6,7 +6,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.4.2] — 2026-06-19
+
+### Changed
+
+- **Windows: install-web.ps1** — `New-Service` заменён на `sc.exe create` (надежнее с путями/аргументами),
+  `Start-Service` обёрнут в `try/catch` с диагностикой. Добавлены ярлыки в Пуск и на рабочий стол.
+- **Windows: system proxy** — теперь пишется в реестр активного пользователя (`HKEY_USERS\<SID>\...`)
+  через `WTSGetActiveConsoleSessionId` + `WTSQueryUserToken`, а не в `HKEY_CURRENT_USER` (`LocalSystem`).
+
+### Fixed
+
+- **Windows: proxy_windows.go** — `Set()` возвращал `nil` вместо ошибки при неудаче открытия реестра.
+- **Windows: crash recovery** — при запуске проверяется, не висит ли в реестре мёртвый прокси
+  от предыдущего краша (`ProxyEnable=1` + `ProxyServer=127.0.0.1:2310`). Если обнаружен —
+  очищается (`ProxyEnable=0`), чтобы после disconnect интернет работал напрямую.
 
 ### Added
 
@@ -272,3 +286,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Docker multi-stage build
 - docker-compose оркестрация
 - Документация на английском и русском
+
+## [Unreleased]

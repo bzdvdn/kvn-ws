@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unsafe"
 
 	"go.uber.org/zap"
 	"golang.org/x/sys/windows"
@@ -13,7 +14,7 @@ import (
 )
 
 const (
-	winRegPath          = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
+	winRegPath            = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 	interopSettingsChanged = 39
 	interopRefresh         = 37
 )
@@ -21,6 +22,9 @@ const (
 var (
 	modWininet             = windows.NewLazySystemDLL("wininet.dll")
 	procInternetSetOptionW = modWininet.NewProc("InternetSetOptionW")
+
+	modWtsapi32           = windows.NewLazySystemDLL("wtsapi32.dll")
+	procWTSQueryUserToken = modWtsapi32.NewProc("WTSQueryUserToken")
 )
 
 // @sk-task system-proxy#T3.2: windows registry-based platform manager (AC-005)
@@ -28,21 +32,79 @@ type windowsManager struct {
 	origEnable   *uint64
 	origServer   string
 	origOverride string
+	userSID      string // "" = fallback to CURRENT_USER (LocalSystem)
 }
 
 func newPlatformManager() PlatformManager {
 	return &windowsManager{}
 }
 
+// activeUserSID returns the SID string of the active console user.
+// Returns "" if no interactive user is logged on or on error.
+func activeUserSID() string {
+	sessionID := windows.WTSGetActiveConsoleSessionId()
+	if sessionID == 0xFFFFFFFF {
+		return ""
+	}
+
+	var token windows.Token
+	r, _, _ := procWTSQueryUserToken.Call(uintptr(sessionID), uintptr(unsafe.Pointer(&token)))
+	if r == 0 {
+		return ""
+	}
+	defer token.Close()
+
+	var bufSize uint32
+	windows.GetTokenInformation(token, windows.TokenUser, nil, 0, &bufSize)
+	if bufSize == 0 {
+		return ""
+	}
+	buf := make([]byte, bufSize)
+	if err := windows.GetTokenInformation(token, windows.TokenUser, &buf[0], bufSize, &bufSize); err != nil {
+		return ""
+	}
+
+	tokenUser := (*windows.Tokenuser)(unsafe.Pointer(&buf[0]))
+	return tokenUser.User.Sid.String()
+}
+
+func (m *windowsManager) regRoot() (registry.Key, string) {
+	if m.userSID != "" {
+		return registry.USERS, m.userSID + `\` + winRegPath
+	}
+	return registry.CURRENT_USER, winRegPath
+}
+
 func (m *windowsManager) Set(ctx context.Context, logger *zap.Logger, addr string, noProxy string) error {
-	k, err := registry.OpenKey(registry.CURRENT_USER, winRegPath, registry.QUERY_VALUE|registry.SET_VALUE)
+	// Try to target the active interactive user instead of LocalSystem
+	if sid := activeUserSID(); sid != "" {
+		m.userSID = sid
+		logger.Debug("windows system proxy: targeting active user", zap.String("sid", sid))
+	}
+
+	root, path := m.regRoot()
+	k, err := registry.OpenKey(root, path, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
 		logger.Warn("windows system proxy: cannot open registry", zap.Error(err))
-		return nil
+		return fmt.Errorf("open registry: %w", err)
 	}
 	defer k.Close()
 
-	// save originals
+	// recovery: if orphaned proxy from a previous crash, clear it first
+	curEnable, _, curEnableErr := k.GetIntegerValue("ProxyEnable")
+	curServer, _, _ := k.GetStringValue("ProxyServer")
+	if curEnableErr == nil && curEnable == 1 && curServer == addr {
+		logger.Warn("windows system proxy: recovering orphaned proxy from crash",
+			zap.String("orphaned", curServer),
+		)
+		_ = k.SetDWordValue("ProxyEnable", 0)
+		_ = k.DeleteValue("ProxyServer")
+		_ = k.DeleteValue("ProxyOverride")
+		internetSetOption(interopSettingsChanged)
+		internetSetOption(interopRefresh)
+	}
+
+	// save originals (after potential recovery)
 	enableVal, _, err := k.GetIntegerValue("ProxyEnable")
 	if err == nil {
 		m.origEnable = &enableVal
@@ -74,7 +136,8 @@ func (m *windowsManager) Set(ctx context.Context, logger *zap.Logger, addr strin
 }
 
 func (m *windowsManager) Restore(ctx context.Context, logger *zap.Logger) error {
-	k, err := registry.OpenKey(registry.CURRENT_USER, winRegPath, registry.QUERY_VALUE|registry.SET_VALUE)
+	root, path := m.regRoot()
+	k, err := registry.OpenKey(root, path, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
 		logger.Warn("windows system proxy restore: cannot open registry", zap.Error(err))
 		return nil

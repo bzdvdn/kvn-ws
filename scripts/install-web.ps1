@@ -108,27 +108,53 @@ New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 Copy-Item -Path $binaryPath -Destination "$BinDir\$BinaryName" -Force
 Write-Ok "Installed to $BinDir\$BinaryName"
 
-# --- Create Windows service ---
-New-Service -Name $ServiceName `
-    -BinaryPathName "`"$BinDir\$BinaryName`" --no-browser --port $Port" `
-    -DisplayName "KVN Web UI" `
-    -Description "KVN Web UI - VPN tunnel management interface" `
-    -StartupType Automatic
+# --- Create Windows service (sc.exe, надёжнее New-Service) ---
+$binPath = "`"$BinDir\$BinaryName`" --no-browser --port $Port"
+sc.exe create $ServiceName binPath= $binPath start= auto displayName= "KVN Web UI" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Failed to create service (sc.exe exit code $LASTEXITCODE)" -ForegroundColor Red
+    exit 1
+}
+sc.exe description $ServiceName "KVN Web UI - VPN tunnel management interface" 2>$null
 
 # --- Configure recovery (restart on failure) ---
 sc.exe failure $ServiceName reset=60 actions=restart/5000/restart/10000/restart/30000 2>$null
 
 if ($Start) {
-    Start-Service $ServiceName
-    Write-Ok "Service started."
+    try {
+        Start-Service $ServiceName -ErrorAction Stop
+        Write-Ok "Service started."
+    } catch {
+        Write-Host "WARNING: Service created but failed to start: $_" -ForegroundColor Yellow
+        Write-Host "  Check 'Get-Service $ServiceName | fl' and 'Get-WinEvent -LogName System -Newest 10'" -ForegroundColor Yellow
+        Write-Host "  Common causes: port $Port in use, missing DLL, binary incompatible with OS." -ForegroundColor Yellow
+    }
 }
+
+# --- Create shortcuts ---
+$webUrl = "http://127.0.0.1:$Port"
+$shortcutContent = "[InternetShortcut]`nURL=$webUrl"
+
+$startMenuDir = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\KVN"
+$null = New-Item -ItemType Directory -Force -Path $startMenuDir
+$startMenuShortcut = "$startMenuDir\KVN Web UI.url"
+Set-Content -Path $startMenuShortcut -Value $shortcutContent -Encoding ASCII
+Write-Ok "Start Menu shortcut created: $startMenuShortcut"
+
+$desktopShortcut = "$env:Public\Desktop\KVN Web UI.url"
+Set-Content -Path $desktopShortcut -Value $shortcutContent -Encoding ASCII
+Write-Ok "Desktop shortcut created: $desktopShortcut"
 
 Write-Host ""
 Write-Host "=== kvn-web installation complete ===" -ForegroundColor Green
 Write-Host "  Binary: $BinDir\$BinaryName" -ForegroundColor Cyan
-Write-Host "  Web UI: http://127.0.0.1:$Port" -ForegroundColor Yellow
+Write-Host "  Web UI: $webUrl" -ForegroundColor Yellow
+Write-Host "  Start Menu: KVN > KVN Web UI" -ForegroundColor Yellow
+Write-Host "  Desktop: KVN Web UI.url" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "Manage with:" -ForegroundColor Green
+Write-Host "Open browser at $webUrl to manage tunnels" -ForegroundColor Green
+Write-Host ""
+Write-Host "Manage service with:" -ForegroundColor Green
 Write-Host "  Start   : Start-Service $ServiceName" -ForegroundColor Cyan
 Write-Host "  Stop    : Stop-Service $ServiceName" -ForegroundColor Cyan
 Write-Host "  Status  : Get-Service $ServiceName" -ForegroundColor Cyan
