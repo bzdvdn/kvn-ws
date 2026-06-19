@@ -103,38 +103,41 @@ New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 Copy-Item -Path $binaryPath -Destination "$BinDir\$BinaryName" -Force
 Write-Ok "Installed to $BinDir\$BinaryName"
 
-# --- Create Start Menu shortcut ---
+# --- Helper: create .lnk shortcut ---
+function New-Shortcut {
+    param([string]$Path, [string]$Target, [string]$Desc)
+    try {
+        $shell = New-Object -ComObject WScript.Shell -ErrorAction Stop
+        $s = $shell.CreateShortcut($Path)
+        $s.TargetPath = $Target
+        $s.WorkingDirectory = (Split-Path $Target -Parent)
+        $s.Description = $Desc
+        $s.Save()
+        return $true
+    } catch {
+        Write-Warn "Could not create shortcut at $Path : $_"
+        return $false
+    }
+}
+
+# --- Create shortcuts ---
 $startMenuDir = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\KVN"
 $null = New-Item -ItemType Directory -Force -Path $startMenuDir
-$shortcutPath = "$startMenuDir\KVN Web UI.lnk"
 
-$wsh = New-Object -ComObject WScript.Shell
-$shortcut = $wsh.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = "$BinDir\$BinaryName"
-$shortcut.WorkingDirectory = $BinDir
-$shortcut.Description = "KVN Web UI — VPN tunnel management interface"
-$shortcut.Save()
-Write-Ok "Start Menu shortcut: $shortcutPath"
+$targetExe = "$BinDir\$BinaryName"
+$desc = "KVN Web UI - VPN tunnel management interface"
 
-# --- Create Desktop shortcut ---
-$desktopShortcutPath = "$env:Public\Desktop\KVN Web UI.lnk"
-$shortcut = $wsh.CreateShortcut($desktopShortcutPath)
-$shortcut.TargetPath = "$BinDir\$BinaryName"
-$shortcut.WorkingDirectory = $BinDir
-$shortcut.Description = "KVN Web UI — VPN tunnel management interface"
-$shortcut.Save()
-Write-Ok "Desktop shortcut: $desktopShortcutPath"
-
-# --- Optional Startup folder shortcut ---
+if (New-Shortcut -Path "$startMenuDir\KVN Web UI.lnk" -Target $targetExe -Desc $desc) {
+    Write-Ok "Start Menu shortcut"
+}
+if (New-Shortcut -Path "$env:Public\Desktop\KVN Web UI.lnk" -Target $targetExe -Desc $desc) {
+    Write-Ok "Desktop shortcut"
+}
 if ($Startup) {
     $startupDir = [Environment]::GetFolderPath("Startup")
-    $startupShortcutPath = "$startupDir\KVN Web UI.lnk"
-    $shortcut = $wsh.CreateShortcut($startupShortcutPath)
-    $shortcut.TargetPath = "$BinDir\$BinaryName"
-    $shortcut.WorkingDirectory = $BinDir
-    $shortcut.Description = "KVN Web UI — autostart at logon"
-    $shortcut.Save()
-    Write-Ok "Startup shortcut: $startupShortcutPath"
+    if (New-Shortcut -Path "$startupDir\KVN Web UI.lnk" -Target $targetExe -Desc "KVN Web UI - autostart at logon") {
+        Write-Ok "Startup folder shortcut"
+    }
 }
 
 # --- Summary ---
