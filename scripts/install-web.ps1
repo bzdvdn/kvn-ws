@@ -2,22 +2,24 @@
 .SYNOPSIS
     Install kvn-web on Windows from GitHub release.
 .DESCRIPTION
-    Downloads the latest kvn-web binary, installs as Windows service.
-.PARAMETER Start
-    Start the service after installation.
+    Downloads the latest kvn-web binary, creates Start Menu and Desktop shortcuts.
+    No Windows service — user launches kvn-web.exe via shortcut when needed.
 .PARAMETER Port
     Web UI port (default: 2311).
 .PARAMETER Version
     GitHub release tag (default: latest).
+.PARAMETER Startup
+    Add shortcut to Startup folder (autostart at user logon).
 .EXAMPLE
-    .\install-web.ps1 -Start
-    .\install-web.ps1 -Start -Port 2311
+    .\install-web.ps1
+    .\install-web.ps1 -Startup
+    .\install-web.ps1 -Port 2311
 #>
 
 param(
-    [switch]$Start,
     [int]$Port = 2311,
-    [string]$Version = "latest"
+    [string]$Version = "latest",
+    [switch]$Startup
 )
 
 #Requires -RunAsAdministrator
@@ -25,7 +27,6 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = "bzdvdn/kvn-ws"
 $BinaryName = "kvn-web.exe"
-$ServiceName = "KVNWeb"
 $BinDir = "$env:ProgramFiles\KVN"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
@@ -94,67 +95,61 @@ try {
     exit 1
 }
 
-# --- Stop existing service ---
-Write-Step "Installing kvn-web for Windows..."
-if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
-    Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
-    sc.exe delete $ServiceName 2>$null
-}
-
 # --- Create bin directory ---
+Write-Step "Installing kvn-web..."
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 
 # --- Copy binary ---
 Copy-Item -Path $binaryPath -Destination "$BinDir\$BinaryName" -Force
 Write-Ok "Installed to $BinDir\$BinaryName"
 
-# --- Create Windows service (sc.exe, надёжнее New-Service) ---
-$binPath = "`"$BinDir\$BinaryName`" --no-browser --port $Port"
-sc.exe create $ServiceName binPath= $binPath start= auto displayName= "KVN Web UI" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Failed to create service (sc.exe exit code $LASTEXITCODE)" -ForegroundColor Red
-    exit 1
-}
-sc.exe description $ServiceName "KVN Web UI - VPN tunnel management interface" 2>$null
-
-# --- Configure recovery (restart on failure) ---
-sc.exe failure $ServiceName reset=60 actions=restart/5000/restart/10000/restart/30000 2>$null
-
-if ($Start) {
-    try {
-        Start-Service $ServiceName -ErrorAction Stop
-        Write-Ok "Service started."
-    } catch {
-        Write-Host "WARNING: Service created but failed to start: $_" -ForegroundColor Yellow
-        Write-Host "  Check 'Get-Service $ServiceName | fl' and 'Get-WinEvent -LogName System -Newest 10'" -ForegroundColor Yellow
-        Write-Host "  Common causes: port $Port in use, missing DLL, binary incompatible with OS." -ForegroundColor Yellow
-    }
-}
-
-# --- Create shortcuts ---
-$webUrl = "http://127.0.0.1:$Port"
-$shortcutContent = "[InternetShortcut]`nURL=$webUrl"
-
+# --- Create Start Menu shortcut ---
 $startMenuDir = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\KVN"
 $null = New-Item -ItemType Directory -Force -Path $startMenuDir
-$startMenuShortcut = "$startMenuDir\KVN Web UI.url"
-Set-Content -Path $startMenuShortcut -Value $shortcutContent -Encoding ASCII
-Write-Ok "Start Menu shortcut created: $startMenuShortcut"
+$shortcutPath = "$startMenuDir\KVN Web UI.lnk"
 
-$desktopShortcut = "$env:Public\Desktop\KVN Web UI.url"
-Set-Content -Path $desktopShortcut -Value $shortcutContent -Encoding ASCII
-Write-Ok "Desktop shortcut created: $desktopShortcut"
+$wsh = New-Object -ComObject WScript.Shell
+$shortcut = $wsh.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = "$BinDir\$BinaryName"
+$shortcut.WorkingDirectory = $BinDir
+$shortcut.Description = "KVN Web UI — VPN tunnel management interface"
+$shortcut.Save()
+Write-Ok "Start Menu shortcut: $shortcutPath"
 
+# --- Create Desktop shortcut ---
+$desktopShortcutPath = "$env:Public\Desktop\KVN Web UI.lnk"
+$shortcut = $wsh.CreateShortcut($desktopShortcutPath)
+$shortcut.TargetPath = "$BinDir\$BinaryName"
+$shortcut.WorkingDirectory = $BinDir
+$shortcut.Description = "KVN Web UI — VPN tunnel management interface"
+$shortcut.Save()
+Write-Ok "Desktop shortcut: $desktopShortcutPath"
+
+# --- Optional Startup folder shortcut ---
+if ($Startup) {
+    $startupDir = [Environment]::GetFolderPath("Startup")
+    $startupShortcutPath = "$startupDir\KVN Web UI.lnk"
+    $shortcut = $wsh.CreateShortcut($startupShortcutPath)
+    $shortcut.TargetPath = "$BinDir\$BinaryName"
+    $shortcut.WorkingDirectory = $BinDir
+    $shortcut.Description = "KVN Web UI — autostart at logon"
+    $shortcut.Save()
+    Write-Ok "Startup shortcut: $startupShortcutPath"
+}
+
+# --- Summary ---
 Write-Host ""
 Write-Host "=== kvn-web installation complete ===" -ForegroundColor Green
 Write-Host "  Binary: $BinDir\$BinaryName" -ForegroundColor Cyan
-Write-Host "  Web UI: $webUrl" -ForegroundColor Yellow
 Write-Host "  Start Menu: KVN > KVN Web UI" -ForegroundColor Yellow
-Write-Host "  Desktop: KVN Web UI.url" -ForegroundColor Yellow
+Write-Host "  Desktop: KVN Web UI" -ForegroundColor Yellow
+if ($Startup) {
+    Write-Host "  Autostart: Startup folder (runs at logon)" -ForegroundColor Yellow
+}
 Write-Host ""
-Write-Host "Open browser at $webUrl to manage tunnels" -ForegroundColor Green
+Write-Host "Usage:" -ForegroundColor Green
+Write-Host "  1. Double-click the desktop shortcut to start kvn-web" -ForegroundColor Cyan
+Write-Host "  2. Browser opens at http://127.0.0.1:$Port" -ForegroundColor Cyan
+Write-Host "  3. Click Connect to enable VPN + system proxy" -ForegroundColor Cyan
+Write-Host "  4. Close kvn-web window to restore system proxy" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Manage service with:" -ForegroundColor Green
-Write-Host "  Start   : Start-Service $ServiceName" -ForegroundColor Cyan
-Write-Host "  Stop    : Stop-Service $ServiceName" -ForegroundColor Cyan
-Write-Host "  Status  : Get-Service $ServiceName" -ForegroundColor Cyan

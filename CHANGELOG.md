@@ -6,12 +6,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.4.2] — 2026-06-19
+## [0.4.3] — 2026-06-19
 
 ### Changed
 
-- **Windows: install-web.ps1** — `New-Service` заменён на `sc.exe create` (надежнее с путями/аргументами),
-  `Start-Service` обёрнут в `try/catch` с диагностикой. Добавлены ярлыки в Пуск и на рабочий стол.
+- **Windows: install-web.ps1** — удалена установка Windows Service (был `New-Service`, потом `sc.exe create`,
+  ошибка 1639). Теперь скрипт только копирует бинарник и создаёт .lnk-ярлыки в Пуск и на рабочий стол.
+  Пользователь запускает `kvn-web.exe` через ярлык, закрывает окно — `defer Restore()` чистит прокси.
+  Опциональный `-Startup` для автозапуска при входе в систему.
 - **Windows: system proxy** — теперь пишется в реестр активного пользователя (`HKEY_USERS\<SID>\...`)
   через `WTSGetActiveConsoleSessionId` + `WTSQueryUserToken`, а не в `HKEY_CURRENT_USER` (`LocalSystem`).
 

@@ -13,7 +13,7 @@
 - Scope/load: по умолчанию только текущий slug; без широких репо-сканов; предпочитайте surfaces из `Touches:`.
 - ⚠️ **CRITICAL — Repository map first**: **НЕ** используйте `ls`, `find`, glob для первичной навигации. Прочитайте `REPOSITORY_MAP.md` в первую очередь — он содержит полную карту репозитория. Это экономит токены и соблюдает workflow discipline. Читайте карту один раз за сессию, переиспользуйте заметки; перечитывайте только если сами обновили карту в этой же сессии.
 - Git safety: не делать `git commit/push/tag` и PR без явной просьбы.
-- Done: никогда не отмечать задачу выполненной без observable proof (путь файла, вывод теста или команды).
+- Done: никогда не отмечать задачу выполненной без observable proof (путь файла, вывод теста или команды). Каждый артефакт должен быть понятен коллеге без дополнительных объяснений.
 - Traceability: для каждой нетривиально завершённой задачи trace-маркеры обязательны. Нет `@sk-task` в изменённом коде или нет `@sk-test` в изменённых тестах для этой задачи — задача ещё не завершена.
 - Placement: trace-маркеры запрещено ставить на уровень `package`, `import` или file-header comment; ставьте их над owning function/method/test/type declaration.
 - End block: каждая фаза завершается компактным summary: `Slug`, `Status`, `Artifacts`, `Blockers`, `Готово к` (или `Вернуться к` при blocked / `speckeep archive` только после `verify: pass`).
@@ -21,6 +21,7 @@
 - CLI: используйте `./.speckeep/scripts/run-speckeep.sh` (PowerShell: `./.speckeep/scripts/run-speckeep.ps1`) только для настоящих CLI-команд (напр. `doctor`, `check`, `trace`, `export`, `refresh`). Не запускайте `run-speckeep.* <phase>` вроде `spec`/`plan`/`tasks` — фазы выполняются как slash-команды, а артефакты пишутся напрямую.
 - Вывод в чат: не вставляйте большие `git diff`/полные файлы/простыни логов. Давайте краткое резюме изменений + список затронутых файлов; если нужны детали — покажите только небольшой фрагмент вокруг места правки.
 - Scope: не читайте и не меняйте артефакты других slug/спек, если текущая задача явно не требует (иначе это scope violation).
+- Don't invent: не вводите требований, зависимостей, scope или критериев приёмки, отсутствующих во входных артефактах текущей фазы.
 
 Команды:
 - `/speckeep.constitution` → конституция
@@ -30,6 +31,8 @@
 - `/speckeep.tasks` → tasks
 - `/speckeep.implement` → implement
 - `/speckeep.verify` → verify
+- `/speckeep.challenge` → адверсариальная проверка spec/plan (слепые зоны, непроверяемые AC)
+- `/speckeep.recap` → обзор проекта: активные фичи, фаза, следующий шаг
 - `speckeep archive <slug> .` → CLI-only архив после `verify: pass`
 - `/speckeep.repo-map` → обновить `REPOSITORY_MAP.md` (см. выделенный prompt для политики + шаблона)
 
