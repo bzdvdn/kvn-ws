@@ -368,7 +368,7 @@ func isSystemdResolved() bool {
 }
 
 func resolvectlSet(host string) error {
-	return exec.Command("resolvectl", "dns", "lo", host).Run()
+	return exec.Command("resolvectl", "dns", "lo", host).Run() // #nosec G204 — validated as IP by caller
 }
 
 func resolvectlRevert() error {
