@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type Server struct {
 	state      *AppState
 	configDir  string
 	baseCtx    context.Context
+	connectMu  sync.Mutex
 }
 
 func New(port int) (*Server, error) {

@@ -29,6 +29,7 @@ type AppState struct {
 	mu          sync.Mutex
 	cl          *client.Client
 	cancel      context.CancelFunc
+	doneCh      chan struct{}
 	status      Status
 	logCh       chan LogEntry
 	subCh       chan chan LogEntry
@@ -83,6 +84,18 @@ func (s *AppState) Cancel() context.CancelFunc {
 func (s *AppState) SetCancel(cancel context.CancelFunc) {
 	s.mu.Lock()
 	s.cancel = cancel
+	s.mu.Unlock()
+}
+
+func (s *AppState) DoneCh() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.doneCh
+}
+
+func (s *AppState) SetDoneCh(doneCh chan struct{}) {
+	s.mu.Lock()
+	s.doneCh = doneCh
 	s.mu.Unlock()
 }
 

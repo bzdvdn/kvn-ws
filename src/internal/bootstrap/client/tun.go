@@ -39,6 +39,7 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 	for {
 		select {
 		case <-ctx.Done():
+			removeKillSwitch(c.cfg, c.logger)
 			return
 		default:
 		}

@@ -289,6 +289,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - docker-compose оркестрация
 - Документация на английском и русском
 
+## [0.4.5] — 2026-06-20
+
+### Fixed
+
+- **kvn-web: race condition disconnect→connect** (`handler_connect.go`, `server.go`, `state.go`).
+  `handleDisconnect` дёргал `cancel()` и через 500ms чистил state, не дожидаясь полной остановки
+  старого клиента. Если нажать "Connect" сразу после "Disconnect" до завершения cleanup
+  старого `cl.Run()`:
+  - Новый клиент ставил iptables, system proxy, DNS proxy
+  - Старый через `defer` сносил только что поставленные правила
+  - Трафик тормозился/не работал
+  Исправлено:
+  - `Server.connectMu` (`sync.Mutex`) — serializes connect/disconnect
+  - `AppState.doneCh` — канал, закрываемый после полного выхода `cl.Run()`
+  - `handleDisconnect` ждёт `doneCh` (до 3с) вместо хардкодного `Sleep(500ms)`
+- **DNS proxy: silent ошибка восстановления resolv.conf** (`proxy.go:160-174`).
+  `_ = resolvBackup.Restore()` проглатывал ошибку. Если `resolvectl revert` или
+  `WriteFile` падал (нет прав, read-only symlink), resolv.conf оставался на мёртвый
+  `127.0.0.54:53` → все DNS-запросы таймаутят → трафик тормозится.
+  Исправлено: логируем ошибку через `c.logger.Warn(...)`.
+- **Killswitch не чистился при graceful disconnect (TUN mode)** (`tun.go:41-42`).
+  `reconnectLoop` при `ctx.Done()` выходил по `return` без `removeKillSwitch()`.
+  Если до отключения была неудачная попытка reconnect (killswitch включён),
+  он оставался в nftables → весь трафик заблокирован.
+  Исправлено: `removeKillSwitch(c.cfg, c.logger)` перед `return` при `ctx.Done()`.
+
 ## [0.4.4] — 2026-06-20
 
 ### Fixed

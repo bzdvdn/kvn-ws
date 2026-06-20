@@ -169,7 +169,9 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 				c.dnsSrv = nil
 			}
 			if resolvBackup != nil {
-				_ = resolvBackup.Restore()
+				if err := resolvBackup.Restore(); err != nil {
+					c.logger.Warn("dns proxy: failed to restore resolv.conf", zap.Error(err))
+				}
 			}
 		}()
 	}

@@ -22,6 +22,9 @@ type connectResponse struct {
 // @sk-task kvn-web#T2.2: connect/disconnect handlers (AC-003, AC-004)
 // @sk-task multi-server#T2.2: use selected server config (AC-006)
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+
 	if s.state.Status() == StatusConnected || s.state.Status() == StatusConnecting {
 		writeJSON(w, http.StatusConflict, connectResponse{Status: s.state.Status()})
 		return
@@ -88,8 +91,11 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(s.baseCtx)
 	s.state.SetCancel(cancel)
 	s.state.setClient(cl)
+	doneCh := make(chan struct{})
+	s.state.SetDoneCh(doneCh)
 
 	go func() {
+		defer close(doneCh)
 		s.state.setStatus(StatusConnected)
 		s.state.PushLog(LogEntry{Line: "connected to " + cfg.Server, Level: "info"})
 
@@ -194,16 +200,27 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 }
 
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+
 	cancel := s.state.Cancel()
 	if cancel != nil {
 		cancel()
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	doneCh := s.state.DoneCh()
+	if doneCh != nil {
+		select {
+		case <-doneCh:
+		case <-time.After(3 * time.Second):
+			s.state.PushLog(LogEntry{Line: "disconnect: client shutdown timeout", Level: "warn"})
+		}
+	}
 
 	s.state.setStatus(StatusDisconnected)
 	s.state.setClient(nil)
 	s.state.SetCancel(nil)
+	s.state.SetDoneCh(nil)
 	s.state.PushLog(LogEntry{Line: "disconnected", Level: "info"})
 
 	writeJSON(w, http.StatusOK, connectResponse{Status: StatusDisconnected})
