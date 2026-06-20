@@ -326,10 +326,16 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	data := payload[6+dstLen:]
 
 	if v, ok := s.proxyStreams.Load(streamID); ok {
-		go func(conn net.Conn, buf []byte) {
-			_ = conn.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
-			_, _ = conn.Write(buf)
-		}(v, data)
+		buf := make([]byte, len(data))
+		copy(buf, data)
+		s.logger.Debug("proxy write existing",
+			zap.Int("n", len(buf)),
+			zap.Binary("hex", buf[:min(len(buf), 8)]),
+		)
+		_ = v.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
+		if _, err := v.Write(buf); err != nil {
+			s.logger.Debug("proxy write existing error", zap.Error(err))
+		}
 		return
 	}
 
@@ -354,6 +360,11 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	s.proxyStreams.Store(streamID, tcpConn)
 	s.logger.Info("proxy tunnel", zap.String("dst", dst), zap.String("ip", dst))
 	if len(data) > 0 {
+		show := len(data)
+		if show > 8 {
+			show = 8
+		}
+		s.logger.Debug("proxy write new", zap.Int("n", len(data)), zap.Binary("hex", data[:show]))
 		_, _ = tcpConn.Write(data)
 	}
 

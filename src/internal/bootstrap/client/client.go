@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -54,6 +55,13 @@ func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
 		logger.Info("app-layer encryption enabled")
 	} else {
 		logger.Info("app-layer encryption disabled")
+	}
+
+	if cfg.DNSProxy.Listen == "" {
+		cfg.DNSProxy.Listen = "127.0.0.54:53"
+	}
+	if cfg.DNSProxy.Upstream == "" {
+		cfg.DNSProxy.Upstream = "1.1.1.1:53"
 	}
 
 	if cfg.Routing != nil && (len(cfg.Routing.IncludeSources) > 0 || len(cfg.Routing.ExcludeSources) > 0) {
@@ -167,6 +175,30 @@ func (c *Client) Run(ctx context.Context) error {
 	defer stop()
 
 	if c.cfg.Mode == "proxy" {
+		var serverCIDR string
+		var serverNoProxy string
+		u, uErr := url.Parse(c.cfg.Server)
+		if uErr == nil {
+			host := u.Hostname()
+			if ip := net.ParseIP(host); ip != nil {
+				bits := 32
+				if ip.To4() == nil {
+					bits = 128
+				}
+				serverCIDR = host + "/" + strconv.Itoa(bits)
+				serverNoProxy = host
+			} else {
+				if resolved := resolveServerIP(host); resolved != nil {
+					bits := 32
+					if resolved.To4() == nil {
+						bits = 128
+					}
+					serverCIDR = resolved.String() + "/" + strconv.Itoa(bits)
+					serverNoProxy = resolved.String() + "," + host
+				}
+			}
+		}
+
 		if c.cfg.SystemProxy != nil && *c.cfg.SystemProxy {
 			sysProxy := systemproxy.New(c.cfg)
 			addr := c.cfg.ProxyListen
@@ -174,6 +206,12 @@ func (c *Client) Run(ctx context.Context) error {
 				addr = "127.0.0.1:2310"
 			}
 			noProxy := systemproxy.NOProxyBuilder(c.cfg.Routing)
+			if serverNoProxy != "" {
+				if noProxy != "" {
+					noProxy += ","
+				}
+				noProxy += serverNoProxy
+			}
 			if err := sysProxy.Set(ctx, c.logger, addr, noProxy); err != nil {
 				c.logger.Warn("system proxy set failed", zap.Error(err))
 			} else {
@@ -189,9 +227,17 @@ func (c *Client) Run(ctx context.Context) error {
 			} else {
 				mgr := transparent.New()
 				port := portFromAddr(c.cfg.ProxyListen)
+
 				var excludes []string
+				if serverCIDR != "" {
+					excludes = append(excludes, serverCIDR)
+				}
 				if c.cfg.Routing != nil {
-					excludes = c.cfg.Routing.ExcludeRanges
+					for _, r := range c.cfg.Routing.ExcludeRanges {
+						if r != "0.0.0.0/0" && r != "::/0" {
+							excludes = append(excludes, r)
+						}
+					}
 				}
 				if err := mgr.Set(ctx, c.logger, port, excludes); err != nil {
 					c.logger.Warn("transparent proxy setup failed", zap.Error(err))

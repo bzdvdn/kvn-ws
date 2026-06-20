@@ -66,60 +66,6 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 		}
 	}
 
-	// Start DNS proxy if transparent mode
-	var dnsCtx context.Context
-	var dnsCancel context.CancelFunc
-	var resolvBackup *dnsproxy.ResolvConfBackup
-	if transparent {
-		resolvBackup, _ = dnsproxy.BackupResolvConf()
-
-		c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstream)
-		if resolvBackup != nil {
-			c.dnsSrv.SetOrigResolvers(resolvBackup.Nameservers())
-		}
-		if routeSet != nil {
-			c.dnsSrv.SetRouteFunc(func(domain string) bool {
-				return routeSet.MatchDomain(domain) == routing.RouteDirect
-			})
-		}
-
-		dnsCtx, dnsCancel = context.WithCancel(ctx)
-		dnsReady := make(chan error, 1)
-		go func() {
-			dnsReady <- c.dnsSrv.Run(dnsCtx)
-		}()
-		select {
-		case err := <-dnsReady:
-			c.logger.Warn("dns proxy failed to start, restoring resolv.conf", zap.Error(err))
-			dnsCancel()
-			c.dnsSrv = nil
-			if resolvBackup != nil {
-				_ = resolvBackup.Restore()
-				resolvBackup = nil
-			}
-		case <-time.After(100 * time.Millisecond):
-			if resolvBackup != nil {
-				_ = dnsproxy.OverrideResolvConf(c.cfg.DNSProxy.Listen)
-			}
-			c.dnsSrv.SetStream(stream)
-		}
-		defer func() {
-			if c.dnsSrv != nil {
-				c.dnsSrv.ClearStream()
-			}
-			if dnsCancel != nil {
-				dnsCancel()
-			}
-			if c.dnsSrv != nil {
-				_ = c.dnsSrv.Shutdown()
-				c.dnsSrv = nil
-			}
-			if resolvBackup != nil {
-				_ = resolvBackup.Restore()
-			}
-		}()
-	}
-
 	{
 		helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
 			ProtoVersion: handshake.ProtoVersion,
@@ -172,6 +118,60 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			c.logger.Warn("unexpected handshake response", zap.Int("type", int(respFrame.Type)))
 			return
 		}
+	}
+
+	// Start DNS proxy after successful handshake — ensures tunnel works before intercepting DNS
+	var dnsCtx context.Context
+	var dnsCancel context.CancelFunc
+	var resolvBackup *dnsproxy.ResolvConfBackup
+	if transparent {
+		resolvBackup, _ = dnsproxy.BackupResolvConf()
+
+		c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstream)
+		if resolvBackup != nil {
+			c.dnsSrv.SetOrigResolvers(resolvBackup.Nameservers())
+		}
+		if routeSet != nil {
+			c.dnsSrv.SetRouteFunc(func(domain string) bool {
+				return routeSet.MatchDomain(domain) == routing.RouteDirect
+			})
+		}
+
+		dnsCtx, dnsCancel = context.WithCancel(ctx)
+		dnsReady := make(chan error, 1)
+		go func() {
+			dnsReady <- c.dnsSrv.Run(dnsCtx)
+		}()
+		select {
+		case err := <-dnsReady:
+			c.logger.Warn("dns proxy failed to start, restoring resolv.conf", zap.Error(err))
+			dnsCancel()
+			c.dnsSrv = nil
+			if resolvBackup != nil {
+				_ = resolvBackup.Restore()
+				resolvBackup = nil
+			}
+		case <-time.After(100 * time.Millisecond):
+			if resolvBackup != nil {
+				_ = dnsproxy.OverrideResolvConf(c.cfg.DNSProxy.Listen)
+			}
+			c.dnsSrv.SetStream(stream)
+		}
+		defer func() {
+			if c.dnsSrv != nil {
+				c.dnsSrv.ClearStream()
+			}
+			if dnsCancel != nil {
+				dnsCancel()
+			}
+			if c.dnsSrv != nil {
+				_ = c.dnsSrv.Shutdown()
+				c.dnsSrv = nil
+			}
+			if resolvBackup != nil {
+				_ = resolvBackup.Restore()
+			}
+		}()
 	}
 
 	streamMgr := proxy.NewManager(stream)

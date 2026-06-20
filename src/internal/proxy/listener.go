@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -315,11 +314,14 @@ func (l *Listener) handleTransparent(client net.Conn, firstByte []byte) bool {
 		l.logf("getOriginalDst failed: %v", err)
 		return false
 	}
-	l.logf("transparent dst=%s", dst)
+	localAddr := client.LocalAddr()
+	remoteAddr := client.RemoteAddr()
+	l.logf("transparent dst=%s local=%s remote=%s first_byte=0x%02x", dst, localAddr, remoteAddr, firstByte[0])
 	if l.onConn != nil {
 		wrapped := &prependConn{
-			Conn:   client,
-			reader: io.MultiReader(bytes.NewReader(firstByte), client),
+			Conn:      client,
+			pending:   firstByte,
+			logf:      l.logf,
 		}
 		l.onConn(wrapped, dst)
 		return true
@@ -329,11 +331,34 @@ func (l *Listener) handleTransparent(client net.Conn, firstByte []byte) bool {
 
 type prependConn struct {
 	net.Conn
-	reader io.Reader
+	pending  []byte
+	logf     func(format string, args ...any)
+	done     bool
 }
 
 func (c *prependConn) Read(b []byte) (int, error) {
-	return c.reader.Read(b)
+	if !c.done && len(c.pending) > 0 {
+		c.done = true
+		n := copy(b, c.pending)
+		remaining := b[n:]
+		if len(remaining) > 0 {
+			more, err := c.Conn.Read(remaining)
+			n += more
+			if c.logf != nil {
+				c.logf("prependConn.Read: n=%d err=%v", n, err)
+			}
+			return n, err
+		}
+		if c.logf != nil {
+			c.logf("prependConn.Read: n=%d", n)
+		}
+		return n, nil
+	}
+	n, err := c.Conn.Read(b)
+	if n > 0 && c.logf != nil {
+		c.logf("prependConn.Read: n=%d err=%v", n, err)
+	}
+	return n, err
 }
 
 // @sk-task local-proxy-mode#T3.1: HTTP CONNECT handler (AC-002)
@@ -361,8 +386,8 @@ func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) (handedO
 		buffered := make([]byte, br.Buffered())
 		_, _ = br.Read(buffered)
 		wrapped := &prependConn{
-			Conn:   client,
-			reader: io.MultiReader(bytes.NewReader(buffered), client),
+			Conn:      client,
+			pending:   buffered,
 		}
 		l.onConn(wrapped, dst)
 		return true

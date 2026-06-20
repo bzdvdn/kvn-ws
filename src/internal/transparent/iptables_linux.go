@@ -39,6 +39,9 @@ func (m *iptablesLinuxManager) Set(ctx context.Context, logger *zap.Logger, port
 		_ = exec.CommandContext(ctx, bin, "-t", "nat", "-A", chainName, "-d", cidr, "-j", "RETURN").Run() // #nosec G204 — bin resolved by detectIptables, cidr from config
 	}
 
+	// clamp MSS to PMTU (prevents fragmentation with tunnel overhead)
+	_ = exec.CommandContext(ctx, bin, "-t", "nat", "-A", chainName, "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu").Run() // #nosec G204
+
 	// REDIRECT all remaining TCP to local proxy port
 	portStr := strconv.Itoa(port)
 	if err := exec.CommandContext(ctx, bin, "-t", "nat", "-A", chainName, "-p", "tcp", "-j", "REDIRECT", "--to-port", portStr).Run(); err != nil { // #nosec G204 — bin resolved by detectIptables, chainName is const

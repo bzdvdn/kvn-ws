@@ -9,6 +9,8 @@ import (
 	"math"
 	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,11 @@ import (
 )
 
 var resolvConfPath = "/etc/resolv.conf"
+
+var systemdResolvedLinks = []string{
+	"/run/systemd/resolve/stub-resolv.conf",
+	"/usr/lib/systemd/resolv.conf",
+}
 
 type StreamConn interface {
 	ReadMessage() ([]byte, error)
@@ -341,7 +348,31 @@ func (b *ResolvConfBackup) Restore() error {
 	if !b.saved {
 		return nil
 	}
+	if isSystemdResolved() {
+		return resolvectlRevert()
+	}
 	return os.WriteFile(resolvConfPath, []byte(b.original), 0o644) // #nosec G306
+}
+
+func isSystemdResolved() bool {
+	target, err := filepath.EvalSymlinks(resolvConfPath)
+	if err != nil {
+		return false
+	}
+	for _, p := range systemdResolvedLinks {
+		if target == p {
+			return true
+		}
+	}
+	return false
+}
+
+func resolvectlSet(host string) error {
+	return exec.Command("resolvectl", "dns", "lo", host).Run()
+}
+
+func resolvectlRevert() error {
+	return exec.Command("resolvectl", "revert", "lo").Run()
 }
 
 func OverrideResolvConf(addr string) error {
@@ -349,6 +380,14 @@ func OverrideResolvConf(addr string) error {
 	if err != nil {
 		host = addr
 	}
+	if host == "" {
+		return fmt.Errorf("dnsproxy: cannot override resolv.conf with empty address")
+	}
+
+	if isSystemdResolved() {
+		return resolvectlSet(host)
+	}
+
 	return os.WriteFile(resolvConfPath, []byte("nameserver "+host+"\n"), 0o644) // #nosec G306
 }
 

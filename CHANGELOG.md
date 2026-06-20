@@ -289,4 +289,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - docker-compose оркестрация
 - Документация на английском и русском
 
-## [Unreleased]
+## [0.4.4] — 2026-06-20
+
+### Fixed
+
+- **Critical: HTTP/2 `bad_record_mac` через proxy-туннель** (сервер, `session.go:328-335`).
+  TLS-записи от клиента приходили в неправильном порядке: `handleProxyFrame` для существующего
+  стрима запускал `conn.Write()` в отдельной горутине (`go func`). При быстрой отправке нескольких
+  фрагментов (HTTP/2 Magic + SETTINGS + HEADERS) горутины гонялись за write-lock сокета,
+  и YouTube получал TLS-записи не по порядку → `bad_record_mac alert`.
+  Исправлено: запись синхронная, без горутины. HTTP/1.1 не страдал, потому что отправлял
+  всё одним фрагментом.
+- **Transparent proxy: 1-байтовый TLS-фрагмент** (`listener.go:333-361`).
+  `MultiReader(bytes.NewReader(firstByte), client)` в первом `Read()` возвращал
+  только 1 байт (content type TLS-записи), а остаток ClientHello — во втором.
+  На сервере YouTube получал 1 байт, потом остаток ← работает, но неоптимально.
+  Исправлено: `prependConn.Read()` копирует `pending` + немедленно читает данные из сокета
+  за один вызов.
+- **`isSystemdResolved()` не детектился при относительном symlink** (`dnsproxy.go:356-373`).
+  `/etc/resolv.conf → ../run/systemd/resolve/stub-resolv.conf` не распознавался как
+  systemd-resolved, потому что `os.Readlink` возвращал относительный путь, а сравнение
+  шло с абсолютным. Исправлено: `filepath.EvalSymlinks` для канонического пути.
+  Без этого фикса `OverrideResolvConf` через `os.WriteFile` перезаписывал сам
+  stub-файл systemd-resolved, ломая DNS.
+- **Use-after-free в `handleProxyFrame`** (`session.go:328-333`).
+  `data` — sub-slice `f.Payload`, который освобождался `defer f.Release()`
+  до завершения горутины с `conn.Write(data)`. Исправлено: `make([]byte, len(data)); copy(...)`.
+- **DNS proxy запускался до хендшейка** (`proxy.go:126-158`).
+  Раньше `OverrideResolvConf` вызывался сразу, до подтверждения туннеля.
+  Если хендшейк падал, resolv.conf уже был изменён. Исправлено: DNS proxy стартует
+  только после успешного `FrameTypeHello` от сервера.
+- **iptables MSS clamping** (`iptables_linux.go:43`).
+  Добавлен `--clamp-mss-to-pmtu` в transparent-правила.
+
+### Added
+
+- **System proxy: авто-исключение сервера из NO_PROXY / ProxyOverride** (`client.go:177-251`).
+  IP и домен сервера (из `config.server`) автоматически добавляются в `NO_PROXY` и
+  Windows `ProxyOverride` при `system_proxy: true`. Предотвращает loop (попытку
+  подключиться к серверу через самого себя).
+  - Для iptables (transparent) — CIDR `ip/32`.
+  - Для `NO_PROXY` — `ip,domain` (и IP, и домен, на случай изменения DNS).
+- **Debug-логи для proxy write** (`session.go`): hex первых байт данных,
+  записываемых в YouTube, при `log.level: debug`.

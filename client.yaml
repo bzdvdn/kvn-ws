@@ -1,6 +1,6 @@
 server: wss://server:443/tunnel
 auth:
-  token: your-token-here
+  token: 78e8af30989e236ddbf7a302d2850d4e
 obfuscation:
   enabled: true
   utls:
@@ -10,8 +10,8 @@ obfuscation:
     enabled: true
     size: 512
 tls:
-  verify_mode: verify
-  ca_file: /etc/kvn-ws/certs/ca.pem
+  verify_mode: insecure
+  ca_file: ""
   server_name: server
   sni:
     - www.cloudflare.com
@@ -23,13 +23,15 @@ tunnel_timeout: 30
 proxy_max_concurrency: 1000
 auto_reconnect: true
 log:
-  level: info
+  level: debug
 mode: proxy
+transparent: true
 proxy_listen: 127.0.0.1:2310
 routing:
   default_route: server
   include_ranges: []
-  exclude_ranges: []
+  exclude_ranges:
+    - 192.168.0.0/16
   include_ips: []
   exclude_ips: []
   include_domains: []
