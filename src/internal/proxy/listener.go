@@ -319,9 +319,9 @@ func (l *Listener) handleTransparent(client net.Conn, firstByte []byte) bool {
 	l.logf("transparent dst=%s local=%s remote=%s first_byte=0x%02x", dst, localAddr, remoteAddr, firstByte[0])
 	if l.onConn != nil {
 		wrapped := &prependConn{
-			Conn:      client,
-			pending:   firstByte,
-			logf:      l.logf,
+			Conn:    client,
+			pending: firstByte,
+			logf:    l.logf,
 		}
 		l.onConn(wrapped, dst)
 		return true
@@ -331,9 +331,9 @@ func (l *Listener) handleTransparent(client net.Conn, firstByte []byte) bool {
 
 type prependConn struct {
 	net.Conn
-	pending  []byte
-	logf     func(format string, args ...any)
-	done     bool
+	pending []byte
+	logf    func(format string, args ...any)
+	done    bool
 }
 
 func (c *prependConn) Read(b []byte) (int, error) {
@@ -386,8 +386,8 @@ func (l *Listener) handleHTTPConnect(client net.Conn, firstByte []byte) (handedO
 		buffered := make([]byte, br.Buffered())
 		_, _ = br.Read(buffered)
 		wrapped := &prependConn{
-			Conn:      client,
-			pending:   buffered,
+			Conn:    client,
+			pending: buffered,
 		}
 		l.onConn(wrapped, dst)
 		return true

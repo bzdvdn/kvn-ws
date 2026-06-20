@@ -41,7 +41,7 @@ func getOriginalDst(conn net.Conn) (string, error) {
 		return "", fmt.Errorf("transparent: getsockopt: %w", errno)
 	}
 	if addrLen < 8 {
-		return "", fmt.Errorf("transparent: short addr len %d (family=%d)", addrLen, addr[0]|addr[1]<<8)
+		return "", fmt.Errorf("transparent: short addr len %d (family=%d)", addrLen, int(addr[0])|int(addr[1])<<8)
 	}
 	family := int(addr[0]) | int(addr[1])<<8
 	if family != syscall.AF_INET {
