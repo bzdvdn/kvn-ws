@@ -91,6 +91,7 @@ func (s *Server) SetTracker(t *dns.Tracker) {
 	s.mu.Unlock()
 }
 
+// @sk-task dns-response-tracker#T3.5: SetDirectRouteFunc callback for kernel exclude routes
 func (s *Server) SetDirectRouteFunc(fn func(ips []netip.Addr)) {
 	s.mu.Lock()
 	s.directRouteFn = fn
@@ -238,46 +239,49 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 
 // @sk-task transparent-proxy#T5.4: local UDP DNS resolution for excluded domains
 // @sk-task dns-response-tracker#T2.2: track excluded domain IPs (AC-005)
+// @sk-task dns-response-tracker#T3.5: try all resolvers, not only first (TUN multi-resolver fallback)
 func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDPAddr, resolvers []string) {
 	if len(resolvers) == 0 {
 		return
 	}
 	domain := extractDNSDomain(query)
 	for _, ns := range resolvers {
-		func(ns string) {
-			nsAddr, err := net.ResolveUDPAddr("udp", ns)
-			if err != nil {
-				return
+		nsAddr, err := net.ResolveUDPAddr("udp", ns)
+		if err != nil {
+			continue
+		}
+		conn, err := net.DialUDP("udp", nil, nsAddr)
+		if err != nil {
+			continue
+		}
+		_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+		if _, err := conn.Write(query); err != nil {
+			conn.Close()
+			continue
+		}
+		resp := make([]byte, 1500)
+		n, err := conn.Read(resp)
+		conn.Close()
+		if err != nil {
+			continue
+		}
+		if n < 12 {
+			continue
+		}
+		if domain != "" {
+			s.mu.Lock()
+			tracker := s.tracker
+			fn := s.directRouteFn
+			s.mu.Unlock()
+			if tracker != nil {
+				tracker.TrackResponse(domain, resp[:n])
 			}
-			conn, err := net.DialUDP("udp", nil, nsAddr)
-			if err != nil {
-				return
+			if fn != nil {
+				fn(dns.ParseDNSResponse(resp[:n]))
 			}
-			defer conn.Close()
-			_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-			if _, err := conn.Write(query); err != nil {
-				return
-			}
-			resp := make([]byte, 1500)
-			n, err := conn.Read(resp)
-			if err != nil {
-				return
-			}
-			if domain != "" {
-				s.mu.Lock()
-				tracker := s.tracker
-				fn := s.directRouteFn
-				s.mu.Unlock()
-				if tracker != nil {
-					tracker.TrackResponse(domain, resp[:n])
-				}
-				if fn != nil {
-					fn(dns.ParseDNSResponse(resp[:n]))
-				}
-			}
-			_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
-			_, _ = s.conn.WriteToUDP(resp[:n], raddr)
-		}(ns)
+		}
+		_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		_, _ = s.conn.WriteToUDP(resp[:n], raddr)
 		return
 	}
 }

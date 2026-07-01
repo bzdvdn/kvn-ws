@@ -37,15 +37,18 @@
 2. При старте запускается DNS proxy на `127.0.0.54:53`, `/etc/resolv.conf` заменяется на `nameserver 127.0.0.54`.
 3. Приложение резолвит `ozon.ru` — DNS-запрос идёт на DNS proxy.
 4. DNS proxy извлекает QNAME `"ozon.ru"`, вызывает `routeDirect("ozon.ru")` = `MatchDomain("ozon.ru")` → `RouteDirect`.
-5. DNS proxy резолвит `ozon.ru` через upstream DNS (например, `1.1.1.1:53`).
+5. DNS proxy резолвит `ozon.ru` через оригинальные nameserver-ы (с фильтром loopback, с сохранением private для corporate DNS behind ppp0).
 6. DNS-ответ парсится: IP `95.163.249.123` сохраняется в Tracker с маппингом `IP → "ozon.ru"` и TTL.
-7. DNS-ответ возвращается приложению.
-8. Приложение открывает TCP-соединение на `95.163.249.123:443` — пакет идёт через TUN (default route).
-9. `routeByRule(95.163.249.123)` → `Route(ip)`:
+7. DNS proxy добавляет `/32` kernel exclude route для resolved IP (кроме private/loopback) — последующие пакеты идут напрямую через физический интерфейс, минуя TUN.
+8. DNS-ответ возвращается приложению.
+9. Приложение открывает TCP-соединение на `95.163.249.123:443` — пакет идёт через TUN (default route).
+10. `routeByRule(95.163.249.123)` → `Route(ip)`:
     - Проверка CIDR/IP правил — нет совпадения.
     - Lookup IP в Tracker → найден домен `"ozon.ru"` → `MatchDomain("ozon.ru")` → `RouteDirect`.
-10. Пакет получает `RouteDirect`, отправляется напрямую.
-11. По истечении TTL запись в Tracker удаляется; при следующем DNS-запросе маппинг обновляется.
+11. Пакет получает `RouteDirect`, отправляется напрямую (kernel `/32` route уже есть).
+12. По истечении TTL запись в Tracker удаляется; при следующем DNS-запросе маппинг обновляется.
+
+**TUN DNS proxy enhancements** (T3.5): `CleanupExcludeRoutes()` удаляет все kernel route при disconnect; `SetRouteFunc` добавлен в TUN mode (был missing); `SetDirectRouteFunc` добавляет `/32` routes для resolved IP; loopback resolver filter (systemd-resolved) + upstream fallback; private IP resolver filter не добавляет exclude routes через phy (corporate DNS behind ppp0); `resolveDirect` пробует все резолверы последовательно; `directRouteFn` пропускает private/loopback IP.
 
 ## User Stories
 

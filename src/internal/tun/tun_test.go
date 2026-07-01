@@ -94,6 +94,8 @@ func (m *MockTunDevice) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIf
 	return nil
 }
 
+func (m *MockTunDevice) CleanupExcludeRoutes() {}
+
 func (m *MockTunDevice) DisableGSO() error {
 	return nil
 }

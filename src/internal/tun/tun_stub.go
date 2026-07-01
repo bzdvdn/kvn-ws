@@ -54,6 +54,8 @@ func (t *tunStub) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface st
 	return errors.New("TUN is not supported on this platform")
 }
 
+func (t *tunStub) CleanupExcludeRoutes() {}
+
 func (t *tunStub) DisableGSO() error {
 	return nil
 }

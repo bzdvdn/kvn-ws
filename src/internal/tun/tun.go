@@ -10,14 +10,23 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
+type routeMeta struct {
+	cidr  string
+	gw    string
+	iface string
+}
+
 type tunDevice struct {
 	name   string
 	device tun.Device
+	mu     sync.Mutex
+	routes []routeMeta
 }
 
 func NewTunDevice() TunDevice {
@@ -150,6 +159,7 @@ func (t *tunDevice) RemoveGateway(gateway net.IP) error {
 }
 
 // @sk-task arch-refactoring#T3.4: exec.Command add exclude route (AC-007)
+// @sk-task dns-response-tracker#T3.5: track added routes for CleanupExcludeRoutes
 func (t *tunDevice) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error {
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -163,6 +173,9 @@ func (t *tunDevice) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface str
 	if err != nil {
 		return fmt.Errorf("add exclude route %s via %s dev %s: %w: %s", cidr, phyGateway, phyIface, err, string(out))
 	}
+	t.mu.Lock()
+	t.routes = append(t.routes, routeMeta{cidr: cidr, gw: phyGateway.String(), iface: phyIface})
+	t.mu.Unlock()
 	return nil
 }
 
@@ -181,6 +194,18 @@ func (t *tunDevice) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface 
 		return fmt.Errorf("remove exclude route %s via %s dev %s: %w: %s", cidr, phyGateway, phyIface, err, string(out))
 	}
 	return nil
+}
+
+// @sk-task dns-response-tracker#T3.5: CleanupExcludeRoutes — remove all tracked kernel exclude routes (was missing on disconnect)
+func (t *tunDevice) CleanupExcludeRoutes() {
+	t.mu.Lock()
+	routes := t.routes
+	t.routes = nil
+	t.mu.Unlock()
+	for _, r := range routes {
+		cmd := exec.Command("ip", "route", "del", r.cidr, "via", r.gw, "dev", r.iface) // #nosec G204
+		_ = cmd.Run()
+	}
 }
 
 func (t *tunDevice) DisableGSO() error {

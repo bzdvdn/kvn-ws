@@ -2,10 +2,19 @@ package dnsproxy
 
 import (
 	"bufio"
+	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/dns"
 )
 
 func dnsQuery(domain string) []byte {
@@ -230,6 +239,93 @@ func TestSetRouteFunc(t *testing.T) {
 	}
 	if !called {
 		t.Error("routeDirect function was not called")
+	}
+}
+
+// @sk-test dns-response-tracker#T2.3: TestDNSProxyTracksExcludedDomains tracks excluded domain IPs (AC-005)
+func TestDNSProxyTracksExcludedDomains(t *testing.T) {
+	domain := "ozon.ru"
+	query := dnsQuery(domain)
+
+	// Build DNS response: header QR=1, ANCOUNT=1, answer A 1.2.3.4
+	resp := make([]byte, len(query))
+	copy(resp, query)
+	resp[2] = 0x81 // QR=1, RD=1
+	resp[3] = 0x80 // RA=1
+	binary.BigEndian.PutUint16(resp[6:8], 1)
+	answer := []byte{
+		0xc0, 0x0c, // name pointer to question
+		0x00, 0x01, // TYPE A
+		0x00, 0x01, // CLASS IN
+		0x00, 0x00, 0x00, 0x3c, // TTL 60
+		0x00, 0x04, // RDLENGTH 4
+		0x01, 0x02, 0x03, 0x04, // 1.2.3.4
+	}
+	resp = append(resp, answer...)
+
+	// Start fake DNS server (responds to any query with pre-built response)
+	fakeAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeConn, err := net.ListenUDP("udp", fakeAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fakeConn.Close()
+
+	fakePort := fakeConn.LocalAddr().(*net.UDPAddr).Port
+	fakeServerAddr := fmt.Sprintf("127.0.0.1:%d", fakePort)
+
+	ctxFake, cancelFake := context.WithCancel(context.Background())
+	defer cancelFake()
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			_ = fakeConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+			_, addr, err := fakeConn.ReadFromUDP(buf)
+			if err != nil {
+				var ne net.Error
+				if errors.As(err, &ne) && ne.Timeout() {
+					select {
+					case <-ctxFake.Done():
+						return
+					default:
+						continue
+					}
+				}
+				return
+			}
+			_, _ = fakeConn.WriteToUDP(resp, addr)
+		}
+	}()
+
+	// Create proxy — call resolveDirect directly instead of full Run
+	s := New("127.0.0.1:0", "8.8.8.8:53")
+	s.SetOrigResolvers([]string{fakeServerAddr})
+
+	// s.conn must be non-nil for resolveDirect's WriteToUDP call
+	testConn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testConn.Close()
+	s.conn = testConn
+
+	tracker := dns.NewTracker(60 * time.Second)
+	s.SetTracker(tracker)
+
+	raddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:1")
+	s.resolveDirect(context.Background(), query, raddr, []string{fakeServerAddr})
+
+	// Verify tracker has the mapping
+	wantIP := netip.MustParseAddr("1.2.3.4")
+	gotDomain, ok := tracker.Lookup(wantIP)
+	if !ok {
+		t.Errorf("Tracker.Lookup(%v): not found", wantIP)
+	}
+	if gotDomain != domain {
+		t.Errorf("Tracker.Lookup(%v) = %q, want %q", wantIP, gotDomain, domain)
 	}
 }
 

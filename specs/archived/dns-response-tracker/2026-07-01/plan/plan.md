@@ -102,6 +102,27 @@ Data model меняется минимально:
 - Affects: `src/internal/routing/rule_set.go`
 - Validation: AC-003
 
+### DEC-004 TUN DNS proxy: kernel exclude routes + cleanup + corporate DNS support
+
+- Why: base TUN DNS proxy (DEC-002) не добавлял `/32` routes для resolved IP — пакеты шли через TUN, TunRouter → RouteDirect → sendDirect, что работало, но неоптимально. Также не чистил exclude routes при disconnect (stale routes ломали openfortivpn). `SetRouteFunc` был missing — все DNS шли TCP upstream. `resolveDirect` пробовал только первый resolver.
+- Tradeoff: CleanupExcludeRoutes() требует хранения списка добавленных маршрутов в tunDevice. Добавляет ~100 строк. Компенсация: полная очистка при disconnect, поддержка corporate VPN (openfortivpn) через ppp0.
+- Affects: `src/internal/tun/tun.go`, `src/internal/tun/tun_common.go`, `src/internal/tun/tun_stub.go`, `src/internal/dnsproxy/dnsproxy.go`, `src/internal/bootstrap/client/tun.go`
+- Validation: AC-002, AC-007, ручное тестирование с openfortivpn
+
+### DEC-005 resolveDirect multi-resolver fallback
+
+- Why: resolveDirect пробовал только первый resolver из списка. Если он не отвечал или возвращал NXDOMAIN, fallback на второй не происходил. С корпоративным DNS (10.x.x.x) для .ru доменов это приводило к failure.
+- Tradeoff: увеличение latency в худшем случае (таймаут на первом → попытка второго). Компенсация: более надёжное DNS-резолвление для mixed environments.
+- Affects: `src/internal/dnsproxy/dnsproxy.go`
+- Validation: ручное тестирование с openfortivpn + .ru + .we-on.com
+
+### DEC-006 Private/loopback IP skip в kernel exclude routes
+
+- Why: `/32` exclude route via phy для corporate IP (10.x.x.x) behind ppp0 перебивал маршрут openfortivpn. Private и loopback IP не должны получать kernel route через физический интерфейс.
+- Tradeoff: private IPs не получают exclude route — пакеты к corporate IP идут через ppp0 (если есть маршрут). Если ppp0 нет — через TUN.
+- Affects: `src/internal/bootstrap/client/tun.go`
+- Validation: ручное тестирование с openfortivpn
+
 ## Incremental Delivery
 
 ### MVP (AC-001, AC-003, AC-005, AC-006, AC-007)
@@ -134,6 +155,7 @@ Data model меняется минимально:
 - Риск: resolv.conf override не восстанавливается при краше. Mitigation: reuse существующий механизм `dnsproxy.BackupResolvConf` + `Restore` из transparent proxy.
 - Риск: DNS proxy добавляет latency. Mitigation: Tracker кэширует резолв, повторные запросы не ходят в upstream.
 - Риск: Tracker не успевает заполниться до первого data-пакета (race DNS vs TCP). Mitigation: TCP SYN обычно приходит через >1ms после DNS-ответа; парсинг DNS-ответа ~0.01ms. Запас достаточен.
+- Риск: Stale kernel exclude routes после disconnect ломают openfortivpn. Mitigation: `CleanupExcludeRoutes()` в defer `runSession`. 
 
 ## Rollout и compatibility
 
@@ -150,6 +172,8 @@ Data model меняется минимально:
 | Proxy integration | `go test -race ./src/internal/proxy/ -run TestProxyOnConnTracker` | AC-004 |
 | Race all | `go test -race ./...` | AC-007 |
 | Manual | `curl ozon.ru` с `dns_cache.enabled: true` + логи | SC-002 |
+| Manual (corporate VPN) | openfortivpn + KVN, `ping -c 3 <corp-host>` через ppp0 | DEC-004, DEC-005, DEC-006 |
+| Disconnect cleanup | `systemctl stop kvn` → `ip route show` без stale exclude routes | DEC-004 |
 
 ## Соответствие конституции
 

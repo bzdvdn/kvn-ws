@@ -69,6 +69,8 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 
 func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tunnel.StreamConn) {
 	defer func() { _ = stream.Close() }()
+	// @sk-task dns-response-tracker#T3.5: CleanupExcludeRoutes — remove kernel routes on disconnect
+	defer tunDev.CleanupExcludeRoutes()
 
 	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,
@@ -319,9 +321,11 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 			resolvBackup, _ = dnsproxy.BackupResolvConf()
 			dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstream)
 			dnsSrv.SetTracker(tracker)
+			// @sk-task dns-response-tracker#T3.5: SetRouteFunc for TUN mode (was missing — all DNS went TCP upstream)
 			dnsSrv.SetRouteFunc(func(domain string) bool {
 				return routeSet.MatchDomain(domain) == routing.RouteDirect
 			})
+			// @sk-task dns-response-tracker#T3.5: loopback filter + upstream fallback (systemd-resolved DNS loop fix)
 			if resolvBackup != nil {
 				// Filter out loopback resolvers (systemd-resolved) to avoid DNS loop
 				allNss := resolvBackup.Nameservers()
@@ -342,7 +346,8 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 					resolvers = append(resolvers, c.cfg.DNSProxy.Upstream)
 				}
 				dnsSrv.SetOrigResolvers(resolvers)
-				// Add exclude routes for all resolvers so DNS proxy bypasses TUN
+				// Add exclude routes for public resolvers so DNS proxy bypasses TUN.
+				// Private resolvers (corporate DNS behind openfortivpn) route through ppp0 naturally.
 				if havePhyRoute {
 					for _, ns := range resolvers {
 						host, _, err := net.SplitHostPort(ns)
@@ -350,7 +355,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 							host = ns
 						}
 						ip := net.ParseIP(host)
-						if ip == nil {
+						if ip == nil || ip.IsPrivate() || ip.IsLoopback() {
 							continue
 						}
 						bits := 32
@@ -364,9 +369,13 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 					}
 				}
 			}
-			if havePhyRoute {
+			// @sk-task dns-response-tracker#T3.5: SetDirectRouteFunc + private/loopback skip (corporate IPs behind ppp0)
+		if havePhyRoute {
 				dnsSrv.SetDirectRouteFunc(func(ips []netip.Addr) {
 					for _, ip := range ips {
+						if ip.IsPrivate() || ip.IsLoopback() {
+							continue
+						}
 						cidr := ip.String() + "/32"
 						if err := tunDev.AddExcludeRoute(cidr, phyGateway, phyIface); err != nil {
 							c.logger.Warn("add dns direct route", zap.String("cidr", cidr), zap.Error(err))

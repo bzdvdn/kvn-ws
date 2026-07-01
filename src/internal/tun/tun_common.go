@@ -15,6 +15,7 @@ type TunDevice interface {
 	RemoveGateway(gateway net.IP) error
 	AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error
 	RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error
+	CleanupExcludeRoutes()
 	DisableGSO() error
 }
 

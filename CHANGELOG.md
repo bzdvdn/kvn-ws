@@ -6,6 +6,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **DNS Response Tracker: TUN DNS proxy hardening** — production-ready TUN DNS proxy для exclude_domains:
+  - `SetRouteFunc` для TUN mode (was missing — все DNS шли TCP upstream).
+  - `SetDirectRouteFunc` hook — добавляет `/32` kernel exclude route для resolved IP excluded домена непосредственно при DNS-ответе (до `WriteToUDP`), устраняя race condition.
+  - `CleanupExcludeRoutes()` в `tunDevice` — удаление всех kernel exclude routes при disconnect (ранее не чистились, ломали openfortivpn после stop KVN).
+  - Loopback resolver filter (`127.0.0.53`) — systemd-resolved не вызывает DNS loop; fallback на upstream DNS.
+  - Private IP resolver filter — corporate DNS (10.x.x.x) за openfortivpn не получает exclude route; пакеты идут через ppp0.
+  - `resolveDirect` multi-resolver — пробует все резолверы последовательно (был exit после первого).
+  - `directRouteFn` private/loopback skip — `/32` exclude route не добавляется для private/loopback resolved IP (corporate IP за ppp0 не ломается).
+
+### Fixed
+
+- **TUN DNS proxy: stale exclude routes после disconnect** — все exclude routes (exclude_ranges, resolver IPs, resolved IPs) теперь удаляются при `CleanupExcludeRoutes()` в defer `runSession`. Без фикса после `systemctl stop kvn` маршруты через phy оставались, ломая openfortivpn и базовый интернет-доступ (только ребут чинил).
+- **TUN DNS proxy: resolveDirect пробовал только первый resolver** — если он не отвечал (NXDOMAIN/timeout), fallback на второй не происходил. С корпоративным DNS (10.x.x.x) для .ru доменов это приводило к failure. Исправлено: resolveDirect перебирает все резолверы, останавливается на первом успешном ответе.
+- **DNS loop с systemd-resolved** — `resolveDirect` коннектился к `127.0.0.53`, который (из-за `resolvectl dns lo <proxy>`) форвардил запрос обратно в proxy → loop → 5s timeout. Исправлено: loopback фильтр + fallback на upstream DNS.
+
 ## [0.4.3] — 2026-06-19
 
 ### Changed

@@ -10,10 +10,13 @@
 | `src/internal/routing/rule_set.go` | T2.1 |
 | `src/internal/routing/rule_set_test.go` | T2.1 |
 | `src/internal/dnsproxy/dnsproxy.go` | T2.2 |
-| `src/internal/dnsproxy/dnsproxy_test.go` | T2.2 |
+| `src/internal/dnsproxy/dnsproxy_test.go` | T2.3 |
 | `src/internal/routing/router.go` | T3.2 |
 | `src/internal/bootstrap/client/tun.go` | T3.2 |
 | `src/internal/bootstrap/client/proxy.go` | T3.3 |
+| `src/internal/tun/tun.go` | T3.5 |
+| `src/internal/tun/tun_common.go` | T3.5 |
+| `src/internal/tun/tun_stub.go` | T3.5 |
 | `src/internal/webui/frontend/src/App.tsx` | T3.4 |
 | `src/internal/dns/dns_test.go` | T4.1 |
 
@@ -32,7 +35,7 @@
 - Proof signals:
   - `go test -race ./src/internal/dns/` проходит AC-001, AC-006, AC-007.
   - `go test -race ./src/internal/routing/ -run TestRuleSetRoutesWithTracker` проходит.
-  - `go test -race ./src/internal/dnsproxy/ -run TestDNSProxyTracks` проходит.
+  - `go test -race ./src/internal/dnsproxy/ -run TestDNSProxyTracks` проходит (после T2.3).
   - `go build ./...` без ошибок.
 - Вне scope: персистентность Tracker, CNAME-нормализация, изменения DomainMatcher.
 - References: DEC-001, DEC-002, DEC-003, DM (no-change).
@@ -66,8 +69,15 @@
   - Touches: `src/internal/routing/rule_set.go`, `src/internal/routing/rule_set_test.go`
 
 - [x] T2.2 Добавить `SetTracker(t *Tracker)` в `dnsproxy.Server`. В `resolveDirect` после успешного ответа: парсить ответ через `tracker.TrackResponse`.
-  - Тест: `TestDNSProxyTracksExcludedDomains` (AC-005).
-  - Touches: `src/internal/dnsproxy/dnsproxy.go`, `src/internal/dnsproxy/dnsproxy_test.go`
+  - Touches: `src/internal/dnsproxy/dnsproxy.go`
+
+- [x] T2.3 Написать unit-тест `TestDNSProxyTracksExcludedDomains` для AC-005:
+  - Создать `dnsproxy.Server` с mock `routeDirect`, `tracker` и upstream.
+  - Подать DNS-запрос для excluded домена.
+  - Проверить, что `tracker.Lookup` возвращает домен после `resolveDirect`.
+  - Проверить, что для non-excluded домена трекер не заполняется (опционально).
+  - Тег: `@sk-test dns-response-tracker#T2.3 (AC-005) TestDNSProxyTracksExcludedDomains`.
+  - Touches: `src/internal/dnsproxy/dnsproxy_test.go`
 
 ## Фаза 3: Основная реализация
 
@@ -95,6 +105,17 @@
   - JSX: `Checkbox` для `dns_cache.enabled` + number input для `dns_cache.ttl` в секции Routing.
   - Touches: `src/internal/webui/frontend/src/App.tsx`
 
+- [x] T3.5 TUN DNS proxy production hardening:
+  - `CleanupExcludeRoutes()` в `tunDevice` — удаление kernel exclude routes при disconnect (AC-007).
+  - `SetRouteFunc` в TUN mode — DNS proxy вызывал `routeDirect` для excluded доменов (было missing — все DNS шли TCP upstream).
+  - `SetDirectRouteFunc` hook — add exclude `/32` route для resolved IP excluded домена (TUN bypass).
+  - Loopback resolver filter — `127.0.0.53` (systemd-resolved) отфильтрован, fallback на upstream DNS.
+  - Private IP resolver filter — corporate DNS (10.x.x.x) behind ppp0 не получает exclude route, пакеты идут через ppp0.
+  - `resolveDirect` multi-resolver — теперь пробует ВСЕ резолверы, не только первый.
+  - `directRouteFn` private skip — `/32` exclude route не добавляется для private/loopback IP.
+  - Touches: `src/internal/dnsproxy/dnsproxy.go`, `src/internal/bootstrap/client/tun.go`,
+    `src/internal/tun/tun.go`, `src/internal/tun/tun_common.go`, `src/internal/tun/tun_stub.go`
+
 ## Фаза 4: Проверка
 
 Цель: полное тестовое покрытие + финальная проверка.
@@ -111,7 +132,7 @@
 - AC-002 -> T3.2, T4.1
 - AC-003 -> T2.1
 - AC-004 -> T3.3, T4.1
-- AC-005 -> T2.2
+- AC-005 -> T2.2, T2.3
 - AC-006 -> T1.1
 - AC-007 -> T1.1
 
