@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/dns"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
@@ -34,16 +36,19 @@ type StreamConn interface {
 }
 
 // @sk-task transparent-proxy#T1.3: DNS proxy server skeleton (DEC-003)
+// @sk-task dns-response-tracker#T2.2: tracker field (AC-005)
 type Server struct {
-	listenAddr   string
-	upstream     string
-	conn         *net.UDPConn
-	mu           sync.Mutex
-	stream       StreamConn
-	nextID       uint32
-	pending      map[uint32]chan []byte
-	routeDirect  func(domain string) bool
-	origResolves []string
+	listenAddr    string
+	upstream      string
+	conn          *net.UDPConn
+	mu            sync.Mutex
+	stream        StreamConn
+	nextID        uint32
+	pending       map[uint32]chan []byte
+	routeDirect   func(domain string) bool
+	origResolves  []string
+	tracker       *dns.Tracker
+	directRouteFn func(ips []netip.Addr)
 }
 
 func New(listenAddr, upstream string) *Server {
@@ -76,6 +81,19 @@ func (s *Server) SetRouteFunc(fn func(domain string) bool) {
 func (s *Server) SetOrigResolvers(resolvers []string) {
 	s.mu.Lock()
 	s.origResolves = resolvers
+	s.mu.Unlock()
+}
+
+// @sk-task dns-response-tracker#T2.2: SetTracker sets the DNS tracker for IP→domain mapping (AC-005)
+func (s *Server) SetTracker(t *dns.Tracker) {
+	s.mu.Lock()
+	s.tracker = t
+	s.mu.Unlock()
+}
+
+func (s *Server) SetDirectRouteFunc(fn func(ips []netip.Addr)) {
+	s.mu.Lock()
+	s.directRouteFn = fn
 	s.mu.Unlock()
 }
 
@@ -151,8 +169,8 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 	origResolves := s.origResolves
 	s.mu.Unlock()
 
-	// Check domain-based routing first
-	if stream != nil && routeDirect != nil {
+	// Check domain-based routing first (no stream needed for direct resolution)
+	if routeDirect != nil {
 		if domain := extractDNSDomain(query); domain != "" && routeDirect(domain) {
 			s.resolveDirect(ctx, query, raddr, origResolves)
 			return
@@ -204,15 +222,27 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 		return
 	}
 
+	// @sk-task dns-response-tracker#T3.2: track IPs from direct DNS response
+	if domain := extractDNSDomain(query); domain != "" {
+		s.mu.Lock()
+		tracker := s.tracker
+		s.mu.Unlock()
+		if tracker != nil {
+			tracker.TrackResponse(domain, resp)
+		}
+	}
+
 	_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	_, _ = s.conn.WriteToUDP(resp, raddr)
 }
 
 // @sk-task transparent-proxy#T5.4: local UDP DNS resolution for excluded domains
+// @sk-task dns-response-tracker#T2.2: track excluded domain IPs (AC-005)
 func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDPAddr, resolvers []string) {
 	if len(resolvers) == 0 {
 		return
 	}
+	domain := extractDNSDomain(query)
 	for _, ns := range resolvers {
 		func(ns string) {
 			nsAddr, err := net.ResolveUDPAddr("udp", ns)
@@ -232,6 +262,18 @@ func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDP
 			n, err := conn.Read(resp)
 			if err != nil {
 				return
+			}
+			if domain != "" {
+				s.mu.Lock()
+				tracker := s.tracker
+				fn := s.directRouteFn
+				s.mu.Unlock()
+				if tracker != nil {
+					tracker.TrackResponse(domain, resp[:n])
+				}
+				if fn != nil {
+					fn(dns.ParseDNSResponse(resp[:n]))
+				}
 			}
 			_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 			_, _ = s.conn.WriteToUDP(resp[:n], raddr)
@@ -304,6 +346,15 @@ func (s *Server) forwardViaTunnel(ctx context.Context, query []byte, raddr *net.
 
 	select {
 	case resp := <-ch:
+		// @sk-task dns-response-tracker#T3.2: track IPs from tunnel-forwarded DNS response
+		if domain := extractDNSDomain(query); domain != "" {
+			s.mu.Lock()
+			tracker := s.tracker
+			s.mu.Unlock()
+			if tracker != nil {
+				tracker.TrackResponse(domain, resp)
+			}
+		}
 		_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 		_, _ = s.conn.WriteToUDP(resp, raddr)
 	case <-time.After(10 * time.Second):
@@ -388,7 +439,27 @@ func OverrideResolvConf(addr string) error {
 		return resolvectlSet(host)
 	}
 
-	return os.WriteFile(resolvConfPath, []byte("nameserver "+host+"\n"), 0o644) // #nosec G306
+	// Prepend our nameserver, keep existing ones as fallback
+	nsLine := "nameserver " + host
+	data, err := os.ReadFile(resolvConfPath)
+	if err != nil {
+		// File doesn't exist or can't be read — write our nameserver only
+		return os.WriteFile(resolvConfPath, []byte(nsLine+"\n"), 0o644) // #nosec G306
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var out []string
+	out = append(out, nsLine)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == nsLine {
+			continue // skip duplicate of our own nameserver
+		}
+		out = append(out, line)
+	}
+	// Trim trailing blank lines from the result
+	content := strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
+	return os.WriteFile(resolvConfPath, []byte(content), 0o644) // #nosec G306
 }
 
 func readNameserver() (string, error) {

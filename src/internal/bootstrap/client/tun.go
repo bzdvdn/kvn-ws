@@ -3,13 +3,17 @@ package client
 import (
 	"context"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
+	"github.com/bzdvdn/kvn-ws/src/internal/dns"
+	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
@@ -101,6 +105,9 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 
 	var sessionCipher *crypto.SessionCipher
 	var sessionID string
+	var phyGateway net.IP
+	var phyIface string
+	havePhyRoute := false
 
 	switch respFrame.Type {
 	case framing.FrameTypeAuth:
@@ -157,9 +164,12 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 			c.logger.Warn("server did not send crypto salt, connection will be unencrypted")
 		}
 
-		phyGateway, phyIface, pErr := tun.SaveDefaultRoute()
+		var pErr error
+		phyGateway, phyIface, pErr = tun.SaveDefaultRoute()
 		if pErr != nil {
 			c.logger.Warn("save default route (bypass routes won't be added)", zap.Error(pErr))
+		} else {
+			havePhyRoute = true
 		}
 		var excludeCIDRs []string
 		if pErr == nil {
@@ -187,6 +197,17 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 					if r != "0.0.0.0/0" && r != "::/0" {
 						excludeCIDRs = append(excludeCIDRs, r)
 					}
+				}
+				for _, ip := range c.cfg.Routing.ExcludeIPs {
+					parsed := net.ParseIP(ip)
+					if parsed == nil {
+						continue
+					}
+					bits := 32
+					if parsed.To4() == nil {
+						bits = 128
+					}
+					excludeCIDRs = append(excludeCIDRs, ip+"/"+strconv.Itoa(bits))
 				}
 			}
 			var routeCleanups []func()
@@ -229,9 +250,11 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 		return
 	}
 
+	var routeSet *routing.RuleSet
 	var tunRouter *routing.TunRouter
 	if c.cfg.Routing != nil && c.cfg.Mode != "proxy" {
-		rs, err := routing.NewRuleSet(c.cfg.Routing, c.logger)
+		var err error
+		routeSet, err = routing.NewRuleSet(c.cfg.Routing, c.logger)
 		if err != nil {
 			c.logger.Warn("tun router init, forwarding all traffic through tunnel", zap.Error(err))
 		} else {
@@ -260,12 +283,130 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 				return stream.WriteMessage(data)
 			}
 			tunWrite := func(pkt []byte) (int, error) { return tunDev.Write(pkt) }
-			tunRouter = routing.NewTunRouter(rs, tunDev.Read, tunWrite, tunnelSend, c.logger)
+			tunRouter = routing.NewTunRouter(routeSet, tunDev.Read, tunWrite, tunnelSend, c.logger)
 			c.logger.Info("split-tunnel routing enabled",
 				zap.String("default", c.cfg.Routing.DefaultRoute),
 				zap.Int("include_ranges", len(c.cfg.Routing.IncludeRanges)),
 				zap.Int("exclude_ranges", len(c.cfg.Routing.ExcludeRanges)),
 			)
+		}
+	}
+
+	// @sk-task dns-response-tracker#T3.2: DNS proxy + Tracker for suffix domain tracking (AC-003)
+	var dnsSrv *dnsproxy.Server
+	var dnsCtx context.Context
+	var dnsCancel context.CancelFunc
+	var resolvBackup *dnsproxy.ResolvConfBackup
+	if c.cfg.Routing != nil && c.cfg.Routing.DNSCache != nil && c.cfg.Routing.DNSCache.Enabled && routeSet != nil {
+		hasSuffix := false
+		for _, d := range c.cfg.Routing.ExcludeDomains {
+			if strings.HasPrefix(d, ".") {
+				hasSuffix = true
+				break
+			}
+		}
+		if !hasSuffix {
+			for _, d := range c.cfg.Routing.IncludeDomains {
+				if strings.HasPrefix(d, ".") {
+					hasSuffix = true
+					break
+				}
+			}
+		}
+		if hasSuffix {
+			tracker := dns.NewTracker(time.Duration(c.cfg.Routing.DNSCache.TTL) * time.Second)
+			routeSet.SetTracker(tracker)
+			resolvBackup, _ = dnsproxy.BackupResolvConf()
+			dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstream)
+			dnsSrv.SetTracker(tracker)
+			dnsSrv.SetRouteFunc(func(domain string) bool {
+				return routeSet.MatchDomain(domain) == routing.RouteDirect
+			})
+			if resolvBackup != nil {
+				// Filter out loopback resolvers (systemd-resolved) to avoid DNS loop
+				allNss := resolvBackup.Nameservers()
+				var resolvers []string
+				for _, ns := range allNss {
+					host, _, err := net.SplitHostPort(ns)
+					if err != nil {
+						host = ns
+					}
+					ip := net.ParseIP(host)
+					if ip != nil && ip.IsLoopback() {
+						continue
+					}
+					resolvers = append(resolvers, ns)
+				}
+				// If all resolvers were loopback, use the upstream DNS instead
+				if len(resolvers) == 0 && c.cfg.DNSProxy.Upstream != "" {
+					resolvers = append(resolvers, c.cfg.DNSProxy.Upstream)
+				}
+				dnsSrv.SetOrigResolvers(resolvers)
+				// Add exclude routes for all resolvers so DNS proxy bypasses TUN
+				if havePhyRoute {
+					for _, ns := range resolvers {
+						host, _, err := net.SplitHostPort(ns)
+						if err != nil {
+							host = ns
+						}
+						ip := net.ParseIP(host)
+						if ip == nil {
+							continue
+						}
+						bits := 32
+						if ip.To4() == nil {
+							bits = 128
+						}
+						cidr := host + "/" + strconv.Itoa(bits)
+						if err := tunDev.AddExcludeRoute(cidr, phyGateway, phyIface); err != nil {
+							c.logger.Warn("add dns resolver exclude route", zap.String("cidr", cidr), zap.Error(err))
+						}
+					}
+				}
+			}
+			if havePhyRoute {
+				dnsSrv.SetDirectRouteFunc(func(ips []netip.Addr) {
+					for _, ip := range ips {
+						cidr := ip.String() + "/32"
+						if err := tunDev.AddExcludeRoute(cidr, phyGateway, phyIface); err != nil {
+							c.logger.Warn("add dns direct route", zap.String("cidr", cidr), zap.Error(err))
+						}
+					}
+				})
+			}
+			dnsCtx, dnsCancel = context.WithCancel(ctx)
+			dnsReady := make(chan error, 1)
+			go func() {
+				dnsReady <- dnsSrv.Run(dnsCtx)
+			}()
+			select {
+			case err := <-dnsReady:
+				c.logger.Warn("dns cache: proxy failed to start, restoring resolv.conf", zap.Error(err))
+				dnsCancel()
+				dnsSrv = nil
+				if resolvBackup != nil {
+					_ = resolvBackup.Restore()
+					resolvBackup = nil
+				}
+			case <-time.After(100 * time.Millisecond):
+				if resolvBackup != nil {
+					_ = dnsproxy.OverrideResolvConf(c.cfg.DNSProxy.Listen)
+				}
+			}
+			defer func() {
+				if dnsCancel != nil {
+					dnsCancel()
+				}
+				if dnsSrv != nil {
+					_ = dnsSrv.Shutdown()
+					dnsSrv = nil
+				}
+				if resolvBackup != nil {
+					if err := resolvBackup.Restore(); err != nil {
+						c.logger.Warn("dns cache: failed to restore resolv.conf", zap.Error(err))
+					}
+				}
+			}()
 		}
 	}
 

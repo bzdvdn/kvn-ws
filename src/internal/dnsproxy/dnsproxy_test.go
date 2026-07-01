@@ -118,8 +118,8 @@ func TestBackupResolvConfRestore(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(resolvConfPath)
-	if string(data) != "nameserver 127.0.0.53\n" {
-		t.Errorf("after override: got %q, want %q", string(data), "nameserver 127.0.0.53\n")
+	if string(data) != "nameserver 127.0.0.53\nnameserver 192.168.1.1\n" {
+		t.Errorf("after override: got %q, want %q", string(data), "nameserver 127.0.0.53\nnameserver 192.168.1.1\n")
 	}
 
 	if err := backup.Restore(); err != nil {

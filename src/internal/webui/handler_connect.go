@@ -172,6 +172,9 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 		if len(merged.Routing.ExcludeRanges) == 0 {
 			merged.Routing.ExcludeRanges = config.DefaultExcludeRanges
 		}
+		if merged.Routing.DNSCache == nil {
+			merged.Routing.DNSCache = &config.DNSCacheCfg{Enabled: false, TTL: 60}
+		}
 	} else {
 		merged.Routing = &config.RoutingCfg{
 			DefaultRoute:  "server",

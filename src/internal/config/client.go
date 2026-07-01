@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -165,6 +166,58 @@ func (s SourceRule) Valid() bool {
 	return n == 1
 }
 
+// @sk-task dns-response-tracker#T1.2: DNSCacheCfg struct (AC-003)
+type DNSCacheCfg struct {
+	Enabled bool `json:"enabled" yaml:"enabled" mapstructure:"enabled"`
+	TTL     int  `json:"ttl,omitempty" yaml:"ttl,omitempty" mapstructure:"ttl,omitempty"`
+}
+
+// UnmarshalJSON accepts both true (boolean) and {"enabled":true,"ttl":60}
+func (d *DNSCacheCfg) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	// try bool first (backward compat)
+	if data[0] == 't' || data[0] == 'f' {
+		var b bool
+		if err := json.Unmarshal(data, &b); err != nil {
+			return err
+		}
+		d.Enabled = b
+		d.TTL = 60
+		return nil
+	}
+	// fallback to object
+	type alias DNSCacheCfg
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	d.Enabled = a.Enabled
+	d.TTL = a.TTL
+	return nil
+}
+
+// UnmarshalYAML accepts both true and {"enabled":true,"ttl":60}
+func (d *DNSCacheCfg) UnmarshalYAML(value *yaml.Node) error {
+	// try bool first
+	var b bool
+	if err := value.Decode(&b); err == nil {
+		d.Enabled = b
+		d.TTL = 60
+		return nil
+	}
+	// fallback to struct
+	type alias DNSCacheCfg
+	var a alias
+	if err := value.Decode(&a); err != nil {
+		return err
+	}
+	d.Enabled = a.Enabled
+	d.TTL = a.TTL
+	return nil
+}
+
 // @sk-task routing-split-tunnel#T1.1: routing config struct (AC-009)
 // @sk-task geoip-geosite-integration#T1.2: source fields (AC-001)
 type RoutingCfg struct {
@@ -183,6 +236,7 @@ type RoutingCfg struct {
 	SourceTTL      int          `json:"source_ttl_hours,omitempty" yaml:"source_ttl_hours,omitempty" mapstructure:"source_ttl_hours,omitempty"`
 	IncludeSources []SourceRule `json:"include_sources,omitempty" yaml:"include_sources,omitempty" mapstructure:"include_sources,omitempty"`
 	ExcludeSources []SourceRule `json:"exclude_sources,omitempty" yaml:"exclude_sources,omitempty" mapstructure:"exclude_sources,omitempty"`
+	DNSCache       *DNSCacheCfg `json:"dns_cache,omitempty" yaml:"dns_cache,omitempty" mapstructure:"dns_cache,omitempty"`
 }
 
 // @sk-task production-hardening#T1.1: kill switch config (AC-003)

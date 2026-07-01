@@ -1,12 +1,16 @@
 package routing
 
 import (
+	"encoding/binary"
 	"net/netip"
+	"sync"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/dns"
 )
 
 var nopLogger = zap.NewNop()
@@ -349,4 +353,143 @@ func TestRoutePacketIPv6(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RoutePacket: %v", err)
 	}
+}
+
+// @sk-test dns-response-tracker#T2.1: TestRuleSetRoutesWithTrackerLookup (AC-003)
+func TestRuleSetRoutesWithTrackerLookup(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:   "server",
+		ExcludeDomains: []string{".ru"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := dns.NewTracker(60 * time.Second)
+	tr.Track("ozon.ru", []netip.Addr{netip.MustParseAddr("95.163.249.123")})
+	rs.SetTracker(tr)
+
+	// Route direct for IP matching excluded domain
+	action := rs.Route(netip.MustParseAddr("95.163.249.123"))
+	if action != RouteDirect {
+		t.Errorf("expected RouteDirect for excluded domain IP, got %d", action)
+	}
+
+	// Route server for unrelated IP
+	action = rs.Route(netip.MustParseAddr("8.8.8.8"))
+	if action != RouteServer {
+		t.Errorf("expected RouteServer for unrelated IP, got %d", action)
+	}
+}
+
+// @sk-test dns-response-tracker#T4.1: TestTunRouterRoutesWithTracker (AC-002)
+func TestTunRouterRoutesWithTracker(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:   "server",
+		ExcludeDomains: []string{".ru"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := dns.NewTracker(60 * time.Second)
+	tr.Track("ozon.ru", []netip.Addr{netip.MustParseAddr("95.163.249.123")})
+	rs.SetTracker(tr)
+
+	var mu sync.Mutex
+	var sentDirect, sentTunnel bool
+
+	tunRead := func([]byte) (int, error) { return 0, nil }
+	tunWrite := func(pkt []byte) (int, error) {
+		mu.Lock()
+		sentDirect = true
+		mu.Unlock()
+		return len(pkt), nil
+	}
+	tunnelSend := func(pkt []byte) error {
+		mu.Lock()
+		sentTunnel = true
+		mu.Unlock()
+		return nil
+	}
+
+	router := NewTunRouter(rs, tunRead, tunWrite, tunnelSend, nopLogger)
+
+	// Packet to tracked IP → should go direct (excluded domain .ru)
+	pkt := buildIPv4Packet("95.163.249.123")
+	if err := router.RoutePacket(pkt); err != nil {
+		t.Fatalf("RoutePacket tracked: %v", err)
+	}
+	mu.Lock()
+	if !sentDirect {
+		t.Error("expected packet to tracked IP to go direct")
+	}
+	if sentTunnel {
+		t.Error("expected packet to tracked IP NOT to go through tunnel")
+	}
+	mu.Unlock()
+
+	// Reset and test unrelated IP → should go tunnel (default=server)
+	sentDirect = false
+	sentTunnel = false
+	pkt = buildIPv4Packet("8.8.8.8")
+	if err := router.RoutePacket(pkt); err != nil {
+		t.Fatalf("RoutePacket untracked: %v", err)
+	}
+	mu.Lock()
+	if !sentTunnel {
+		t.Error("expected packet to untracked IP to go through tunnel")
+	}
+	if sentDirect {
+		t.Error("expected packet to untracked IP NOT to go direct")
+	}
+	mu.Unlock()
+}
+
+// @sk-test dns-response-tracker#T4.1: TestProxyOnConnTracker (AC-004)
+func TestProxyOnConnTracker(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:   "server",
+		ExcludeDomains: []string{".ru"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := dns.NewTracker(60 * time.Second)
+	tr.Track("ozon.ru", []netip.Addr{netip.MustParseAddr("95.163.249.123")})
+	rs.SetTracker(tr)
+
+	// Simulate proxy onConn flow: host not in suffix domains → DNS resolves → Track → Route(ip)
+	// "example.com" doesn't match suffix ".ru", so MatchDomain returns RouteNone
+	host := "example.com"
+	if action := rs.MatchDomain(host); action != RouteNone {
+		t.Fatalf("expected RouteNone for non-matching host, got %d", action)
+	}
+
+	// After DNS resolution, tracker has IP→domain mapping for "ozon.ru"
+	// Route(ip) should find the domain via tracker and apply domain rule
+	ip := netip.MustParseAddr("95.163.249.123")
+	if action := rs.Route(ip); action != RouteDirect {
+		t.Errorf("expected RouteDirect for tracked domain IP, got %d", action)
+	}
+
+	// Unrelated IP should fall through to default
+	ip = netip.MustParseAddr("1.2.3.4")
+	if action := rs.Route(ip); action != RouteServer {
+		t.Errorf("expected RouteServer for unrelated IP, got %d", action)
+	}
+}
+
+func buildIPv4Packet(dst string) []byte {
+	ip := netip.MustParseAddr(dst)
+	pkt := make([]byte, 20)
+	pkt[0] = 0x45 // ver=4, ihl=5
+	pkt[1] = 0x00
+	binary.BigEndian.PutUint16(pkt[2:4], 20) // total length
+	pkt[8] = 64                               // TTL
+	pkt[9] = 6                                // TCP
+	// dst IP at offset 16
+	copy(pkt[16:20], ip.AsSlice())
+	return pkt
 }

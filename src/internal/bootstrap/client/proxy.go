@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/dns"
 	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
@@ -64,6 +65,12 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 		} else {
 			routeSet = rs
 		}
+	}
+	// @sk-task dns-response-tracker#T3.3: init Tracker and set on routeSet
+	var dnsTracker *dns.Tracker
+	if routeSet != nil && c.cfg.Routing != nil && c.cfg.Routing.DNSCache != nil && c.cfg.Routing.DNSCache.Enabled {
+		dnsTracker = dns.NewTracker(time.Duration(c.cfg.Routing.DNSCache.TTL) * time.Second)
+		routeSet.SetTracker(dnsTracker)
 	}
 
 	{
@@ -128,6 +135,9 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 		resolvBackup, _ = dnsproxy.BackupResolvConf()
 
 		c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstream)
+		if dnsTracker != nil {
+			c.dnsSrv.SetTracker(dnsTracker)
+		}
 		if resolvBackup != nil {
 			c.dnsSrv.SetOrigResolvers(resolvBackup.Nameservers())
 		}
@@ -234,6 +244,18 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 				addrs, _ := net.DefaultResolver.LookupHost(ctx, host)
 				if len(addrs) > 0 {
 					ipAddr = net.ParseIP(addrs[0])
+				}
+				// @sk-task dns-response-tracker#T3.3: track resolved IP→domain in proxy mode
+				if dnsTracker != nil && len(addrs) > 0 {
+					var ips []netip.Addr
+					for _, a := range addrs {
+						if ip, err := netip.ParseAddr(a); err == nil {
+							ips = append(ips, ip)
+						}
+					}
+					if len(ips) > 0 {
+						dnsTracker.Track(host, ips)
+					}
 				}
 			}
 			var nip netip.Addr

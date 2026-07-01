@@ -14,12 +14,14 @@ import (
 // @sk-task routing-split-tunnel#T2.2: ruleset struct (AC-006)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 // @sk-task dns-routing#T3.1: suffixDomains map (AC-001, AC-002)
+// @sk-task dns-response-tracker#T2.1: tracker field (AC-003)
 type RuleSet struct {
 	rules          []Rule
 	defaultAction  RouteAction
 	domainResolver dns.Resolver
 	logger         *zap.Logger
 	suffixDomains  map[RouteAction][]string
+	tracker        *dns.Tracker
 }
 
 // @sk-task routing-split-tunnel#T2.2: new ruleset from config (AC-006)
@@ -96,6 +98,11 @@ func (rs *RuleSet) addRules(cidrs, ips, domains []string, action RouteAction) er
 	return nil
 }
 
+// @sk-task dns-response-tracker#T2.1: SetTracker sets the DNS tracker (AC-003)
+func (rs *RuleSet) SetTracker(t *dns.Tracker) {
+	rs.tracker = t
+}
+
 // @sk-task dns-routing#T3.1: domain match for suffix rules (AC-001, AC-002)
 func (rs *RuleSet) MatchDomain(domain string) RouteAction {
 	for action, suffixes := range rs.suffixDomains {
@@ -111,7 +118,16 @@ func (rs *RuleSet) MatchDomain(domain string) RouteAction {
 
 // @sk-task routing-split-tunnel#T2.2: route decision (AC-001)
 // @sk-task production-readiness-hardening#T2.6: log.Printf → zap (AC-006)
+// @sk-task dns-response-tracker#T2.1: tracker lookup before default (AC-003)
 func (rs *RuleSet) Route(ip netip.Addr) RouteAction {
+	if rs.tracker != nil {
+		if domain, ok := rs.tracker.Lookup(ip); ok {
+			rs.logger.Debug("tracker lookup", zap.String("ip", ip.String()), zap.String("domain", domain))
+			if action := rs.MatchDomain(domain); action != RouteNone {
+				return action
+			}
+		}
+	}
 	for _, r := range rs.rules {
 		if r.Matcher.Match(ip) {
 			rs.logger.Debug("matched rule", zap.Int("action", int(r.Action)), zap.String("ip", ip.String()))

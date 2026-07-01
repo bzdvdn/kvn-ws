@@ -47,6 +47,10 @@ interface ClientConfig {
     source_ttl_hours?: number;
     include_sources?: SourceRule[];
     exclude_sources?: SourceRule[];
+    dns_cache?: {
+      enabled?: boolean;
+      ttl?: number;
+    };
   };
   reconnect?: { min_backoff_sec?: number; max_backoff_sec?: number };
   system_proxy?: boolean;
@@ -319,10 +323,14 @@ function App() {
       if (!r1.ok) throw new Error("save global failed");
       const originName = originalServerRef.current;
       if (originName) {
+        const cfg = { ...serverConfig };
+        if (cfg.routing && typeof cfg.routing.dns_cache === "boolean") {
+          cfg.routing = { ...cfg.routing, dns_cache: { enabled: cfg.routing.dns_cache, ttl: 60 } };
+        }
         const r2 = await fetch(`/api/servers/${encodeURIComponent(originName)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: activeServer, ...serverConfig }),
+          body: JSON.stringify({ name: activeServer, ...cfg }),
         });
         if (!r2.ok) throw new Error("save server failed");
         originalServerRef.current = activeServer;
@@ -786,6 +794,14 @@ function App() {
               style={{ padding: "4px 10px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 11, marginTop: 4 }}>
               Refresh Sources
             </button>
+            {/* @sk-task dns-response-tracker#T3.4: DNS cache enabled checkbox + TTL input (AC-003) */}
+            <div style={{ marginTop: 8, padding: "6px 8px", border: "1px solid #2a2a2a", borderRadius: 4 }}>
+              <Checkbox checked={serverConfig.routing?.dns_cache?.enabled ?? false} onChange={(v) => nestServer2("routing", "dns_cache", "enabled", v)} label="DNS Cache (IP→domain tracking)" />
+              <div style={{ fontSize: 10, color: "#555", marginTop: 2, marginBottom: 4 }}>Track DNS responses for domain-based routing rules by IP</div>
+              {serverConfig.routing?.dns_cache?.enabled && <label style={lbl}>DNS Cache TTL (s)
+                <input type="number" style={inp} value={serverConfig.routing?.dns_cache?.ttl ?? 60} onChange={(e) => nestServer2("routing", "dns_cache", "ttl", parseInt(e.target.value) || 60)} />
+              </label>}
+            </div>
           </Section>
 
           <Section key={`ks-${sectionKey}`} title="Kill Switch & Reconnect" defaultOpen={allExpanded}>

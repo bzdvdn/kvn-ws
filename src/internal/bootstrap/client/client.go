@@ -64,6 +64,11 @@ func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
 		cfg.DNSProxy.Upstream = "1.1.1.1:53"
 	}
 
+	// @sk-task dns-response-tracker#T1.2: DNSCache defaults (AC-003)
+	if cfg.Routing != nil && cfg.Routing.DNSCache == nil {
+		cfg.Routing.DNSCache = &config.DNSCacheCfg{Enabled: false, TTL: 60}
+	}
+
 	if cfg.Routing != nil && (len(cfg.Routing.IncludeSources) > 0 || len(cfg.Routing.ExcludeSources) > 0) {
 		cacheDir := filepath.Join(".", ".source-cache")
 		srcResolver := routing.NewResolver(cfg.Routing, cacheDir, logger)
