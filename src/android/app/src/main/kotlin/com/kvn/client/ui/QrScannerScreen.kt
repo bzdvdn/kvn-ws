@@ -77,6 +77,10 @@ data class WebTlsCfg(
     val sni: List<String>? = emptyList()
 )
 
+// @sk-task android-dns-cache#T4.2: QR JSON model for dns_cache.enabled (AC-009)
+@Serializable
+data class WebDnsCacheCfg(val enabled: Boolean = false)
+
 @Serializable
 data class WebRoutingCfg(
     val default_route: String = "server",
@@ -85,7 +89,8 @@ data class WebRoutingCfg(
     val include_ips: List<String>? = emptyList(),
     val exclude_ips: List<String>? = emptyList(),
     val include_domains: List<String>? = emptyList(),
-    val exclude_domains: List<String>? = emptyList()
+    val exclude_domains: List<String>? = emptyList(),
+    val dns_cache: WebDnsCacheCfg? = null
 )
 
 @Serializable
@@ -511,7 +516,9 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         obfuscationEnabled = ob?.enabled ?: false,
         obfuscationUtls = ob?.utls?.enabled ?: false,
         obfuscationPaddingEnabled = ob?.padding?.enabled ?: false,
-        obfuscationPaddingSize = ob?.padding?.size ?: 0
+        obfuscationPaddingSize = ob?.padding?.size ?: 0,
+        // @sk-task android-dns-cache#T4.3: map dns_cache.enabled from QR JSON (AC-009)
+        dnsCacheEnabled = routing?.dns_cache?.enabled ?: false
     )
 }
 
@@ -541,6 +548,8 @@ fun configToWebJson(config: ConnectionConfig): String {
         put("exclude_ips", JSONArray(config.routingExcludeIps))
         put("include_domains", JSONArray(config.routingIncludeDomains))
         put("exclude_domains", JSONArray(config.routingExcludeDomains))
+        // @sk-task android-dns-cache#T4.3: export dns_cache.enabled to QR JSON (AC-009)
+        put("dns_cache", JSONObject().apply { put("enabled", config.dnsCacheEnabled) })
     })
     root.put("kill_switch", JSONObject().apply { put("enabled", config.killSwitchEnabled) })
     root.put("reconnect", JSONObject().apply {

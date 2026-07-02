@@ -128,6 +128,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     var obfuscationUtls by remember { mutableStateOf(false) }
     var obfuscationPaddingEnabled by remember { mutableStateOf(false) }
     var obfuscationPaddingSize by remember { mutableStateOf("0") }
+    var dnsCacheEnabled by remember { mutableStateOf(false) }
 
     // @sk-task multi-server-android-client#T2.2: fill form from active config (AC-002)
     fun fillFormFromConfig(c: ConnectionConfig) {
@@ -156,6 +157,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
         obfuscationEnabled = c.obfuscationEnabled; obfuscationUtls = c.obfuscationUtls
         obfuscationPaddingEnabled = c.obfuscationPaddingEnabled
         obfuscationPaddingSize = c.obfuscationPaddingSize.toString()
+        dnsCacheEnabled = c.dnsCacheEnabled
     }
 
     // @sk-task multi-server-android-client#T2.2: load active config into form on switch (AC-002)
@@ -195,7 +197,8 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
             killSwitchEnabled = killSwitchEnabled,
             obfuscationEnabled = obfuscationEnabled, obfuscationUtls = obfuscationUtls,
             obfuscationPaddingEnabled = obfuscationPaddingEnabled,
-            obfuscationPaddingSize = obfuscationPaddingSize.toIntOrNull() ?: 0
+            obfuscationPaddingSize = obfuscationPaddingSize.toIntOrNull() ?: 0,
+            dnsCacheEnabled = dnsCacheEnabled
         )
     }
 
@@ -743,6 +746,18 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                         disabledContentColor = KvnPrimary.copy(alpha = 0.38f)
                     )
                 ) { Text("Refresh Sources") }
+            }
+
+            // @sk-task android-dns-cache#T4.4: DNS Cache toggle (AC-008)
+            SettingsSection(title = "DNS") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("DNS Cache", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = dnsCacheEnabled,
+                        onCheckedChange = { dnsCacheEnabled = it; onFieldChange() },
+                        enabled = disconnected
+                    )
+                }
             }
 
             // @sk-task kvn-android#T5.13: Encryption section (RQ-003)

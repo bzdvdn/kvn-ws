@@ -68,7 +68,9 @@ data class ConnectionConfig(
     val obfuscationEnabled: Boolean = false,
     val obfuscationUtls: Boolean = false,
     val obfuscationPaddingEnabled: Boolean = false,
-    val obfuscationPaddingSize: Int = 0
+    val obfuscationPaddingSize: Int = 0,
+    // @sk-task android-dns-cache#T4.1: DNS cache toggle field (AC-008)
+    val dnsCacheEnabled: Boolean = false
 )
 
 // @sk-task multi-server-android-client#T1.1: server entry with name + full config (AC-001)
