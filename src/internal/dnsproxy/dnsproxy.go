@@ -487,6 +487,42 @@ func readNameserver() (string, error) {
 	return "", fmt.Errorf("dnsproxy: no nameserver found in /etc/resolv.conf")
 }
 
+// CleanupStaleDNS cleans up resolv.conf if it contains a stale reference to our
+// proxy listen address (e.g. 127.0.0.54:53) when no DNS proxy is running.
+// This prevents hangs on subsequent connections if a previous session was killed
+// without restoring resolv.conf.
+func CleanupStaleDNS(proxyListen string) {
+	host, _, err := net.SplitHostPort(proxyListen)
+	if err != nil {
+		host = proxyListen
+	}
+	if host == "" {
+		return
+	}
+	data, err := os.ReadFile(resolvConfPath)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	var out []string
+	changed := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "nameserver") {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 2 && parts[1] == host {
+				changed = true
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+	if changed {
+		content := strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
+		_ = os.WriteFile(resolvConfPath, []byte(content), 0o644) // #nosec G306
+	}
+}
+
 func readUint16(r *bufio.Reader) (uint16, error) {
 	b, err := r.ReadByte()
 	if err != nil {

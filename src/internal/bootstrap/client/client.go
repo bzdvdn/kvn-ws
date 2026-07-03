@@ -267,6 +267,16 @@ func (c *Client) Run(ctx context.Context) error {
 	// @sk-task relay-terminator#T9.3: TUN cleanup on graceful disconnect (AC-006)
 	defer func() { _ = tunDev.Close() }()
 
+	// Force-close TUN on context cancellation to unblock tunnel reads
+	// (tunDev.Read() does not take a context). This ensures that the session
+	// goroutines unblock, defers run, and resolv.conf / routes are cleaned up.
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = tunDev.Close()
+		}
+	}()
+
 	c.reconnectLoop(ctx, tunDev)
 	return nil
 }

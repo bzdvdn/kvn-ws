@@ -261,13 +261,14 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 	}
 	if wsCfg.UTLS {
 		d.NetDialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return wtls.DialWithUTLS(network, addr, tlsConfig, wsCfg.UTLSFallback)
+			return wtls.DialWithUTLS(ctx, network, addr, tlsConfig, wsCfg.UTLSFallback)
 		}
 	} else {
 		d.TLSClientConfig = tlsConfig
 	}
 	d.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		conn, err := net.Dial(network, addr)
+		dialer := net.Dialer{}
+		conn, err := dialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return conn, err
 		}

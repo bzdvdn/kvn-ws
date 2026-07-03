@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -221,6 +222,22 @@ func (t *tunDevice) DisableGSO() error {
 		}
 	}
 	return nil
+}
+
+// CleanupStaleExcludeRoutes removes any stale /32 kernel route for the server IP
+// that may have been left behind from a previous killed session.
+func CleanupStaleExcludeRoutes(serverIP string) {
+	ip := net.ParseIP(serverIP)
+	if ip == nil {
+		return
+	}
+	bits := 32
+	if ip.To4() == nil {
+		bits = 128
+	}
+	cidr := serverIP + "/" + strconv.Itoa(bits)
+	cmd := exec.Command("ip", "route", "del", cidr)
+	_ = cmd.Run()
 }
 
 // SaveDefaultRoute returns the current default route's gateway and interface.

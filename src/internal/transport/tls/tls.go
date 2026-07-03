@@ -1,6 +1,7 @@
 package tls
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -140,8 +141,9 @@ func randomPreset() utls.ClientHelloID {
 // @sk-task whitelist-obfuscation#T2.1: uTLS dial wrapper (AC-001)
 // DialWithUTLS establishes a TLS connection using uTLS with a random browser fingerprint.
 // Falls back to crypto/tls on any error if fallback is true.
-func DialWithUTLS(network, addr string, tlsCfg *tls.Config, fallback bool) (net.Conn, error) {
-	rawConn, err := net.Dial(network, addr)
+func DialWithUTLS(ctx context.Context, network, addr string, tlsCfg *tls.Config, fallback bool) (net.Conn, error) {
+	dialer := net.Dialer{}
+	rawConn, err := dialer.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("tcp dial: %w", err)
 	}
@@ -158,7 +160,17 @@ func DialWithUTLS(network, addr string, tlsCfg *tls.Config, fallback bool) (net.
 	if err := uconn.Handshake(); err != nil {
 		_ = rawConn.Close()
 		if fallback {
-			return tls.Dial(network, addr, tlsCfg)
+			dialer := net.Dialer{}
+			rawFallback, fbErr := dialer.DialContext(ctx, network, addr)
+			if fbErr != nil {
+				return nil, fmt.Errorf("tcp dial fallback: %w", fbErr)
+			}
+			tlsConn := tls.Client(rawFallback, tlsCfg)
+			if err := tlsConn.HandshakeContext(ctx); err != nil {
+				_ = rawFallback.Close()
+				return nil, fmt.Errorf("tls handshake fallback: %w", err)
+			}
+			return tlsConn, nil
 		}
 		return nil, fmt.Errorf("utls handshake: %w", err)
 	}

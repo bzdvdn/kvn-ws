@@ -35,6 +35,14 @@ func resolveServerIP(host string) net.IP {
 }
 
 func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
+	// @sk-task dns-cache-cleanup: clean stale resolv.conf and exclude routes from previous killed session
+	dnsproxy.CleanupStaleDNS(c.cfg.DNSProxy.Listen)
+	if u, uErr := url.Parse(c.cfg.Server); uErr == nil {
+		if host := u.Hostname(); host != "" {
+			tun.CleanupStaleExcludeRoutes(host)
+		}
+	}
+
 	minBackoff, maxBackoff := parseBackoff(c.cfg.Reconnect)
 
 	backoff := minBackoff

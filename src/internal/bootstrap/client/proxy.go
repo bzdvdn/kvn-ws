@@ -24,6 +24,9 @@ import (
 
 // @sk-task arch-refactoring#T3.1: use common dialStream (AC-004)
 func (c *Client) runProxyMode(ctx context.Context) {
+	// @sk-task dns-cache-cleanup: clean stale resolv.conf from previous killed session
+	dnsproxy.CleanupStaleDNS(c.cfg.DNSProxy.Listen)
+
 	minBackoff, maxBackoff := parseBackoff(c.cfg.Reconnect)
 
 	backoff := minBackoff
