@@ -49,7 +49,7 @@ jobs:
         with:
           version: latest
           install-mode: goinstall
-          args: --skip-dirs=src/cmd/desktop
+          args: ""
       - name: Build
         run: go build $(go list ./src/... | grep -v cmd/desktop)
       - name: Build binaries
