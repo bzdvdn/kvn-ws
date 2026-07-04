@@ -63,3 +63,6 @@ func (t *tunStub) DisableGSO() error {
 func SaveDefaultRoute() (net.IP, string, error) {
 	return nil, "", errors.New("TUN is not supported on this platform")
 }
+
+func CleanupStaleExcludeRoutes(serverIP string) {
+}

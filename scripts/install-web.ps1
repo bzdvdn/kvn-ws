@@ -10,23 +10,27 @@
     GitHub release tag (default: latest).
 .PARAMETER Startup
     Add shortcut to Startup folder (autostart at user logon).
+.PARAMETER Desktop
+    Install kvn-desktop (native window) instead of kvn-web (browser).
 .EXAMPLE
     .\install-web.ps1
     .\install-web.ps1 -Startup
     .\install-web.ps1 -Port 2311
+    .\install-web.ps1 -Desktop
 #>
 
 param(
     [int]$Port = 2311,
     [string]$Version = "latest",
-    [switch]$Startup
+    [switch]$Startup,
+    [switch]$Desktop  # @sk-task kvn-desktop#T4.2: -Desktop switch (AC-007)
 )
 
 #Requires -RunAsAdministrator
 
 $ErrorActionPreference = "Stop"
 $Repo = "bzdvdn/kvn-ws"
-$BinaryName = "kvn-web.exe"
+$BinaryName = if ($Desktop) { "kvn-desktop.exe" } else { "kvn-web.exe" }
 $BinDir = "$env:ProgramFiles\KVN"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
@@ -125,12 +129,12 @@ $startMenuDir = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\KVN"
 $null = New-Item -ItemType Directory -Force -Path $startMenuDir
 
 $targetExe = "$BinDir\$BinaryName"
-$desc = "KVN Web UI - VPN tunnel management interface"
+$desc = if ($Desktop) { "KVN Desktop - native window for KVN Web UI" } else { "KVN Web UI - VPN tunnel management interface" }
 
-if (New-Shortcut -Path "$startMenuDir\KVN Web UI.lnk" -Target $targetExe -Desc $desc) {
+if (New-Shortcut -Path "$startMenuDir\$([System.IO.Path]::GetFileNameWithoutExtension($BinaryName)).lnk" -Target $targetExe -Desc $desc) {
     Write-Ok "Start Menu shortcut"
 }
-if (New-Shortcut -Path "$env:Public\Desktop\KVN Web UI.lnk" -Target $targetExe -Desc $desc) {
+if (New-Shortcut -Path "$env:Public\Desktop\$([System.IO.Path]::GetFileNameWithoutExtension($BinaryName)).lnk" -Target $targetExe -Desc $desc) {
     Write-Ok "Desktop shortcut"
 }
 if ($Startup) {
@@ -142,17 +146,25 @@ if ($Startup) {
 
 # --- Summary ---
 Write-Host ""
-Write-Host "=== kvn-web installation complete ===" -ForegroundColor Green
+Write-Host "=== ${BinaryName} installation complete ===" -ForegroundColor Green
 Write-Host "  Binary: $BinDir\$BinaryName" -ForegroundColor Cyan
-Write-Host "  Start Menu: KVN > KVN Web UI" -ForegroundColor Yellow
-Write-Host "  Desktop: KVN Web UI" -ForegroundColor Yellow
+Write-Host "  Start Menu: KVN > $([System.IO.Path]::GetFileNameWithoutExtension($BinaryName))" -ForegroundColor Yellow
+Write-Host "  Desktop: $([System.IO.Path]::GetFileNameWithoutExtension($BinaryName))" -ForegroundColor Yellow
 if ($Startup) {
     Write-Host "  Autostart: Startup folder (runs at logon)" -ForegroundColor Yellow
 }
 Write-Host ""
-Write-Host "Usage:" -ForegroundColor Green
-Write-Host "  1. Double-click the desktop shortcut to start kvn-web" -ForegroundColor Cyan
-Write-Host "  2. Browser opens at http://127.0.0.1:$Port" -ForegroundColor Cyan
-Write-Host "  3. Click Connect to enable VPN + system proxy" -ForegroundColor Cyan
-Write-Host "  4. Close kvn-web window to restore system proxy" -ForegroundColor Cyan
+if ($Desktop) {
+    Write-Host "Usage:" -ForegroundColor Green
+    Write-Host "  1. Double-click the desktop shortcut to start kvn-desktop" -ForegroundColor Cyan
+    Write-Host "  2. Native window opens with KVN Web UI" -ForegroundColor Cyan
+    Write-Host "  3. Click Connect to enable VPN + system proxy" -ForegroundColor Cyan
+    Write-Host "  4. Close the window to disconnect and cleanup" -ForegroundColor Cyan
+} else {
+    Write-Host "Usage:" -ForegroundColor Green
+    Write-Host "  1. Double-click the desktop shortcut to start kvn-web" -ForegroundColor Cyan
+    Write-Host "  2. Browser opens at http://127.0.0.1:$Port" -ForegroundColor Cyan
+    Write-Host "  3. Click Connect to enable VPN + system proxy" -ForegroundColor Cyan
+    Write-Host "  4. Close kvn-web window to restore system proxy" -ForegroundColor Cyan
+}
 Write-Host ""

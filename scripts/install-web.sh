@@ -14,14 +14,16 @@ PLIST_LABEL="com.kvn-web.daemon"
 
 START=false
 PORT="2311"
+DESKTOP=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --start)   START=true; shift ;;
     --port)    PORT="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
+    --desktop) DESKTOP=true; shift ;; # @sk-task kvn-desktop#T4.2: --desktop flag (AC-007)
     --help|-h)
-      echo "Usage: sudo $0 [--start] [--port 2311] [--version <tag>]"
+      echo "Usage: sudo $0 [--start] [--port 2311] [--version <tag>] [--desktop]"
       exit 0 ;;
     *) echo "Unknown: $1"; exit 1 ;;
   esac
@@ -92,6 +94,19 @@ if [ -z "$BINARY_SRC" ]; then
   BINARY_SRC="$TMPDIR/kvn-web"
 fi
 
+DESKTOP_BINARY_SRC=""
+if [ "$DESKTOP" = true ]; then
+  if [ -f "$SCRIPT_DIR/kvn-desktop" ]; then
+    DESKTOP_BINARY_SRC="$SCRIPT_DIR/kvn-desktop"
+  elif [ -f "$SCRIPT_DIR/bin/kvn-desktop" ]; then
+    DESKTOP_BINARY_SRC="$SCRIPT_DIR/bin/kvn-desktop"
+  else
+    # fallback: download archive does not contain kvn-desktop yet
+    echo "WARN: kvn-desktop binary not found locally, skipping."
+    echo "  Build it with: go build -o bin/kvn-desktop ./src/cmd/desktop"
+  fi
+fi
+
 case "$OS" in
   linux)
     echo "Installing kvn-web for Linux (systemd)..."
@@ -123,6 +138,21 @@ UNIT
       echo "Service started."
     fi
     echo "Installed. Manage with: systemctl [start|stop|status] kvn-web.service"
+    if [ "$DESKTOP" = true ] && [ -n "$DESKTOP_BINARY_SRC" ]; then
+      install -m 0755 "$DESKTOP_BINARY_SRC" "$BIN_DIR/kvn-desktop"
+      mkdir -p /usr/local/share/applications
+      cat > /usr/local/share/applications/kvn-desktop.desktop <<DESKTOP_FILE
+[Desktop Entry]
+Name=KVN Desktop
+Comment=KVN Web UI desktop wrapper
+Exec=$BIN_DIR/kvn-desktop
+Icon=preferences-system-network
+Terminal=false
+Type=Application
+Categories=Network;Utility;
+DESKTOP_FILE
+      echo "  Desktop: $BIN_DIR/kvn-desktop + /usr/local/share/applications/kvn-desktop.desktop"
+    fi
     ;;
   darwin)
     echo "Installing kvn-web for macOS (launchd)..."
@@ -163,6 +193,28 @@ PLIST
       echo "Service started."
     fi
     echo "Installed. Manage with: launchctl [load|unload] $PLIST_DIR/$PLIST_LABEL.plist"
+    if [ "$DESKTOP" = true ] && [ -n "$DESKTOP_BINARY_SRC" ]; then
+      install -m 0755 "$DESKTOP_BINARY_SRC" "$BIN_DIR/kvn-desktop"
+      mkdir -p "/Applications/KVN Desktop.app/Contents/MacOS"
+      cat > "/Applications/KVN Desktop.app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>KVN Desktop</string>
+    <key>CFBundleDisplayName</key>
+    <string>KVN Desktop</string>
+    <key>CFBundleExecutable</key>
+    <string>kvn-desktop</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+</dict>
+</plist>
+PLIST
+      ln -sf "$BIN_DIR/kvn-desktop" "/Applications/KVN Desktop.app/Contents/MacOS/kvn-desktop"
+      echo "  Desktop: $BIN_DIR/kvn-desktop + /Applications/KVN Desktop.app"
+    fi
     ;;
   *)
     echo "Unsupported OS: $OS" >&2

@@ -9,6 +9,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/cmd/stability/main.go` — stability gate / soak test program (AC-012)
 - `src/cmd/relay/main.go` — CLI entrypoint: relay (bridge + terminator modes)
 - `src/cmd/web/main.go` — Web UI entrypoint: browser-based tunnel client manager
+- `src/cmd/desktop/main.go` — Desktop UI entrypoint: native WebView window for kvn-web (platform-specific: Linux WebKitGTK, macOS WKWebView, Windows WebView2)
 - `protocol/codegen/main.go` — protocol codegen: generates Go+Kotlin types from YAML
 - `src/android/app/src/main/kotlin/com/kvn/client/ui/MainActivity.kt` — Android app entrypoint (Jetpack Compose)
 - `src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt` — Android VpnService (TUN tunnel)
@@ -101,6 +102,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Transparent proxy — `src/internal/transparent/`, `src/internal/dnsproxy/`, `src/internal/proxy/listener_*.go`
 - DNS proxy — `src/internal/dnsproxy/`
 - System proxy — `src/internal/systemproxy/`
+- Desktop UI — `src/cmd/desktop/` (entrypoint + platform app files + service manager + error/restart injection)
 - Web UI — `src/internal/webui/`, `src/cmd/web/`, `src/internal/webui/frontend/`
 - Integration tests — `src/integration/`
 - Documentation — `docs/en/`, `docs/ru/`, `docs/openapi.yaml`

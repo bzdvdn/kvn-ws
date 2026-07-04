@@ -95,11 +95,69 @@ jobs:
           path: src/android/app/build/outputs/apk/release/kvn-client-release.apk
           retention-days: 30
 
+  desktop:
+    # @sk-task kvn-desktop#T4.3: CI build + artifact for kvn-desktop (AC-005)
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            cgo: 1
+            deps: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+            suffix: ""
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            cgo: 1
+            deps: ""
+            suffix: ""
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            cgo: 1
+            deps: go install github.com/akavel/rsrc@latest
+            suffix: .exe
+    runs-on: ${{ matrix.os }}
+    needs: [ci]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install system deps
+        run: ${{ matrix.deps }}
+        if: matrix.deps != ''
+      - name: Build SPA (non-Windows)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd src/internal/webui/frontend
+          npm ci
+          npm run build
+      - name: Embed UAC manifest (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          rsrc -manifest src/cmd/desktop/winres/kvn-desktop.exe.manifest -o src/cmd/desktop/winres/kvn-desktop.syso
+      - name: Build kvn-desktop
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: |
+          go build -ldflags="-s -w${{ matrix.os == 'windows-latest' && ' -H windowsgui' || '' }}" \
+            -o bin/kvn-desktop${{ matrix.suffix }} ./src/cmd/desktop
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kvn-desktop-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
+          path: bin/kvn-desktop${{ matrix.suffix }}
+          retention-days: 30
+
   release:
     if: |
       startsWith(github.ref, 'refs/tags/v')
       || github.event_name == 'workflow_dispatch'
-    needs: [ci, android]
+    needs: [ci, android, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -172,6 +230,31 @@ jobs:
               GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
                 go build -ldflags="-s -w" \
                 -o "dist/kvn-$os-$arch/relay${suffix}" ./src/cmd/relay
+            fi
+          done
+
+      - name: Download kvn-desktop artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kvn-desktop-*
+          path: /tmp/kvn-desktop-artifacts
+
+      - name: Copy kvn-desktop to release dirs
+        run: |
+          for dir in dist/kvn-*; do
+            [ -d "$dir" ] || continue
+            base=$(basename "$dir")
+            # extract os name: kvn-linux-amd64 → linux
+            os=$(echo "$base" | cut -d- -f2)
+            arch=$(echo "$base" | cut -d- -f3)
+            suffix=""
+            [ "$os" = "windows" ] && suffix=".exe"
+            desktop_artifact="/tmp/kvn-desktop-artifacts/kvn-desktop-${os}-${arch}${suffix}/kvn-desktop${suffix}"
+            if [ -f "$desktop_artifact" ]; then
+              cp "$desktop_artifact" "$dir/kvn-desktop${suffix}"
+              echo "Added kvn-desktop${suffix} to $dir"
+            else
+              echo "WARN: kvn-desktop for $os/$arch not found at $desktop_artifact"
             fi
           done
 
