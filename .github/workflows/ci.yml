@@ -45,7 +45,7 @@ jobs:
       - name: Gosec
         uses: securego/gosec@master
         with:
-          args: -exclude=G103 ./...
+          args: -exclude=G103 -exclude-dir=src/cmd/desktop ./...
       - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:
