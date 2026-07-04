@@ -86,7 +86,7 @@ func (t *darwinTray) Run() {
 		return
 	}
 
-	ptr := C.createTray(unsafe.Pointer(&iconData[0]), C.int(len(iconData)))
+	ptr := C.createTray((*C.char)(unsafe.Pointer(&iconData[0])), C.int(len(iconData)))
 	if ptr == nil {
 		t.actionCh <- TrayQuit
 		return
