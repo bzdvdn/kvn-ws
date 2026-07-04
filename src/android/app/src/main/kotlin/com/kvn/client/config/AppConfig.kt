@@ -49,8 +49,6 @@ data class ConnectionConfig(
     val routingExcludeRanges: List<String> = emptyList(),
     val routingIncludeIps: List<String> = emptyList(),
     val routingExcludeIps: List<String> = emptyList(),
-    val routingIncludeDomains: List<String> = emptyList(),
-    val routingExcludeDomains: List<String> = emptyList(),
     // Routing Sources
     val routingIncludeSources: String = "",
     val routingExcludeSources: String = "",
@@ -81,10 +79,14 @@ data class ServerEntry(
 )
 
 // @sk-task multi-server-android-client#T1.1: multi-server AppConfig wrapper (AC-001)
+// @sk-task android-per-app-dns#T1.3: app-level per-app filtering and DNS settings (AC-003, AC-004, AC-005)
 @Serializable
 data class AppConfig(
     val activeServer: String = "",
-    val servers: List<ServerEntry> = emptyList()
+    val servers: List<ServerEntry> = emptyList(),
+    val appIncludeList: List<String> = emptyList(),
+    val appExcludeList: List<String> = emptyList(),
+    val dnsServers: List<String> = listOf("1.1.1.1", "8.8.8.8")
 )
 
 // @sk-task multi-server-android-client#T1.1: DataStore-backed multi-server persistence (AC-001)

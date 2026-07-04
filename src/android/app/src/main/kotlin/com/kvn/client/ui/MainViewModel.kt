@@ -54,6 +54,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun markClean() { _isDirty.value = false }
 
+    // @sk-task android-per-app-dns#T1.3: app-level settings flows (AC-003, AC-004, AC-005)
+    val appIncludeList: StateFlow<List<String>> = savedAppConfig.map { it.appIncludeList }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val appExcludeList: StateFlow<List<String>> = savedAppConfig.map { it.appExcludeList }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dnsServers: StateFlow<List<String>> = savedAppConfig.map { it.dnsServers }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("1.1.1.1", "8.8.8.8"))
+
+    // @sk-task android-per-app-dns#T1.3: persist app-level settings to DataStore (AC-005)
+    fun saveAppSettings(include: List<String>, exclude: List<String>, dns: List<String>) {
+        viewModelScope.launch {
+            val current = savedAppConfig.value
+            val updated = current.copy(
+                appIncludeList = include,
+                appExcludeList = exclude,
+                dnsServers = dns
+            )
+            appConfigStore.save(updated)
+        }
+    }
+
     // @sk-task kvn-android#T5.2: apply config from QR code (AC-007, RQ-011)
     // @sk-task multi-server-android-client#T2.1: QR adds a new server (AC-006)
     fun applyQrConfig(config: ConnectionConfig) {
@@ -169,7 +192,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // @sk-task kvn-android#T2.3: connect to server (AC-001, AC-006)
     // @sk-task kvn-android#T5.1: pass full ConnectionConfig (RQ-005)
     // @sk-task multi-server-android-client#T2.1: save config to active server before connect (AC-004)
-    fun connect(config: ConnectionConfig) {
+    fun connect(
+        config: ConnectionConfig,
+        appIncludeList: List<String>? = null,
+        appExcludeList: List<String>? = null,
+        dnsServers: List<String>? = null
+    ) {
         viewModelScope.launch {
             saveCurrentServerConfig(config)
 
@@ -178,9 +206,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _connectionState.value = ConnectionState.CONNECTING
             _errorMessage.value = null
             saveState(ConnectionState.CONNECTING)
+            val appCfg = savedAppConfig.value
             KvnVpnService.start(
                 getApplication(),
                 config,
+                appIncludeList = appIncludeList ?: appCfg.appIncludeList,
+                appExcludeList = appExcludeList ?: appCfg.appExcludeList,
+                dnsServers = dnsServers ?: appCfg.dnsServers,
                 onStateChange = { state ->
                     _connectionState.value = state
                     saveState(state)

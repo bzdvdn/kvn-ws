@@ -1,6 +1,7 @@
 package com.kvn.client.vpn
 
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.LinkProperties
 import android.app.Notification
@@ -16,10 +17,6 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import com.kvn.client.config.ConnectionConfig
 import com.kvn.client.crypto.AesGcmCipher
-import com.kvn.client.dns.DnsCache
-import com.kvn.client.dns.DnsInterceptor
-import com.kvn.client.dns.DnsResolver
-import com.kvn.client.dns.DnsTracker
 import com.kvn.client.protocol.*
 import com.kvn.client.transport.ConnectionState
 import com.kvn.client.transport.OnStateChange
@@ -61,15 +58,12 @@ class KvnVpnService : VpnService() {
     private var cryptoEnabled = false
     private var serverSessionId: String = ""
 
-    // @sk-task android-dns-cache#T2.4: DNS cache + interceptor (AC-001, AC-002, AC-004)
-    private var dnsCache: DnsCache? = null
-    private var dnsTracker: DnsTracker? = null
-    private var dnsInterceptor: DnsInterceptor? = null
-
     // @sk-task kvn-android#T3.2: traffic counters (AC-002)
     private val rxBytes = AtomicLong(0)
     private val txBytes = AtomicLong(0)
     var onTrafficUpdate: ((rx: Long, tx: Long) -> Unit)? = null
+
+    private var notificationUpdateJob: kotlinx.coroutines.Job? = null
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -83,16 +77,27 @@ class KvnVpnService : VpnService() {
         private var errorCallback: ((String) -> Unit)? = null
         private var killed = false // true when user explicitly disconnects
         private var tunFdRef: ParcelFileDescriptor? = null
+        // @sk-task android-per-app-dns#T1.3: app-level settings (AC-003, AC-004, AC-005)
+        private var appIncludeList: List<String> = emptyList()
+        private var appExcludeList: List<String> = emptyList()
+        private var dnsServers: List<String> = listOf("1.1.1.1", "8.8.8.8")
 
         // @sk-task kvn-android#T2.1: start VPN service (AC-001, AC-006)
+        // @sk-task android-per-app-dns#T1.3: pass app-level settings to VpnService (AC-003, AC-004, AC-005)
         fun start(
             context: Context,
             cfg: ConnectionConfig,
+            appIncludeList: List<String> = emptyList(),
+            appExcludeList: List<String> = emptyList(),
+            dnsServers: List<String> = listOf("1.1.1.1", "8.8.8.8"),
             onStateChange: ((ConnectionState) -> Unit)? = null,
             onTrafficUpdate: ((rx: Long, tx: Long) -> Unit)? = null,
             onError: ((String) -> Unit)? = null
         ) {
             config = cfg
+            this.appIncludeList = appIncludeList
+            this.appExcludeList = appExcludeList
+            this.dnsServers = dnsServers
             stateCallback = onStateChange
             trafficCallback = onTrafficUpdate
             errorCallback = onError
@@ -121,9 +126,8 @@ class KvnVpnService : VpnService() {
 
         override fun createSocket(): Socket {
             val raw = delegate.createSocket()
-            if (this@KvnVpnService.vpnEstablished) {
-                this@KvnVpnService.protect(raw)
-            }
+            // Always protect — safe when VPN is down, critical during reconnect races
+            this@KvnVpnService.protect(raw)
             return object : Socket() {
                 override fun connect(endpoint: SocketAddress, timeout: Int) {
                     raw.connect(endpoint, timeout)
@@ -171,34 +175,26 @@ class KvnVpnService : VpnService() {
 
         override fun createSocket(host: String, port: Int): Socket {
             val raw = delegate.createSocket()
-            if (this@KvnVpnService.vpnEstablished) {
-                this@KvnVpnService.protect(raw)
-            }
+            this@KvnVpnService.protect(raw)
             raw.connect(java.net.InetSocketAddress(host, port))
             return raw
         }
         override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket {
             val raw = delegate.createSocket()
-            if (this@KvnVpnService.vpnEstablished) {
-                this@KvnVpnService.protect(raw)
-            }
+            this@KvnVpnService.protect(raw)
             raw.bind(java.net.InetSocketAddress(localHost, localPort))
             raw.connect(java.net.InetSocketAddress(host, port))
             return raw
         }
         override fun createSocket(host: InetAddress, port: Int): Socket {
             val raw = delegate.createSocket()
-            if (this@KvnVpnService.vpnEstablished) {
-                this@KvnVpnService.protect(raw)
-            }
+            this@KvnVpnService.protect(raw)
             raw.connect(java.net.InetSocketAddress(host, port))
             return raw
         }
         override fun createSocket(addr: InetAddress, port: Int, localAddr: InetAddress, localPort: Int): Socket {
             val raw = delegate.createSocket()
-            if (this@KvnVpnService.vpnEstablished) {
-                this@KvnVpnService.protect(raw)
-            }
+            this@KvnVpnService.protect(raw)
             raw.bind(java.net.InetSocketAddress(localAddr, localPort))
             raw.connect(java.net.InetSocketAddress(addr, port))
             return raw
@@ -209,8 +205,6 @@ class KvnVpnService : VpnService() {
     private var vpnEstablished = false
 
     private var preResolvedServerIps: List<InetAddress>? = null
-    // @sk-task android-dns-cache#T3.1: pre-resolved excluded domain IPs for /32 routes (AC-006)
-    private var preResolvedExcludeIps: Map<String, List<InetAddress>> = emptyMap()
     private var reconnectStarted = false
     private var tunReaderStarted = false
 
@@ -220,24 +214,6 @@ class KvnVpnService : VpnService() {
         } catch (_: Exception) {
             null
         }
-    }
-
-    // @sk-task android-dns-cache#T3.1: pre-resolve excluded domains before VPN establish (AC-006)
-    // @sk-task android-dns-cache#T4.4: gate exclude domain pre-resolve on toggle (AC-008)
-    // @sk-task android-dns-cache#T3.2: suffix/pattern domains (.ru) skipped — can't pre-resolve all matching IPs (AC-007)
-    private fun resolveExcludedDomains(): Map<String, List<InetAddress>> {
-        if (!config.dnsCacheEnabled || config.routingExcludeDomains.isEmpty()) return emptyMap()
-        val result = mutableMapOf<String, List<InetAddress>>()
-        for (domain in config.routingExcludeDomains) {
-            if (domain.startsWith(".")) continue // suffix pattern, can't pre-resolve
-            try {
-                val ips = InetAddress.getAllByName(domain).toList()
-                result[domain.lowercase()] = ips
-            } catch (_: Exception) {
-                // skip unresolvable domain
-            }
-        }
-        return result
     }
 
     private fun buildOkHttpClient(): OkHttpClient {
@@ -371,7 +347,16 @@ class KvnVpnService : VpnService() {
     }
 
     private fun computeVpnRoutes(include: List<String>, exclude: List<String>): List<Pair<InetAddress, Int>> {
+        val effectiveInclude = include.toMutableList()
+        for (ipStr in config.routingIncludeIps) {
+            val trimmed = ipStr.trim()
+            if (trimmed.isNotBlank()) effectiveInclude.add("$trimmed/32")
+        }
         val effectiveExclude = exclude.toMutableList()
+        for (ipStr in config.routingExcludeIps) {
+            val trimmed = ipStr.trim()
+            if (trimmed.isNotBlank()) effectiveExclude.add("$trimmed/32")
+        }
         // Always exclude the server IP from VPN to prevent routing loop
         val serverIps = preResolvedServerIps ?: try {
             InetAddress.getAllByName(config.serverAddress).toList()
@@ -400,8 +385,8 @@ class KvnVpnService : VpnService() {
                 }
             }
         }
-        if (include.isNotEmpty()) {
-            return include.mapNotNull { parseCidr(it) }
+        if (effectiveInclude.isNotEmpty()) {
+            return effectiveInclude.mapNotNull { parseCidr(it) }
         }
         if (effectiveExclude.isEmpty()) {
             return listOf(InetAddress.getByName("0.0.0.0") to 0)
@@ -422,18 +407,10 @@ class KvnVpnService : VpnService() {
 
         builder.addAddress(InetAddress.getByName(assignedIp), 32)
 
-        val routes = computeVpnRoutes(config.routingIncludeRanges, config.routingExcludeRanges)
+        val effectiveExcludeRanges = config.routingExcludeRanges.toMutableList()
+        val routes = computeVpnRoutes(config.routingIncludeRanges, effectiveExcludeRanges)
         for ((addr, prefix) in routes) {
             builder.addRoute(addr, prefix)
-        }
-
-        // @sk-task android-dns-cache#T3.1: /32 routes for excluded domain IPs (AC-006)
-        for ((_, ips) in preResolvedExcludeIps) {
-            for (ip in ips) {
-                if (ip is Inet4Address) {
-                    builder.addRoute(ip, 32)
-                }
-            }
         }
 
         if (assignedIpv6.isNotBlank() && config.ipv6Enabled) {
@@ -441,7 +418,24 @@ class KvnVpnService : VpnService() {
             builder.addRoute(InetAddress.getByName("::"), 0)
         }
 
-        builder.addDnsServer(InetAddress.getByName("1.1.1.1"))
+        // @sk-task android-per-app-dns#T1.3: DNS servers from app-level settings (AC-004)
+        for (dns in dnsServers) {
+            try {
+                builder.addDnsServer(InetAddress.getByName(dns))
+            } catch (_: Exception) {}
+        }
+
+        // @sk-task android-per-app-dns#T1.3: per-app filtering from app-level settings (AC-003)
+        // VpnService.Builder supports only ONE mode: addAllowedApplication XOR addDisallowedApplication
+        if (appIncludeList.isNotEmpty()) {
+            for (pkg in appIncludeList) {
+                try { builder.addAllowedApplication(pkg.trim()) } catch (_: Exception) {}
+            }
+        } else {
+            for (pkg in appExcludeList) {
+                try { builder.addDisallowedApplication(pkg.trim()) } catch (_: Exception) {}
+            }
+        }
 
         tunFd = builder.establish()
         tunFdRef = tunFd
@@ -455,31 +449,15 @@ class KvnVpnService : VpnService() {
         vpnEstablished = true
     }
 
-    // @sk-task android-dns-cache#T2.4: init DNS cache + tracker + interceptor (AC-001, AC-002)
-    // @sk-task android-dns-cache#T3.2: create DnsResolver with protect for excluded domains (AC-007)
-    // @sk-task android-dns-cache#T4.4: gate DNS module on dnsCacheEnabled toggle (AC-008)
-    private fun initDnsModule() {
-        if (!config.dnsCacheEnabled) return
-        val cache = DnsCache()
-        val tracker = DnsTracker()
-        val excluded = config.routingExcludeDomains.map { it.lowercase() }.toSet()
-        val resolver = DnsResolver { socket -> this.protect(socket) }
-        dnsCache = cache
-        dnsTracker = tracker
-        dnsInterceptor = DnsInterceptor(cache, tracker, excluded, resolver)
-    }
-
     private fun doStart(): Int {
-        startForeground(NOTIFICATION_ID, createNotification(ConnectionState.CONNECTING))
+        try {
+            startForeground(NOTIFICATION_ID, createNotification(ConnectionState.CONNECTING))
+        } catch (_: Exception) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
-        // Resolve server IPs before VPN is established (DNS would hang through TUN)
         resolveServerIpsBeforeVpn()
-
-        // @sk-task android-dns-cache#T3.1: pre-resolve excluded domains before VPN establish (AC-006)
-        preResolvedExcludeIps = resolveExcludedDomains()
-
-        // @sk-task android-dns-cache#T2.4: init DNS interceptor
-        initDnsModule()
 
         // Wire traffic callback from companion
         onTrafficUpdate = trafficCallback
@@ -529,9 +507,11 @@ class KvnVpnService : VpnService() {
         tunFdRef = null
         vpnEstablished = false
         tunReaderStarted = false
-        dnsCache?.clear()
-        dnsTracker?.clear()
+        notificationUpdateJob?.cancel()
+        notificationUpdateJob = null
     }
+
+
 
     // @sk-task kvn-android#T5.16: safe stop (AC-010)
     private fun safeStop() {
@@ -636,6 +616,7 @@ class KvnVpnService : VpnService() {
     // @sk-task kvn-android#T2.4: handle incoming frames (AC-001)
     // @sk-task kvn-android#T5.14: decrypt data frames if crypto enabled (AC-011)
     private fun handleFrame(frame: Frame) {
+        try {
         when (frame.type) {
             FrameTypes.FRAME_TYPE_HELLO -> {
                 val serverHello = HandshakeCodec.decodeServerHello(frame)
@@ -652,6 +633,12 @@ class KvnVpnService : VpnService() {
                     establishTun(serverHello.assignedIp, serverHello.assignedIpv6)
                     tunReaderStarted = true
                     serviceScope.launch { tunReader() }
+                    notificationUpdateJob = serviceScope.launch {
+                        while (isActive) {
+                            delay(2000)
+                            updateNotification(ConnectionState.CONNECTED)
+                        }
+                    }
                 }
             }
             FrameTypes.FRAME_TYPE_AUTH -> {
@@ -675,22 +662,15 @@ class KvnVpnService : VpnService() {
                 onTrafficUpdate?.invoke(rxBytes.get(), txBytes.get())
                 writeToTun(frame.payload)
             }
-            FrameTypes.FRAME_TYPE_DNS -> {
-                // @sk-task android-dns-cache#T2.4: parse and cache DNS response from tunnel (AC-002)
-                dnsInterceptor?.handleTunnelResponse(frame.payload)
-                rxBytes.addAndGet(frame.payload.size.toLong())
-                onTrafficUpdate?.invoke(rxBytes.get(), txBytes.get())
-                writeToTun(frame.payload)
-            }
             FrameTypes.FRAME_TYPE_CLOSE -> {
                 safeStop()
             }
         }
+    } catch (_: Exception) {
+        // swallow — OkHttp WebSocket closes on exception in onMessage
+    }
     }
 
-    // @sk-task kvn-android#T2.1: read from TUN, send to transport (AC-001)
-    // @sk-task kvn-android#T5.14: encrypt data frames if crypto enabled (AC-011)
-    // @sk-task android-dns-cache#T2.4: intercept UDP/53 DNS packets (AC-001, AC-002, AC-007)
     private suspend fun tunReader() = withContext(Dispatchers.IO) {
         val buf = ByteArray(config.mtu)
         while (isActive) {
@@ -698,12 +678,6 @@ class KvnVpnService : VpnService() {
                 val len = tunInput?.read(buf) ?: break
                 if (len > 0) {
                     val data = buf.copyOf(len)
-                    // @sk-task android-dns-cache#T2.4: DNS intercept — check if UDP/53
-                    val dnsResponse = interceptDnsPacket(data)
-                    if (dnsResponse != null) {
-                        writeToTun(dnsResponse)
-                        continue
-                    }
                     txBytes.addAndGet(len.toLong())
                     onTrafficUpdate?.invoke(rxBytes.get(), txBytes.get())
                     val payload = if (cryptoEnabled && cipher != null) {
@@ -715,69 +689,24 @@ class KvnVpnService : VpnService() {
                     transportClient?.send(frame)
                 }
             } catch (e: Exception) {
-                if (isActive) {
-                    safeStop()
-                }
+                if (isActive) safeStop()
                 break
             }
         }
     }
 
-    // @sk-task android-dns-cache#T2.4: intercept UDP/53 DNS queries, return response or null to forward (AC-001, AC-007)
-    private fun interceptDnsPacket(packet: ByteArray): ByteArray? {
-        if (packet.isEmpty()) return null
-        val version = (packet[0].toInt() and 0xF0) shr 4
-        if (version != 4) return null // IPv6 not yet supported for DNS intercept
-        val ihl = (packet[0].toInt() and 0x0F) * 4
-        if (ihl < 20 || ihl > packet.size) return null
-        val protocol = packet[9].toInt() and 0xFF
-        if (protocol != 17) return null // not UDP
-        val udpOffset = ihl
-        if (udpOffset + 4 > packet.size) return null
-        val dstPort = ((packet[udpOffset + 2].toInt() and 0xFF) shl 8) or (packet[udpOffset + 3].toInt() and 0xFF)
-        if (dstPort != 53) return null // not DNS
-        val dnsOffset = udpOffset + 8 // UDP header is 8 bytes
-        if (dnsOffset >= packet.size) return null
-        val dnsPayload = packet.copyOfRange(dnsOffset, packet.size)
-        val interceptor = dnsInterceptor ?: return null
-        val response = interceptor.intercept(dnsPayload) ?: return null
-        // Swap src/dst MAC+IP+port in original packet and replace payload with response
-        val ipHdrLen = ihl
-        val udpHdrLen = 8
-        val newTotalLen = ipHdrLen + udpHdrLen + response.size
-        val out = ByteArray(newTotalLen)
-        // Copy IP header
-        System.arraycopy(packet, 0, out, 0, ipHdrLen)
-        // Fix total length in IP header
-        out[2] = ((newTotalLen shr 8) and 0xFF).toByte()
-        out[3] = (newTotalLen and 0xFF).toByte()
-        // Swap source and destination IP
-        for (i in 0 until 4) {
-            val tmp = out[12 + i]
-            out[12 + i] = out[16 + i]
-            out[16 + i] = tmp
-        }
-        // Swap source and destination ports in UDP header
-        out[ipHdrLen] = packet[udpOffset + 2]
-        out[ipHdrLen + 1] = packet[udpOffset + 3]
-        out[ipHdrLen + 2] = packet[udpOffset]
-        out[ipHdrLen + 3] = packet[udpOffset + 1]
-        // Copy DNS response
-        System.arraycopy(response, 0, out, ipHdrLen + udpHdrLen, response.size)
-        // Fix UDP length
-        val udpLen = udpHdrLen + response.size
-        out[ipHdrLen + 4] = ((udpLen shr 8) and 0xFF).toByte()
-        out[ipHdrLen + 5] = (udpLen and 0xFF).toByte()
-        return out
-    }
 
-    // @sk-task kvn-android#T2.1: write to TUN from incoming data (AC-001)
+
+    private val tunLock = Any()
+
     private fun writeToTun(data: ByteArray) {
-        try {
-            tunOutput?.write(data)
-            tunOutput?.flush()
-        } catch (_: Exception) {
-            safeStop()
+        synchronized(tunLock) {
+            try {
+                tunOutput?.write(data)
+                tunOutput?.flush()
+            } catch (_: Exception) {
+                safeStop()
+            }
         }
     }
 
@@ -786,7 +715,7 @@ class KvnVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID, "KVN VPN",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_HIGH
             )
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
@@ -809,7 +738,7 @@ class KvnVpnService : VpnService() {
         val text = when (state) {
             ConnectionState.CONNECTING -> "Connecting…"
             ConnectionState.RECONNECTING -> "Reconnecting…"
-            ConnectionState.CONNECTED -> "VPN tunnel active"
+            ConnectionState.CONNECTED -> "VPN active"
             ConnectionState.DISCONNECTED -> "Disconnected"
             ConnectionState.DISCONNECTING -> "Disconnecting…"
         }

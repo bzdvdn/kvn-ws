@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kvn.client.ui.theme.KvnError
 import com.kvn.client.ui.theme.KvnPrimary
@@ -82,6 +84,11 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     val txBytes by vm.txBytes.collectAsState()
     val errorMessage by vm.errorMessage.collectAsState()
 
+    // App-level settings
+    val vmAppIncludeList by vm.appIncludeList.collectAsState()
+    val vmAppExcludeList by vm.appExcludeList.collectAsState()
+    val vmDnsServers by vm.dnsServers.collectAsState()
+
     var showQrScanner by remember { mutableStateOf(false) }
     var showExportQr by remember { mutableStateOf(false) }
     var showDirtyDialog by remember { mutableStateOf(false) }
@@ -89,6 +96,8 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
+    var showAppPicker by remember { mutableStateOf(false) }
+    var appPickerModeAllow by remember { mutableStateOf(true) }
 
     // Connection form state
     var serverUrl by remember { mutableStateOf("") }
@@ -111,8 +120,6 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     var routingExcludeRanges by remember { mutableStateOf("") }
     var routingIncludeIps by remember { mutableStateOf("") }
     var routingExcludeIps by remember { mutableStateOf("") }
-    var routingIncludeDomains by remember { mutableStateOf("") }
-    var routingExcludeDomains by remember { mutableStateOf("") }
     // @sk-task geoip-geosite-integration#T5.2: routing source fields (include/exclude sources, paths, TTL)
     var routingIncludeSources by remember { mutableStateOf("") }
     var routingExcludeSources by remember { mutableStateOf("") }
@@ -121,6 +128,9 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     var geositePath by remember { mutableStateOf("") }
     var geositeUrl by remember { mutableStateOf("") }
     var sourceTtlHours by remember { mutableStateOf("24") }
+    var appIncludeList by remember { mutableStateOf("") }
+    var appExcludeList by remember { mutableStateOf("") }
+    var dnsServers by remember { mutableStateOf("1.1.1.1,8.8.8.8") }
     var cryptoEnabled by remember { mutableStateOf(false) }
     var cryptoKey by remember { mutableStateOf("") }
     var killSwitchEnabled by remember { mutableStateOf(false) }
@@ -143,8 +153,6 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
         routingExcludeRanges = c.routingExcludeRanges.joinToString(",")
         routingIncludeIps = c.routingIncludeIps.joinToString(",")
         routingExcludeIps = c.routingExcludeIps.joinToString(",")
-        routingIncludeDomains = c.routingIncludeDomains.joinToString(",")
-        routingExcludeDomains = c.routingExcludeDomains.joinToString(",")
         routingIncludeSources = c.routingIncludeSources
         routingExcludeSources = c.routingExcludeSources
         geoipPath = c.geoipPath
@@ -163,6 +171,19 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     // @sk-task multi-server-android-client#T2.2: load active config into form on switch (AC-002)
     LaunchedEffect(activeCfg) {
         activeCfg?.let { fillFormFromConfig(it) }
+    }
+
+    // Initialize app-level settings from VM (not server-specific)
+    LaunchedEffect(Unit) {
+        if (appIncludeList.isEmpty() && vmAppIncludeList.isNotEmpty()) {
+            appIncludeList = vmAppIncludeList.joinToString(",")
+        }
+        if (appExcludeList.isEmpty() && vmAppExcludeList.isNotEmpty()) {
+            appExcludeList = vmAppExcludeList.joinToString(",")
+        }
+        if (dnsServers == "1.1.1.1,8.8.8.8" && vmDnsServers != listOf("1.1.1.1", "8.8.8.8")) {
+            dnsServers = vmDnsServers.joinToString(",")
+        }
     }
 
     // Mark dirty on any field change
@@ -184,8 +205,6 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
             routingExcludeRanges = routingExcludeRanges.split(",").filter { it.isNotBlank() },
             routingIncludeIps = routingIncludeIps.split(",").filter { it.isNotBlank() },
             routingExcludeIps = routingExcludeIps.split(",").filter { it.isNotBlank() },
-            routingIncludeDomains = routingIncludeDomains.split(",").filter { it.isNotBlank() },
-            routingExcludeDomains = routingExcludeDomains.split(",").filter { it.isNotBlank() },
             routingIncludeSources = routingIncludeSources,
             routingExcludeSources = routingExcludeSources,
             geoipPath = geoipPath,
@@ -233,11 +252,28 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
         if (granted) showQrScanner = true
     }
 
+    val notificationPermissionGranted = remember {
+        if (Build.VERSION.SDK_INT >= 33) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED
+        } else true
+    }
+
+    val notificationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) vm.connect(buildConfig())
+    }
+
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            vm.connect(buildConfig())
+            if (!notificationPermissionGranted) {
+                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                vm.connect(buildConfig())
+            }
         }
     }
 
@@ -636,24 +672,6 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                     enabled = disconnected
                 )
                 OutlinedTextField(
-                    value = routingIncludeDomains,
-                    onValueChange = { routingIncludeDomains = it; onFieldChange() },
-                    label = { Text("Include Domains (comma-separated)") },
-                    placeholder = { Text("example.com,.domain.com") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = disconnected
-                )
-                OutlinedTextField(
-                    value = routingExcludeDomains,
-                    onValueChange = { routingExcludeDomains = it; onFieldChange() },
-                    label = { Text("Exclude Domains (comma-separated)") },
-                    placeholder = { Text("ads.com,.tracker.com") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = disconnected
-                )
-                OutlinedTextField(
                     value = routingIncludeIps,
                     onValueChange = { routingIncludeIps = it; onFieldChange() },
                     label = { Text("Include IPs (comma-separated)") },
@@ -748,8 +766,18 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                 ) { Text("Refresh Sources") }
             }
 
-            // @sk-task android-dns-cache#T4.4: DNS Cache toggle (AC-008)
+            // @sk-task android-dns-cache#T4.4: DNS config (AC-008)
+            // @sk-task android-per-app-dns#T1.2: DNS servers field (AC-004)
             SettingsSection(title = "DNS") {
+                OutlinedTextField(
+                    value = dnsServers,
+                    onValueChange = { dnsServers = it; onFieldChange() },
+                    label = { Text("DNS Servers (comma-separated)") },
+                    placeholder = { Text("1.1.1.1,8.8.8.8") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("DNS Cache", modifier = Modifier.weight(1f))
                     Switch(
@@ -757,6 +785,68 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                         onCheckedChange = { dnsCacheEnabled = it; onFieldChange() },
                         enabled = disconnected
                     )
+                }
+            }
+
+            // @sk-task android-per-app-dns#T1.2: per-app filtering section (AC-001, AC-003)
+            SettingsSection(title = "Apps") {
+                Text("Mode", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = appPickerModeAllow,
+                        onClick = { appPickerModeAllow = true; onFieldChange() },
+                        label = { Text("Allowed apps") },
+                        enabled = disconnected
+                    )
+                    FilterChip(
+                        selected = !appPickerModeAllow,
+                        onClick = { appPickerModeAllow = false; onFieldChange() },
+                        label = { Text("Blocked apps") },
+                        enabled = disconnected
+                    )
+                }
+                val currentList = if (appPickerModeAllow) appIncludeList else appExcludeList
+                val count = if (currentList.isBlank()) 0 else currentList.split(",").size
+                OutlinedButton(
+                    onClick = { showAppPicker = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = disconnected
+                ) {
+                    Text(if (count > 0) "Selected: $count apps" else "Select apps")
+                }
+                if (count > 0) {
+                    val packages = currentList.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    val displayPackages = packages.take(10)
+                    val packageLabels = remember(currentList) {
+                        val pm = context.packageManager
+                        displayPackages.associateWith { pkg ->
+                            try {
+                                val ai = pm.getApplicationInfo(pkg, 0)
+                                pm.getApplicationLabel(ai).toString()
+                            } catch (_: Exception) {
+                                pkg
+                            }
+                        }
+                    }
+                    Column(modifier = Modifier.padding(top = 4.dp)) {
+                        for (pkg in displayPackages) {
+                            Text(
+                                text = packageLabels[pkg] ?: pkg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (packages.size > 10) {
+                            Text(
+                                text = "+ ${packages.size - 10} more",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -851,8 +941,26 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                             val intent = VpnService.prepare(context)
                             if (intent != null) {
                                 vpnPermissionLauncher.launch(intent)
+                            } else if (!notificationPermissionGranted) {
+                                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             } else {
-                                vm.connect(cfg)
+                                // @sk-task android-per-app-dns#T1.2: save app-level settings on connect (AC-005)
+                                val parsedInclude = appIncludeList.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                                val parsedExclude = appExcludeList.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                                val activeInclude = if (appPickerModeAllow) parsedInclude else emptyList()
+                                val activeExclude = if (appPickerModeAllow) emptyList() else parsedExclude
+                                val activeDns = dnsServers.split(",").map { it.trim() }.filter { it.isNotBlank() }.ifEmpty { listOf("1.1.1.1", "8.8.8.8") }
+                                vm.saveAppSettings(
+                                    include = activeInclude,
+                                    exclude = activeExclude,
+                                    dns = activeDns
+                                )
+                                vm.connect(
+                                    cfg,
+                                    appIncludeList = activeInclude,
+                                    appExcludeList = activeExclude,
+                                    dnsServers = activeDns
+                                )
                             }
                         }
                         else -> vm.disconnect()
@@ -973,6 +1081,26 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    // App picker screen
+    if (showAppPicker) {
+        val currentList = if (appPickerModeAllow) appIncludeList else appExcludeList
+        val initialSet = if (currentList.isBlank()) emptySet()
+        else currentList.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        AppPickerScreen(
+            initialSelection = initialSet,
+            onSave = { selected ->
+                val joined = selected.joinToString(",")
+                if (appPickerModeAllow) {
+                    appIncludeList = joined; onFieldChange()
+                } else {
+                    appExcludeList = joined; onFieldChange()
+                }
+                showAppPicker = false
+            },
+            onBack = { showAppPicker = false }
+        )
     }
 
     // QR scanner screen
