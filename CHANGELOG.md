@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **kvn-desktop: system tray with close-to-tray lifecycle** — GtkStatusIcon (Linux), NSStatusBar (macOS), Shell_NotifyIconW (Windows). Context menu: Show/Hide/Quit. `--no-tray` flag restores legacy close=exit behavior. Auto-registers `.desktop` shortcut on Linux and `.lnk` shortcuts on Windows. Single-instance guard via pidfile+flock (Unix) / CreateMutexW (Windows).
+
 ## [0.5.0] — 2026-07-04
 
 ### Added
