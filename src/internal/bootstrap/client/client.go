@@ -271,10 +271,8 @@ func (c *Client) Run(ctx context.Context) error {
 	// (tunDev.Read() does not take a context). This ensures that the session
 	// goroutines unblock, defers run, and resolv.conf / routes are cleaned up.
 	go func() {
-		select {
-		case <-ctx.Done():
-			_ = tunDev.Close()
-		}
+		<-ctx.Done()
+		_ = tunDev.Close()
 	}()
 
 	c.reconnectLoop(ctx, tunDev)

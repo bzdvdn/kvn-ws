@@ -3,11 +3,12 @@ package main
 import (
 	"fmt"
 
-	"github.com/webview/webview_go"
+	webview "github.com/webview/webview_go"
 )
 
 // @sk-task kvn-desktop#T3.2: inject restart button via JS (AC-009, AC-010, AC-011)
 func injectRestartButton(w webview.WebView, svc *ServiceManager) {
+	// #nosec G104
 	w.Bind("restartService", func() {
 		if err := svc.Restart(); err != nil {
 			w.Eval(fmt.Sprintf(

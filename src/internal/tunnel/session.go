@@ -440,13 +440,13 @@ func (s *Session) forwardDNS(ctx context.Context, query []byte, upstreams []stri
 		}
 		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 		if _, err := conn.Write(query); err != nil {
-			conn.Close()
+			conn.Close() // #nosec G104
 			lastErr = err
 			continue
 		}
 		resp := make([]byte, 1500)
 		n, err := conn.Read(resp)
-		conn.Close()
+		conn.Close() // #nosec G104
 		if err != nil {
 			lastErr = err
 			continue

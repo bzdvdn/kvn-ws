@@ -487,8 +487,8 @@ func buildIPv4Packet(dst string) []byte {
 	pkt[0] = 0x45 // ver=4, ihl=5
 	pkt[1] = 0x00
 	binary.BigEndian.PutUint16(pkt[2:4], 20) // total length
-	pkt[8] = 64                               // TTL
-	pkt[9] = 6                                // TCP
+	pkt[8] = 64                              // TTL
+	pkt[9] = 6                               // TCP
 	// dst IP at offset 16
 	copy(pkt[16:20], ip.AsSlice())
 	return pkt

@@ -12,6 +12,7 @@ func checkServer(url string) bool {
 	if err != nil {
 		return false
 	}
+	// #nosec G104
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }

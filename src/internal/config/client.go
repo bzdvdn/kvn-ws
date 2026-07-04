@@ -525,7 +525,7 @@ type RelayTermCfg struct {
 // @sk-task dns-upstreams-list#T1.1: RelayDNSCfg with Upstreams []string + backward compat (AC-007)
 // @sk-task relay-terminator#T6.1: DNS config for relay routing (RQ-008, RQ-011)
 type RelayDNSCfg struct {
-	Upstream    string   `json:"upstream,omitempty" mapstructure:"upstream"`     // DEPRECATED: use Upstreams
+	Upstream    string   `json:"upstream,omitempty" mapstructure:"upstream"` // DEPRECATED: use Upstreams
 	Upstreams   []string `json:"upstreams,omitempty" mapstructure:"upstreams"`
 	CacheTTL    int      `json:"cache_ttl" mapstructure:"cache_ttl"`
 	Transparent bool     `json:"transparent" mapstructure:"transparent"`

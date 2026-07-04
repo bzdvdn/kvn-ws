@@ -16,8 +16,8 @@ type ServerEntry struct {
 	ClientConfig `json:",inline" yaml:",inline"`
 }
 
-		// @sk-task dns-upstreams-list#T1.3: defaultWebUIConfig Upstreams (AC-003)
-		// @sk-task multi-server#T1.1: WebUIConfig type (AC-001)
+// @sk-task dns-upstreams-list#T1.3: defaultWebUIConfig Upstreams (AC-003)
+// @sk-task multi-server#T1.1: WebUIConfig type (AC-001)
 type WebUIConfig struct {
 	ClientConfig `json:",inline" yaml:",inline"`
 	ActiveServer string        `json:"active_server" yaml:"active_server"`

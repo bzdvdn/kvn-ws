@@ -236,7 +236,7 @@ func CleanupStaleExcludeRoutes(serverIP string) {
 		bits = 128
 	}
 	cidr := serverIP + "/" + strconv.Itoa(bits)
-	cmd := exec.Command("ip", "route", "del", cidr)
+	cmd := exec.Command("ip", "route", "del", cidr) // #nosec G204
 	_ = cmd.Run()
 }
 

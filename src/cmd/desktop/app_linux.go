@@ -3,7 +3,7 @@
 package main
 
 import (
-	"github.com/webview/webview_go"
+	webview "github.com/webview/webview_go"
 )
 
 // @sk-task kvn-desktop#T2.1: linux webview to localhost (AC-001)

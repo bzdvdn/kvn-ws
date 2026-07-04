@@ -31,7 +31,7 @@ func (m *mockTun) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface st
 	return nil
 }
 func (m *mockTun) CleanupExcludeRoutes() {}
-func (m *mockTun) DisableGSO() error { return nil }
+func (m *mockTun) DisableGSO() error     { return nil }
 
 // mockStreamConn implements StreamConn with queued messages for testing.
 type mockStreamConn struct {
@@ -87,7 +87,7 @@ func (m *mockTunWrite) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIfa
 	return nil
 }
 func (m *mockTunWrite) CleanupExcludeRoutes() {}
-func (m *mockTunWrite) DisableGSO() error { return nil }
+func (m *mockTunWrite) DisableGSO() error     { return nil }
 
 func encodeFrame(t *testing.T, f *framing.Frame) []byte {
 	t.Helper()
@@ -209,10 +209,7 @@ func TestServerDNSForwardUsesConfig(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // rest
 	}
 	// Add label "test.example.com"
-	query = append(query, 4, 't', 'e', 's', 't')
-	query = append(query, 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e')
-	query = append(query, 3, 'c', 'o', 'm')
-	query = append(query, 0x00, 0x00, 0x01, 0x00, 0x01) // QTYPE A, QCLASS IN
+	query = append(query, 4, 't', 'e', 's', 't', 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c', 'o', 'm', 0x00, 0x00, 0x01, 0x00, 0x01) // QTYPE A, QCLASS IN
 
 	// Construct payload: [4-byte streamID][query]
 	payload := make([]byte, 4+len(query))

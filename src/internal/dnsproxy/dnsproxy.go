@@ -216,7 +216,7 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 
 		_ = upConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if _, err := upConn.Write(wire); err != nil {
-			upConn.Close()
+			upConn.Close() // #nosec G104
 			lastErr = err
 			continue
 		}
@@ -225,21 +225,21 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 		br := bufio.NewReader(upConn)
 		respLen, err := readUint16(br)
 		if err != nil {
-			upConn.Close()
+			upConn.Close() // #nosec G104
 			lastErr = err
 			continue
 		}
 		if respLen > 1500 {
-			upConn.Close()
+			upConn.Close() // #nosec G104
 			continue
 		}
 		resp = make([]byte, respLen)
 		if _, err := br.Read(resp); err != nil {
-			upConn.Close()
+			upConn.Close() // #nosec G104
 			lastErr = err
 			continue
 		}
-		upConn.Close()
+		upConn.Close() // #nosec G104
 		lastErr = nil
 		break
 	}
@@ -280,12 +280,12 @@ func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDP
 		}
 		_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 		if _, err := conn.Write(query); err != nil {
-			conn.Close()
+			conn.Close() // #nosec G104
 			continue
 		}
 		resp := make([]byte, 1500)
 		n, err := conn.Read(resp)
-		conn.Close()
+		conn.Close() // #nosec G104
 		if err != nil {
 			continue
 		}
@@ -476,7 +476,7 @@ func OverrideResolvConf(addr string) error {
 	}
 
 	lines := strings.Split(string(data), "\n")
-	var out []string
+	out := make([]string, 0, len(lines))
 	out = append(out, nsLine)
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -487,7 +487,7 @@ func OverrideResolvConf(addr string) error {
 	}
 	// Trim trailing blank lines from the result
 	content := strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
-	return os.WriteFile(resolvConfPath, []byte(content), 0o644) // #nosec G306
+	return os.WriteFile(resolvConfPath, []byte(content), 0o644) // #nosec G306,G703
 }
 
 func readNameserver() (string, error) {
@@ -528,7 +528,7 @@ func CleanupStaleDNS(proxyListen string) {
 		return
 	}
 	lines := strings.Split(string(data), "\n")
-	var out []string
+	out := make([]string, 0, len(lines))
 	changed := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -543,7 +543,7 @@ func CleanupStaleDNS(proxyListen string) {
 	}
 	if changed {
 		content := strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
-		_ = os.WriteFile(resolvConfPath, []byte(content), 0o644) // #nosec G306
+		_ = os.WriteFile(resolvConfPath, []byte(content), 0o644) // #nosec G306,G703
 	}
 }
 

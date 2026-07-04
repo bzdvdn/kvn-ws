@@ -120,23 +120,23 @@ func buildDNSResponse(domain string, ip netip.Addr, ttlSec uint32) []byte {
 	// answer: NAME pointer (c0 0c = offset 12)
 	buf = append(buf, 0xc0, 0x0c)
 	if ip.Is4() {
-		buf = binary.BigEndian.AppendUint16(buf, 1)    // TYPE A
-		buf = binary.BigEndian.AppendUint16(buf, 1)    // CLASS IN
+		buf = binary.BigEndian.AppendUint16(buf, 1)      // TYPE A
+		buf = binary.BigEndian.AppendUint16(buf, 1)      // CLASS IN
 		buf = binary.BigEndian.AppendUint32(buf, ttlSec) // TTL
-		buf = binary.BigEndian.AppendUint16(buf, 4)     // RDLENGTH
-		buf = append(buf, ip.AsSlice()...)              // RDATA
+		buf = binary.BigEndian.AppendUint16(buf, 4)      // RDLENGTH
+		buf = append(buf, ip.AsSlice()...)               // RDATA
 	} else {
-		buf = binary.BigEndian.AppendUint16(buf, 28)   // TYPE AAAA
-		buf = binary.BigEndian.AppendUint16(buf, 1)    // CLASS IN
+		buf = binary.BigEndian.AppendUint16(buf, 28)     // TYPE AAAA
+		buf = binary.BigEndian.AppendUint16(buf, 1)      // CLASS IN
 		buf = binary.BigEndian.AppendUint32(buf, ttlSec) // TTL
-		buf = binary.BigEndian.AppendUint16(buf, 16)    // RDLENGTH
+		buf = binary.BigEndian.AppendUint16(buf, 16)     // RDLENGTH
 		buf = append(buf, ip.AsSlice()...)               // RDATA
 	}
 	return buf
 }
 
 func encodeDNSName(domain string) []byte {
-	var buf []byte
+	buf := make([]byte, 0, len(domain)+1)
 	for _, label := range splitLabels(domain) {
 		buf = append(buf, byte(len(label)))
 		buf = append(buf, label...)

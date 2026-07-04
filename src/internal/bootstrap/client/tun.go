@@ -379,7 +379,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 				}
 			}
 			// @sk-task dns-response-tracker#T3.5: SetDirectRouteFunc + private/loopback skip (corporate IPs behind ppp0)
-		if havePhyRoute {
+			if havePhyRoute {
 				dnsSrv.SetDirectRouteFunc(func(ips []netip.Addr) {
 					for _, ip := range ips {
 						if ip.IsPrivate() || ip.IsLoopback() {

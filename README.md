@@ -100,6 +100,33 @@ iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.
 
 Web UI: http://127.0.0.1:2311
 
+### Desktop App (kvn-desktop)
+
+Нативное десктопное приложение с WebView-окном для kvn-web.
+
+**Linux / macOS:** обёртка над уже запущенным systemd/launchd-сервисом, открывает WebView на `localhost:2311`.
+
+**Windows:** самозапускаемый — встраивает встроенный `webui.Server`, запрашивает UAC (embedded manifest), восстанавливает system proxy при закрытии.
+
+Устанавливается вместе с `install-web.sh`/`install-web.ps1` (флаг `--desktop` / `-Desktop`).
+
+```bash
+# Linux/macOS
+sudo ./scripts/install-web.sh --desktop --start
+
+# Windows (PowerShell Admin)
+.\scripts\install-web.ps1 -Desktop -Start
+```
+
+Сборка:
+```bash
+# Linux (требуется: apt install libgtk-3-dev libwebkit2gtk-4.1-dev)
+go build -o bin/kvn-desktop ./src/cmd/desktop
+
+# Windows cross (через Docker)
+docker build -f Dockerfile.kvn-desktop -o out .
+```
+
 ## Configuration
 
 Минимальный `client.yaml`:

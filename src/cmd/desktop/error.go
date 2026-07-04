@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/webview/webview_go"
+	webview "github.com/webview/webview_go"
 )
 
 // @sk-task kvn-desktop#T3.1: show error page with start button (AC-006, AC-012)
 func showErrorPage(w webview.WebView, svc *ServiceManager, serverURL string) {
 	w.SetHtml(errorPageHTML())
 
+	// #nosec G104
 	w.Bind("startService", func() {
 		if err := svc.Start(); err != nil {
 			w.Eval(fmt.Sprintf(
