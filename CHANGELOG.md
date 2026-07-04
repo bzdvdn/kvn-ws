@@ -18,12 +18,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Private IP resolver filter — corporate DNS (10.x.x.x) за openfortivpn не получает exclude route; пакеты идут через ppp0.
   - `resolveDirect` multi-resolver — пробует все резолверы последовательно (был exit после первого).
   - `directRouteFn` private/loopback skip — `/32` exclude route не добавляется для private/loopback resolved IP (corporate IP за ppp0 не ломается).
+- **Android: app picker with search, system apps filter** — `AppPickerScreen` full-screen Compose list with icon, name, search, checkboxes, "Show system apps" toggle (default hidden). Icons loaded lazily via `ImageView` for reliable rendering on all API levels.
+- **Android: loading indicator** — "Loading apps..." text centered while app list loads asynchronously in `produceState`.
+
+### Changed
+
+- **Android: per-app filtering** — split-tunnel (TCP/UDP proxy routing, DNS intercept) replaced with OS-native per-app filtering via `VpnService.Builder.addAllowedApplication()` / `addDisallowedApplication()`. Allowlist and blocklist modes mutually exclusive (XOR).
+- **Android: ConnectionConfig** — удалены `routingIncludeDomains`, `routingExcludeDomains` (IP-based routing поля сохранены).
+- **Android: app-level DNS servers** — moved to `AppConfig` (persist across server switches, not per-connection).
+- **Android: ConnectScreen** — apps section with `FilterChip` (Allowed/Blocked mode) + "Select apps" button + column display with app names (resolved via `PackageManager`). DNS section with servers text field.
+- **Android: connect flow** — app settings passed directly to `KvnVpnService.start()` parameters, bypassing DataStore race condition.
+- **Android: AppPickerScreen layout** — `Box` with `fillMaxSize()` overlay pattern for spinner, avoiding `if/else` subtree swap.
 
 ### Fixed
 
 - **TUN DNS proxy: stale exclude routes после disconnect** — все exclude routes (exclude_ranges, resolver IPs, resolved IPs) теперь удаляются при `CleanupExcludeRoutes()` в defer `runSession`. Без фикса после `systemctl stop kvn` маршруты через phy оставались, ломая openfortivpn и базовый интернет-доступ (только ребут чинил).
 - **TUN DNS proxy: resolveDirect пробовал только первый resolver** — если он не отвечал (NXDOMAIN/timeout), fallback на второй не происходил. С корпоративным DNS (10.x.x.x) для .ru доменов это приводило к failure. Исправлено: resolveDirect перебирает все резолверы, останавливается на первом успешном ответе.
 - **DNS loop с systemd-resolved** — `resolveDirect` коннектился к `127.0.0.53`, который (из-за `resolvectl dns lo <proxy>`) форвардил запрос обратно в proxy → loop → 5s timeout. Исправлено: loopback фильтр + fallback на upstream DNS.
+- **Android: ANR when opening app picker** — `PackageManager` calls moved to `Dispatchers.Default` via `produceState`.
+- **Android: per-app filtering non-functional** — `VpnService.Builder` now uses XOR mode (`addAllowedApplication` XOR `addDisallowedApplication`, never both). Previously both were called → `establish()` threw `IllegalArgumentException` (silently caught) → no filtering applied.
+- **Android: stale app mode data on connect** — opposite list (allow/block) cleared when saving, preventing stale entries from overriding user's current mode.
+- **Android: app settings race condition** — `connect()` now accepts optional app settings parameters, avoiding stale read from DataStore while `saveAppSettings()` coroutine is still writing.
+
+### Removed
+
+- **Android: split-tunnel modules** — removed `RoutingManager`, `TcpProxy`, `UdpProxy`, `ExcludedIpSet`, `DnsInterceptor`, `DnsResolver`, `DnsTracker` (and their tests). Replaced by OS-native per-app filtering.
 
 ## [0.4.3] — 2026-06-19
 
