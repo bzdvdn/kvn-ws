@@ -36,8 +36,7 @@ func main() {
 	}
 
 	if err := platformRun(svc, *port, url); err != nil {
-		log.Fatalf("kvn-desktop: %v", err)
-		os.Exit(1)
+		log.Fatalf("kvn-desktop: %v", err) //nolint:gocritic // log.Fatalf exit is acceptable here
 	}
 }
 

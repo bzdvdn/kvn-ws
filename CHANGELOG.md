@@ -11,6 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **kvn-desktop: system tray with close-to-tray lifecycle** — GtkStatusIcon (Linux), NSStatusBar (macOS), Shell_NotifyIconW (Windows). Context menu: Show/Hide/Quit. `--no-tray` flag restores legacy close=exit behavior. Auto-registers `.desktop` shortcut on Linux and `.lnk` shortcuts on Windows. Single-instance guard via pidfile+flock (Unix) / CreateMutexW (Windows).
+- **DNS upstreams: список upstream'ов вместо одного** — `config.DNSProxyCfg.Upstreams []string`, `config.RelayDNSCfg.Upstreams []string`, `config.ServerConfig.DNSUpstreams`. Backward compat для старого поля `upstream` (custom `UnmarshalYAML`/`UnmarshalJSON`). `dnsproxy.New` variadic (`listen string, upstreams ...string`). Fallback-цикл в `dnsproxy.forward` — при ошибке/таймауте первого upstream перебор следующих. Web UI: динамический список input'ов с кнопками Add/Remove. `mergeConfig` в `handler_connect.go` проверяет `Upstreams` вместо `Upstream`. Default: `["1.1.1.1:53", "8.8.8.8:53"]`.
+
+### Fixed
+
+- **Web UI: DNS proxy секция не отображалась в Global Settings** — Go-бинарник через `//go:embed all:frontend/dist` отдавал старую сборку `dist/` без фикса upstreams. Пересобраны фронтенд (`npm run build`) и Go-бинарник.
+- **kvn-desktop: pre-existing golangci-lint issues** — исправлены G306 (permissions), gocritic (octalLiteral, exitAfterDefer), unconvert (CGo unsafe.Pointer), gofmt. Добавлены `//nolint` маркеры для false positive (CGo dupImport, unused noopTray на других платформах).
 
 ## [0.5.0] — 2026-07-04
 

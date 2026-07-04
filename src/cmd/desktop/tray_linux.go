@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package main //nolint:gocritic // CGo dupImport false positive
 
 /*
 #cgo pkg-config: gtk+-3.0
@@ -11,20 +11,19 @@ extern void goTrayShowCB(void);
 extern void goTrayHideCB(void);
 extern void goTrayQuitCB(void);
 */
-import "C"
+import "C" //nolint:gocritic // CGo dupImport false positive
 
 import (
 	"errors"
 	"time"
-	"unsafe"
 )
 
 // @sk-task desktop-tray#T2.2: linux tray via GtkStatusIcon (AC-001, AC-002, AC-003)
 type linuxTray struct {
-	icon     *C.GtkStatusIcon
-	menu     *C.GtkWidget
-	actionCh chan TrayAction
-	stopCh   chan struct{}
+	icon        *C.GtkStatusIcon
+	menu        *C.GtkWidget
+	actionCh    chan TrayAction
+	stopCh      chan struct{}
 	initialized bool
 }
 
@@ -100,12 +99,12 @@ func (t *linuxTray) initTray() error {
 	menu := C.createMenu()
 
 	showItem := C.createMenuItem(C.CString("Show"))
-	C.connectSignal(showItem, C.CString("activate"), C.getActivateCB(), unsafe.Pointer(C.goTrayShowCB))
+	C.connectSignal(showItem, C.CString("activate"), C.getActivateCB(), C.goTrayShowCB)
 	C.menuAppend(menu, showItem)
 	C.showWidget(showItem)
 
 	hideItem := C.createMenuItem(C.CString("Hide"))
-	C.connectSignal(hideItem, C.CString("activate"), C.getActivateCB(), unsafe.Pointer(C.goTrayHideCB))
+	C.connectSignal(hideItem, C.CString("activate"), C.getActivateCB(), C.goTrayHideCB)
 	C.menuAppend(menu, hideItem)
 	C.showWidget(hideItem)
 
@@ -114,11 +113,11 @@ func (t *linuxTray) initTray() error {
 	C.showWidget(sep)
 
 	quitItem := C.createMenuItem(C.CString("Quit"))
-	C.connectSignal(quitItem, C.CString("activate"), C.getActivateCB(), unsafe.Pointer(C.goTrayQuitCB))
+	C.connectSignal(quitItem, C.CString("activate"), C.getActivateCB(), C.goTrayQuitCB)
 	C.menuAppend(menu, quitItem)
 	C.showWidget(quitItem)
 
-	C.connectIconSignal(t.icon, C.CString("popup-menu"), C.getMenuPopupCB(), unsafe.Pointer(C.goTrayShowCB))
+	C.connectIconSignal(t.icon, C.CString("popup-menu"), C.getMenuPopupCB(), C.goTrayShowCB)
 
 	C.showWidget(menu)
 	t.menu = menu

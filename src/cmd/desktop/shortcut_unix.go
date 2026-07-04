@@ -21,7 +21,7 @@ func maybeRegisterShortcut() error {
 		return nil
 	}
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
@@ -31,5 +31,5 @@ func maybeRegisterShortcut() error {
 	}
 
 	content := "[Desktop Entry]\nType=Application\nName=KVN Desktop\nExec=" + exe + "\nTerminal=false\nCategories=Network;\n"
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0o600)
 }

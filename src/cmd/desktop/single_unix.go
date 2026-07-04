@@ -14,7 +14,7 @@ var guardFile *os.File
 
 // @sk-task desktop-tray#T4.1: unix single-instance pidfile+flock guard (AC-006)
 func guardSingleInstance() bool {
-	f, err := os.OpenFile("/tmp/kvn-desktop.pid", os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile("/tmp/kvn-desktop.pid", os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return true
 	}
@@ -33,7 +33,7 @@ func guardSingleInstance() bool {
 				}
 			}
 		}
-		f, err = os.OpenFile("/tmp/kvn-desktop.pid", os.O_CREATE|os.O_RDWR, 0644)
+		f, err = os.OpenFile("/tmp/kvn-desktop.pid", os.O_CREATE|os.O_RDWR, 0o644)
 		if err != nil {
 			return true
 		}
