@@ -141,6 +141,7 @@ jobs:
         run: |
           rsrc -manifest src/cmd/desktop/winres/kvn-desktop.exe.manifest -o src/cmd/desktop/winres/kvn-desktop.syso
       - name: Build kvn-desktop
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}

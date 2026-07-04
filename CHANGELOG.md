@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **kvn-desktop: нативное десктоп-приложение** — кросс-платформенный GUI-клиент на базе webview (CGo + libgtk-3/webkit2gtk на Linux, WebKit на macOS, Edge WebView2 на Windows):
+  - Единое окно с Web UI (SPA), без необходимости открывать браузер.
+  - CI-сборка для linux/amd64, darwin/arm64, windows/amd64.
+  - Windows: UAC-манифест, `-H windowsgui` (без консольного окна).
+- **Android: кнопка show/hide для поля Token** — глазок в `OutlinedTextField` для переключения `PasswordVisualTransformation` / `VisualTransformation.None`, удобно править один символ.
+- **Android: NetworkCallback для reconnect при смене сети** — `ConnectivityManager.NetworkCallback.onLost()` дёргает `transportClient?.disconnect()`, триггеря reconnect через новую сеть без ожидания таймаута OkHttp.
 - **DNS Response Tracker: TUN DNS proxy hardening** — production-ready TUN DNS proxy для exclude_domains:
   - `SetRouteFunc` для TUN mode (was missing — все DNS шли TCP upstream).
   - `SetDirectRouteFunc` hook — добавляет `/32` kernel exclude route для resolved IP excluded домена непосредственно при DNS-ответе (до `WriteToUDP`), устраняя race condition.
@@ -21,6 +27,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Android: app picker with search, system apps filter** — `AppPickerScreen` full-screen Compose list with icon, name, search, checkboxes, "Show system apps" toggle (default hidden). Icons loaded lazily via `ImageView` for reliable rendering on all API levels.
 - **Android: loading indicator** — "Loading apps..." text centered while app list loads asynchronously in `produceState`.
 
+### Fixed
+
+- **Android: EOFException из-за race на wmu** — удалён OkHttp `pingInterval(30s)`. Сервер уже отправляет PING каждые 25с, OkHttp отвечает PONG автоматически. Собственный PING OkHttp создавал race на `wmu.Lock()` в серверном `SetPingHandler` → ответный PONG не отправлялся → OkHttp генерировал `EOFException`.
+- **Android: бесконечный цикл реконнекта** — `ReconnectManager.stop()` + `start()` при каждом `DISCONNECTED` сбрасывал `retryCount` в 0. `MAX_RETRIES=10` никогда не достигалcя. Убран stop/start, ReconnectManager теперь сам управляет циклом с бэкоффом.
+- **TUN DNS proxy: stale exclude routes после disconnect** — все exclude routes (exclude_ranges, resolver IPs, resolved IPs) теперь удаляются при `CleanupExcludeRoutes()` в defer `runSession`. Без фикса после `systemctl stop kvn` маршруты через phy оставались, ломая openfortivpn и базовый интернет-доступ (только ребут чинил).
+- **TUN DNS proxy: resolveDirect пробовал только первый resolver** — если он не отвечал (NXDOMAIN/timeout), fallback на второй не происходил. С корпоративным DNS (10.x.x.x) для .ru доменов это приводило к failure. Исправлено: resolveDirect перебирает все резолверы, останавливается на первом успешном ответе.
+- **DNS loop с systemd-resolved** — `resolveDirect` коннектился к `127.0.0.53`, который (из-за `resolvectl dns lo <proxy>`) форвардил запрос обратно в proxy → loop → 5s timeout. Исправлено: loopback фильтр + fallback на upstream DNS.
+- **Android: ANR when opening app picker** — `PackageManager` calls moved to `Dispatchers.Default` via `produceState`.
+- **Android: per-app filtering non-functional** — `VpnService.Builder` now uses XOR mode (`addAllowedApplication` XOR `addDisallowedApplication`, never both). Previously both were called → `establish()` threw `IllegalArgumentException` (silently caught) → no filtering applied.
+- **Android: stale app mode data on connect** — opposite list (allow/block) cleared when saving, preventing stale entries from overriding user's current mode.
+- **Android: app settings race condition** — `connect()` now accepts optional app settings parameters, avoiding stale read from DataStore while `saveAppSettings()` coroutine is still writing.
+
 ### Changed
 
 - **Android: per-app filtering** — split-tunnel (TCP/UDP proxy routing, DNS intercept) replaced with OS-native per-app filtering via `VpnService.Builder.addAllowedApplication()` / `addDisallowedApplication()`. Allowlist and blocklist modes mutually exclusive (XOR).
@@ -29,16 +47,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Android: ConnectScreen** — apps section with `FilterChip` (Allowed/Blocked mode) + "Select apps" button + column display with app names (resolved via `PackageManager`). DNS section with servers text field.
 - **Android: connect flow** — app settings passed directly to `KvnVpnService.start()` parameters, bypassing DataStore race condition.
 - **Android: AppPickerScreen layout** — `Box` with `fillMaxSize()` overlay pattern for spinner, avoiding `if/else` subtree swap.
-
-### Fixed
-
-- **TUN DNS proxy: stale exclude routes после disconnect** — все exclude routes (exclude_ranges, resolver IPs, resolved IPs) теперь удаляются при `CleanupExcludeRoutes()` в defer `runSession`. Без фикса после `systemctl stop kvn` маршруты через phy оставались, ломая openfortivpn и базовый интернет-доступ (только ребут чинил).
-- **TUN DNS proxy: resolveDirect пробовал только первый resolver** — если он не отвечал (NXDOMAIN/timeout), fallback на второй не происходил. С корпоративным DNS (10.x.x.x) для .ru доменов это приводило к failure. Исправлено: resolveDirect перебирает все резолверы, останавливается на первом успешном ответе.
-- **DNS loop с systemd-resolved** — `resolveDirect` коннектился к `127.0.0.53`, который (из-за `resolvectl dns lo <proxy>`) форвардил запрос обратно в proxy → loop → 5s timeout. Исправлено: loopback фильтр + fallback на upstream DNS.
-- **Android: ANR when opening app picker** — `PackageManager` calls moved to `Dispatchers.Default` via `produceState`.
-- **Android: per-app filtering non-functional** — `VpnService.Builder` now uses XOR mode (`addAllowedApplication` XOR `addDisallowedApplication`, never both). Previously both were called → `establish()` threw `IllegalArgumentException` (silently caught) → no filtering applied.
-- **Android: stale app mode data on connect** — opposite list (allow/block) cleared when saving, preventing stale entries from overriding user's current mode.
-- **Android: app settings race condition** — `connect()` now accepts optional app settings parameters, avoiding stale read from DataStore while `saveAppSettings()` coroutine is still writing.
 
 ### Removed
 

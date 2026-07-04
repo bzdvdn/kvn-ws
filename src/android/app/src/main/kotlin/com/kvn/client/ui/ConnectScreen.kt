@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kvn.client.ui.theme.KvnError
@@ -102,6 +105,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     // Connection form state
     var serverUrl by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
+    var tokenVisible by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("tun") }
     var transport by remember { mutableStateOf("tcp") }
     var mtu by remember { mutableStateOf("1500") }
@@ -513,7 +517,15 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                     onValueChange = { token = it; onFieldChange() },
                     label = { Text("Token") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                            Icon(
+                                imageVector = if (tokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (tokenVisible) "Hide token" else "Show token"
+                            )
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = disconnected
                 )

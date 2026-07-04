@@ -3,6 +3,7 @@ package com.kvn.client.vpn
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.LinkProperties
 import android.app.Notification
 import android.app.NotificationChannel
@@ -64,6 +65,7 @@ class KvnVpnService : VpnService() {
     var onTrafficUpdate: ((rx: Long, tx: Long) -> Unit)? = null
 
     private var notificationUpdateJob: kotlinx.coroutines.Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -222,7 +224,6 @@ class KvnVpnService : VpnService() {
             .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS)
             .dns(object : okhttp3.Dns {
                 override fun lookup(hostname: String): List<InetAddress> {
                     if (hostname == config.serverAddress && preResolvedServerIps != null) {
@@ -484,6 +485,8 @@ class KvnVpnService : VpnService() {
         transportClient = createTransport()
         transportClient?.connect()
 
+        registerNetworkCallback()
+
         return START_STICKY
     }
 
@@ -529,6 +532,7 @@ class KvnVpnService : VpnService() {
     // @sk-task kvn-android#T2.1: service lifecycle stop (AC-006)
     override fun onDestroy() {
         super.onDestroy()
+        unregisterNetworkCallback()
         reconnectManager?.stop()
         transportClient?.disconnect()
         transportClient = null
@@ -548,27 +552,43 @@ class KvnVpnService : VpnService() {
                 performHandshake()
             }
             ConnectionState.DISCONNECTED -> {
-                // @sk-task android-dns-cache#T1.2: close TUN and reset flag so establishTun() can run on reconnect (AC-003)
                 closeTun()
                 tunReaderStarted = false
 
-                if (config.autoReconnect && !killed && !reconnectStarted) {
-                    reconnectStarted = true
-                    reconnectManager?.start()
-                } else if (config.autoReconnect && !killed && reconnectStarted) {
-                    // A reconnect attempt failed (onReconnect is async and returned
-                    // before the connection actually succeeded). Restart the cycle
-                    // so ReconnectManager can retry with backoff.
-                    reconnectManager?.stop()
-                    reconnectManager?.start()
+                if (config.autoReconnect && !killed) {
+                    if (!reconnectStarted) {
+                        reconnectStarted = true
+                        reconnectManager?.start()
+                    }
                 } else {
                     safeStop()
                 }
-                // onRetriesExhausted (triggered after MAX_RETRIES in ReconnectManager)
-                // resets reconnectStarted and calls safeStop() as a final fallback
             }
             else -> {}
         }
+    }
+
+    private fun registerNetworkCallback() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                if (config.autoReconnect && !killed && transportClient?.isConnected() == true) {
+                    transportClient?.disconnect()
+                }
+            }
+        }
+        cm.registerNetworkCallback(NetworkRequest.Builder().build(), callback)
+        networkCallback = callback
+    }
+
+    private fun unregisterNetworkCallback() {
+        networkCallback?.let {
+            try {
+                (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
+                    .unregisterNetworkCallback(it)
+            } catch (_: Exception) {}
+        }
+        networkCallback = null
     }
 
     // @sk-task kvn-android#T2.4: create transport client (AC-001)
