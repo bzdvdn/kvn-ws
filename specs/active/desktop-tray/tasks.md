@@ -14,9 +14,9 @@ Stop if: нет — plan конкретный, поверхности извес
 | `src/cmd/desktop/icons/` (new dir) | T1.2 |
 | `src/cmd/desktop/tray_windows.go` | T2.1 |
 | `src/cmd/desktop/tray_linux.go` | T2.2 |
-| `src/cmd/desktop/tray_darwin.go` + `tray_darwin.mm` | T2.3 |
+| ~~`src/cmd/desktop/tray_darwin.go` + `tray_darwin.mm`~~ | ~~T2.3~~ отложено |
 | `src/cmd/desktop/app_linux.go` | T2.4 |
-| `src/cmd/desktop/app_darwin.go` | T2.4 |
+| `src/cmd/desktop/app_darwin.go` | T2.4 (legacy без трея) |
 | `src/cmd/desktop/app_windows.go` | T2.4 |
 | `src/cmd/desktop/main.go` | T1.3, T2.5, T3.3, T4.3 |
 | `src/cmd/desktop/shortcut_unix.go` | T3.1 |
@@ -32,7 +32,7 @@ Stop if: нет — plan конкретный, поверхности извес
 - **Cleanup (Windows):** `disconnectClient()` и `proxyState.Restore()` вызываются только при "Quit", а не при закрытии окна.
 - **Иконки:** embedded через `//go:embed` → PNG (Linux→GdkPixbuf, macOS→NSImage), ICO (Windows→HICON через `LoadImage`).
 - **GtkStatusIcon:** deprecated в GTK 3.24+ — может не работать на Wayland. Fallback: `--no-tray`.
-- **macOS CGo:** отдельный `tray_darwin.mm` + build tag `darwin && cgo`. Заглушка `tray_stub.go` для `!cgo`.
+- **macOS CGo:** ~~отдельный `tray_darwin.mm` + build tag `darwin && cgo`. Заглушка `tray_stub.go` для `!cgo`.~~ **отложено на отдельную спеку** — CGo + `extern "C" {}` не собирается на CI без macOS runner
 - **DEC:** DEC-001 (платформенный tray), DEC-002 (close interceptor), DEC-003 (lifecycle), DEC-004 (go:embed icons), DEC-005 (pidfile/mutex).
 - **Границы scope:** не меняем SPA, install-скрипты, webui.Server, systemproxy; Android не трогаем.
 - **Proof signals:** `go build ./src/cmd/desktop` проходит на 3 платформах; закрытие окна → иконка в трее; Show → окно восстановлено; Quit → процесс завершён.
@@ -51,8 +51,8 @@ Stop if: нет — plan конкретный, поверхности извес
 
 - [x] T2.1 Реализовать `tray_windows.go` — Shell_NotifyIconW через `golang.org/x/sys/windows`. Создать NOTIFYICONDATAW с HWND окна, контекстное меню через TrackPopupMenu. Иконка connected/disconnected через LoadImage + NIM_MODIFY. Действия: Show (SetForegroundWindow), Hide (ShowWindow(SW_HIDE)), Quit (пост сигнала). Touches: `src/cmd/desktop/tray_windows.go`
 - [x] T2.2 Реализовать `tray_linux.go` — GtkStatusIcon из GTK3 (уже есть как транзитивная зависимость). Создать status icon с GdkPixbuf из embedded PNG, контекстное меню через GtkMenu. Show (gtk_window_present), Hide (gtk_widget_hide_on_delete). Touches: `src/cmd/desktop/tray_linux.go`
-- [x] T2.3 Реализовать `tray_darwin.go` + `tray_darwin.mm` — NSStatusBar через CGo. Создать NSStatusItem с NSImage (из embedded PNG), NSMenu с пунктами Show/Hide/Quit. Show (NSApplication activateIgnoringOtherApps), Hide (NSWindow orderOut). Touches: `src/cmd/desktop/tray_darwin.go`, `src/cmd/desktop/tray_darwin.mm`
-- [x] T2.4 Модифицировать `app_linux.go`, `app_darwin.go`, `app_windows.go` — заменить `w.Run()` + `defer w.Destroy()` на lifecycle: close → hide window + show tray; "Show" → show window; "Quit" → destroy window + stop tray + exit. На Windows: cleanup (disconnect + proxy restore) перенести из post-Run в "Quit"-обработчик. Touches: `src/cmd/desktop/app_linux.go`, `src/cmd/desktop/app_darwin.go`, `src/cmd/desktop/app_windows.go`
+- [-] T2.3 ~~Реализовать `tray_darwin.go` + `tray_darwin.mm` — NSStatusBar через CGo. Создать NSStatusItem с NSImage (из embedded PNG), NSMenu с пунктами Show/Hide/Quit. Show (NSApplication activateIgnoringOtherApps), Hide (NSWindow orderOut). Touches: `src/cmd/desktop/tray_darwin.go`, `src/cmd/desktop/tray_darwin.mm`~~ **ОТЛОЖЕНО** — macOS tray на отдельную спеку (CGo + `extern "C" {}` требует CI-верификации)
+- [x] T2.4 Модифицировать `app_linux.go`, ~~`app_darwin.go`,~~ `app_windows.go` — заменить `w.Run()` + `defer w.Destroy()` на lifecycle: close → hide window + show tray; "Show" → show window; "Quit" → destroy window + stop tray + exit. На Windows: cleanup (disconnect + proxy restore) перенести из post-Run в "Quit"-обработчик. `app_darwin.go` — только legacy (без трея, отложено). Touches: `src/cmd/desktop/app_linux.go`, `src/cmd/desktop/app_darwin.go`, `src/cmd/desktop/app_windows.go`
 - [x] T2.5 Интегрировать tray в `main.go`: после `--no-tray` guard, создать TrayManager, запустить через goroutine, передать колбэки show/hide/quit в `platformRun()`. Touches: `src/cmd/desktop/main.go`
 
 ## Фаза 3: Shortcuts (P2)
@@ -75,7 +75,7 @@ Stop if: нет — plan конкретный, поверхности извес
 
 Цель: доказать, что все AC закрыты, сборка проходит на всех платформах.
 
-- [/] T5.1 Проверить сборку на всех платформах: `GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build ./src/cmd/desktop` (✅ pass), `GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build ./src/cmd/desktop` (❌ pre-existing webview_go CGo issue), `GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build ./src/cmd/desktop` (❌ pre-existing MinGW -mthreads cross-compiler issue). Touches: CI matrix
+- [-] T5.1 Проверить сборку на поддерживаемых платформах: `GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build ./src/cmd/desktop` (✅ pass), `GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build ./src/cmd/desktop` (❌ macOS tray отложен — используется legacy-путь webview без трея), `GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build ./src/cmd/desktop` (❌ pre-existing MinGW -mthreads cross-compiler issue). Touches: CI matrix
 - [x] T5.2 Ручная валидация MVP: запуск → окно → close → икона в трее → Show → окно восстановлено → Quit → процесс завершён. `--no-tray`: close = exit. Touches: manual
 - [x] T5.3 Добавить trace-маркеры `@sk-task` над новыми функциями/методами во всех новых файлах. Touches: все новые файлы
 - [x] T5.4 Проверить CHANGELOG.md на наличие записи о desktop-tray фиче. Touches: `CHANGELOG.md`

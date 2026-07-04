@@ -15,7 +15,7 @@
 2. При первом запуске приложение:
    - Linux: создаёт `~/.local/share/applications/kvn-desktop.desktop`
    - Windows: создаёт ярлыки в Start Menu и на рабочем столе
-   - macOS: проверяет наличие `/Applications/KVN Desktop.app` (если нет — только warn, .app требует установки)
+    - ~~macOS: проверяет наличие `/Applications/KVN Desktop.app` (если нет — только warn, .app требует установки)~~ macOS tray отложен (см. отдельную спеку)
 3. После загрузки UI — стандартное окно 900×600.
 4. **При закрытии окна** (крестик) приложение не завершается, а сворачивается в системный трей.
 5. В трее — иконка KVN, контекстное меню: "Show", "Hide", "Quit".
@@ -43,7 +43,8 @@
 
 ## Scope
 
-- Платформенные tray-файлы: `tray_linux.go` (GtkStatusIcon), `tray_darwin.go` (CGo NSStatusBar), `tray_windows.go` (Shell_NotifyIcon)
+- Платформенные tray-файлы: `tray_linux.go` (GtkStatusIcon), `tray_windows.go` (Shell_NotifyIcon)
+- macOS tray — отложено на отдельную спеку (CGo + Objective-C сборка требует CI с macOS)
 - Модификация `app_*.go`: интеграция трея с webview
 - Модификация `main.go`: флаг `--no-tray`, инициализация трея
 - Хранение tray-иконок: embedded PNG (Linux/macOS) + ICO (Windows) через `//go:embed`
@@ -56,8 +57,8 @@
 
 - `webview_go` не имеет API для трея — пишем платформенные обёртки
 - На Linux трей: GtkStatusIcon (идёт через уже установленный GTK3, без новых зависимостей)
-- На macOS: NSStatusBar через CGo + `.mm` файл
 - На Windows: Shell_NotifyIconW через `golang.org/x/sys/windows`
+- macOS: трей отложен — NSStatusBar через CGo `extern "C" {}` требует отдельной спеки и CI-доступа к macOS runner
 - Install-web.sh/ps1 уже создаёт ярлыки, но только при явном `--desktop`. Фича делает это на первом запуске — покрывает случай ручного копирования
 - Single-instance: pidfile `/tmp/kvn-desktop.pid` + fcntl `LOCK_EX` (Unix), `CreateMutexW` (Windows)
 - Текущее поведение: закрытие окна = `w.Run()` возвращает → `defer w.Destroy()` → exit. Нужно заменить на скрытие окна + отложенный cleanup до "Quit"
@@ -66,8 +67,8 @@
 ## Зависимости
 
 - Linux: GtkStatusIcon (из `webview_go` транзитивно через `github.com/webview/webview_go` → GTK3)
-- macOS: CGo + `#import <Cocoa/Cocoa.h>` (Xcode CLT, без доп. пакетов)
 - Windows: `golang.org/x/sys/windows` (уже есть в go.mod)
+- macOS: ~~CGo + `#import <Cocoa/Cocoa.h>`~~ отложено на отдельную спеку
 - `github.com/adrg/xdg` (для `xdg.DataDir` на Linux) — опционально
 
 ## Требования
@@ -152,7 +153,7 @@
 
 - На Linux GTK3 уже установлен (требуется `webview_go`)
 - GtkStatusIcon работает на X11; на Wayland — fallback на StatusNotifierItem или `--no-tray`
-- macOS NSStatusBar доступен всегда (без доп. разрешений)
+- ~~macOS NSStatusBar доступен всегда (без доп. разрешений)~~ отложено
 - На Windows WebView2 Runtime установлен
 - Пользователь имеет права на запись в `~/.local/share/applications/` (Linux) или запущен как администратор (Windows для создания lnk)
 - Single-instance pidfile в `/tmp/kvn-desktop.pid` (стандартный tmpfs, чистится при reboot)
@@ -170,13 +171,13 @@
 - **pidfile остался после краша:** при запуске проверяем `/proc/<pid>/cmdline`, если процесс мёртв — удаляем stale pidfile
 - **Пользователь удалил .desktop вручную:** при следующем запуске будет создан заново
 - **Первый запуск без прав на запись ярлыка:** warn в лог, продолжаем работу
-- **macOS:** `.app` bundle не создаём (он требует .app структуру, прав и подписи) — только warn, если отсутствует
+- ~~**macOS:** `.app` bundle не создаём (он требует .app структуру, прав и подписи) — только warn, если отсутствует~~ macOS tray отложен
 - **Несколько мониторов:** окно восстанавливается на тот же монитор, где было (WM запоминает)
 
 ## Открытые вопросы
 
 - GtkStatusIcon deprecated в GTK 3.24+ в пользу StatusNotifierItem. Насколько это проблема на практике для пользователей KVN? **Решено:** используем GtkStatusIcon, на Wayland без StatusNotifier — `--no-tray` fallback.
-- На macOS Objective-C код: выносить в отдельный `.mm` файл с `// #cgo LDFLAGS: -framework Cocoa`? **Решено:** отдельный `.mm` файл в `src/cmd/desktop/`.
+- ~~На macOS Objective-C код: выносить в отдельный `.mm` файл с `// #cgo LDFLAGS: -framework Cocoa`? **Решено:** отдельный `.mm` файл в `src/cmd/desktop/`.~~ macOS tray отложен на отдельную спеку — CGo + `extern "C" {}` требует CI-верификации на macOS runner.
 - Windows `-H windowsgui` уже скрывает консоль. Трей-иконка не требует доп. модификаций. **Решено:** без изменений.
 - Single-instance на Windows: `CreateMutexW` + `EnumWindows` + `SendMessage(WM_SHOW)` или `SetForegroundWindow`. **Отложено** — уточнить HWND от webview_go при реализации.
-- ICO для трея: встроить в `.syso` или через `//go:embed` + временный файл? **Решено:** `//go:embed` + HICON через `LoadImage` (Windows), `[NSImage imageWithData:]` (macOS), `GdkPixbuf` (Linux).
+- ICO для трея: встроить в `.syso` или через `//go:embed` + временный файл? **Решено:** `//go:embed` + HICON через `LoadImage` (Windows), `GdkPixbuf` (Linux). macOS — отложено.
