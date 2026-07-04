@@ -54,6 +54,6 @@ src/android/.externalNativeBuild/
 src/android/.cxx/
 *.apk
 *.aab
-web
-client
-relay
+/web
+/client
+/relay

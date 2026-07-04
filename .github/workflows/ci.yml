@@ -32,7 +32,7 @@ jobs:
           cache: "npm"
           cache-dependency-path: src/internal/webui/frontend/package-lock.json
       - name: Install system deps (desktop)
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
       - name: Build frontend
         run: |
           cd src/internal/webui/frontend
@@ -106,7 +106,7 @@ jobs:
             goos: linux
             goarch: amd64
             cgo: 1
-            deps: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+            deps: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
             suffix: ""
           - os: macos-latest
             goos: darwin
