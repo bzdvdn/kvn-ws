@@ -38,7 +38,10 @@ class ConfigSerializationTest {
             obfuscationEnabled = false,
             obfuscationUtls = false,
             obfuscationPaddingEnabled = false,
-            obfuscationPaddingSize = 0
+            obfuscationPaddingSize = 0,
+            dnsServers = listOf("1.1.1.1", "8.8.8.8"),
+            appIncludeList = listOf("com.example.allowed"),
+            appExcludeList = listOf("com.example.blocked")
         )
 
         val serialized = json.encodeToString(config)
@@ -64,6 +67,9 @@ class ConfigSerializationTest {
         assertEquals(config.cryptoEnabled, deserialized.cryptoEnabled)
         assertEquals(config.cryptoKey, deserialized.cryptoKey)
         assertEquals(config.killSwitchEnabled, deserialized.killSwitchEnabled)
+        assertEquals(config.dnsServers, deserialized.dnsServers)
+        assertEquals(config.appIncludeList, deserialized.appIncludeList)
+        assertEquals(config.appExcludeList, deserialized.appExcludeList)
     }
 
     // @sk-test kvn-android#T5.20: TestConfigDefaults (RQ-005)
@@ -78,6 +84,9 @@ class ConfigSerializationTest {
         assertEquals("verify", config.tlsVerifyMode)
         assertFalse(config.killSwitchEnabled)
         assertFalse(config.cryptoEnabled)
+        assertTrue(config.dnsServers.isEmpty())
+        assertTrue(config.appIncludeList.isEmpty())
+        assertTrue(config.appExcludeList.isEmpty())
     }
 }
 
@@ -209,7 +218,7 @@ class QrConfigTest {
     }
 }
 
-// @sk-test multi-server-android-client#T4.1: multi-server data model tests (AC-001, AC-002)
+// @sk-task multi-server-android-client#T4.1: multi-server data model tests (AC-001, AC-002)
 class MultiServerConfigTest {
 
     private val testJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
@@ -337,5 +346,63 @@ class MultiServerConfigTest {
         assertEquals(original.config.serverAddress, copy.config.serverAddress)
         assertEquals(original.config.token, copy.config.token)
         assertEquals(original.config.mtu, copy.config.mtu)
+    }
+}
+
+// @sk-task kvn-android#T5.22: per-server DNS/app fields serialization tests
+class PerServerDnsAppSerializationTest {
+
+    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+
+    // @sk-test kvn-android#T5.22: DNS/app fields survive round-trip
+    @Test
+    fun testDnsAppFieldsRoundTrip() {
+        val config = ConnectionConfig(
+            serverAddress = "vpn.example.com",
+            port = 443,
+            token = "tok",
+            dnsServers = listOf("1.1.1.1", "8.8.8.8"),
+            appIncludeList = listOf("com.example.app"),
+            appExcludeList = listOf("com.example.exclude")
+        )
+        val serialized = json.encodeToString(config)
+        val deserialized = json.decodeFromString<ConnectionConfig>(serialized)
+        assertEquals(listOf("1.1.1.1", "8.8.8.8"), deserialized.dnsServers)
+        assertEquals(listOf("com.example.app"), deserialized.appIncludeList)
+        assertEquals(listOf("com.example.exclude"), deserialized.appExcludeList)
+    }
+
+    // @sk-test kvn-android#T5.22: DNS/app fields default to emptyList when absent
+    @Test
+    fun testDnsAppFieldsDefaultEmpty() {
+        val config = ConnectionConfig(
+            serverAddress = "vpn.example.com",
+            port = 443,
+            token = "tok"
+        )
+        val serialized = json.encodeToString(config)
+        val deserialized = json.decodeFromString<ConnectionConfig>(serialized)
+        assertTrue(deserialized.dnsServers.isEmpty())
+        assertTrue(deserialized.appIncludeList.isEmpty())
+        assertTrue(deserialized.appExcludeList.isEmpty())
+    }
+
+    // @sk-test kvn-android#T5.22: old JSON with override fields is ignored gracefully
+    @Test
+    fun testOldJsonWithOverrideIgnored() {
+        val oldJson = """{"serverAddress":"old.com","port":443,"token":"old","dnsServersOverride":["1.1.1.1"],"appIncludeListOverride":["com.a"]}"""
+        val config = json.decodeFromString<ConnectionConfig>(oldJson)
+        assertEquals("old.com", config.serverAddress)
+        assertTrue(config.dnsServers.isEmpty())
+        assertTrue(config.appIncludeList.isEmpty())
+    }
+
+    // @sk-test kvn-android#T5.22: AppConfig without global DNS/app fields deserializes
+    @Test
+    fun testAppConfigWithoutGlobalsDeserializes() {
+        val jsonStr = """{"activeServer":"Default","servers":[{"name":"Default","config":{"serverAddress":"s.com","port":443,"token":"t"}}]}"""
+        val appCfg = json.decodeFromString<AppConfig>(jsonStr)
+        assertEquals("Default", appCfg.activeServer)
+        assertEquals(1, appCfg.servers.size)
     }
 }

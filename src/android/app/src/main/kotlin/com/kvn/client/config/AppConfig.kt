@@ -68,7 +68,11 @@ data class ConnectionConfig(
     val obfuscationPaddingEnabled: Boolean = false,
     val obfuscationPaddingSize: Int = 0,
     // @sk-task android-dns-cache#T4.1: DNS cache toggle field (AC-008)
-    val dnsCacheEnabled: Boolean = false
+    val dnsCacheEnabled: Boolean = false,
+    // @sk-task kvn-android#T5.22: per-server DNS and app filter settings
+    val dnsServers: List<String> = emptyList(),
+    val appIncludeList: List<String> = emptyList(),
+    val appExcludeList: List<String> = emptyList()
 )
 
 // @sk-task multi-server-android-client#T1.1: server entry with name + full config (AC-001)
@@ -83,10 +87,7 @@ data class ServerEntry(
 @Serializable
 data class AppConfig(
     val activeServer: String = "",
-    val servers: List<ServerEntry> = emptyList(),
-    val appIncludeList: List<String> = emptyList(),
-    val appExcludeList: List<String> = emptyList(),
-    val dnsServers: List<String> = listOf("1.1.1.1", "8.8.8.8")
+    val servers: List<ServerEntry> = emptyList()
 )
 
 // @sk-task multi-server-android-client#T1.1: DataStore-backed multi-server persistence (AC-001)
