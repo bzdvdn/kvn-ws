@@ -44,8 +44,6 @@ linters-settings:
       - G115
 
 issues:
-  exclude-dirs:
-    - src/cmd/desktop
   exclude-rules:
     - path: _test\.go
       linters:
