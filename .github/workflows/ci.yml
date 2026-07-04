@@ -31,28 +31,27 @@ jobs:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: src/internal/webui/frontend/package-lock.json
-      - name: Install system deps (desktop)
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
       - name: Build frontend
         run: |
           cd src/internal/webui/frontend
           npm ci
           npm run build
       - name: Test with race detector
-        run: go test -race ./src/...
+        run: go test -race $(go list ./src/... | grep -v cmd/desktop)
       - name: Vet
-        run: go vet ./src/...
+        run: go vet $(go list ./src/... | grep -v cmd/desktop)
       - name: Gosec
         uses: securego/gosec@master
         with:
-          args: -exclude=G103 ./...
+          args: -exclude=G103 -exclude-dir=src/cmd/desktop ./src/...
       - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           install-mode: goinstall
+          args: --skip-dirs=src/cmd/desktop
       - name: Build
-        run: go build ./src/...
+        run: go build $(go list ./src/... | grep -v cmd/desktop)
       - name: Build binaries
         run: ./scripts/build.sh both
       - name: Gatetest routing
@@ -102,7 +101,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             goos: linux
             goarch: amd64
             cgo: 1

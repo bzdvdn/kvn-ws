@@ -26,7 +26,7 @@ if go build -o bin/kvn-desktop ./src/cmd/desktop 2>/dev/null; then
 else
 	echo ""
 	echo "WARN: kvn-desktop build failed (CGo deps missing)."
-	echo "  Linux:  apt install libgtk-3-dev libwebkit2gtk-4.0-dev"
+	echo "  Linux:  apt install libgtk-3-dev libwebkit2gtk-4.1-dev + symlink webkit2gtk-4.0 -> 4.1"
 	echo "  macOS:  CGo WKWebView — build on macOS"
 	echo "  Windows: CGo WebView2 — build on Windows"
 fi
