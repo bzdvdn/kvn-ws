@@ -85,6 +85,8 @@ extern void goTrayQuit(void);
 
 @end
 
+extern "C" {
+
 void* createTray(const char *pngData, int pngLen) {
     NSData *data = [NSData dataWithBytes:pngData length:pngLen];
     KVNStatusItemController *ctrl = [[KVNStatusItemController alloc] initWithImageData:data];
@@ -102,4 +104,6 @@ void destroyTray(void *tray) {
     KVNStatusItemController *ctrl = (__bridge_transfer KVNStatusItemController*)tray;
     [ctrl cleanup];
     [ctrl release];
+}
+
 }
