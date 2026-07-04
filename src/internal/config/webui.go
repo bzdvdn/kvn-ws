@@ -16,7 +16,8 @@ type ServerEntry struct {
 	ClientConfig `json:",inline" yaml:",inline"`
 }
 
-// @sk-task multi-server#T1.1: WebUIConfig type (AC-001)
+		// @sk-task dns-upstreams-list#T1.3: defaultWebUIConfig Upstreams (AC-003)
+		// @sk-task multi-server#T1.1: WebUIConfig type (AC-001)
 type WebUIConfig struct {
 	ClientConfig `json:",inline" yaml:",inline"`
 	ActiveServer string        `json:"active_server" yaml:"active_server"`
@@ -87,8 +88,8 @@ func defaultWebUIConfig() *WebUIConfig {
 			},
 			ProxyListen: "127.0.0.1:2310",
 			DNSProxy: DNSProxyCfg{
-				Listen:   "127.0.0.54:53",
-				Upstream: "1.1.1.1:53",
+				Listen:    "127.0.0.54:53",
+				Upstreams: []string{"1.1.1.1:53"},
 			},
 			TLS: ClientTLSCfg{
 				VerifyMode: "verify",

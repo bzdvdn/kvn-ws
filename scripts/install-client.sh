@@ -146,6 +146,11 @@ obfuscation:
 auth:
   token: ${TOKEN}
 mode: ${MODE}
+dns_proxy:
+  listen: "127.0.0.54:53"
+  upstreams:
+    - "1.1.1.1:53"
+    - "8.8.8.8:53"
 EOF
     if [ -n "$PROXY_LISTEN" ]; then
       echo "proxy_listen: ${PROXY_LISTEN}" >> "$CONFIG_FILE"

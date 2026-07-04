@@ -52,6 +52,7 @@ kvn-ws uses YAML configuration files for both server and client.
 | `mtu` | int | `1400` | TUN interface MTU |
 | `crypto.enabled` | bool | `false` | Enable app-layer AES-256-GCM encryption |
 | `crypto.key` | string | `""` | 256-bit master key as 64 hex chars (required if enabled) |
+| `dns_upstreams` | []string | `[1.1.1.1:53, 8.8.8.8:53]` | DNS upstream servers for server-side DNS forward (used when client sends DNS frames) |
 | `bolt_db_path` | string | `""` | Path to BoltDB file for IP pool persistence (empty = in-memory only) |
 | `logging.level` | string | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
@@ -130,7 +131,7 @@ logging:
 | `system_proxy` | bool | `false` | Enable automatic OS-level proxy settings (Linux/macOS/Windows) |
 | `transparent` | bool | `false` | Enable transparent proxy via iptables REDIRECT (Linux only) |
 | `dns_proxy.listen` | string | `127.0.0.54:53` | DNS proxy listen address |
-| `dns_proxy.upstream` | string | `1.1.1.1:53` | Upstream DNS server address |
+| `dns_proxy.upstreams` | []string | `[1.1.1.1:53, 8.8.8.8:53]` | List of upstream DNS servers (fallback in order). Also accepts deprecated `upstream: string` |
 | `log.level` | string | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
 ### Client example

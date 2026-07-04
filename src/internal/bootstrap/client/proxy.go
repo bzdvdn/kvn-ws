@@ -137,7 +137,7 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 	if transparent {
 		resolvBackup, _ = dnsproxy.BackupResolvConf()
 
-		c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstream)
+		c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstreams...)
 		if dnsTracker != nil {
 			c.dnsSrv.SetTracker(dnsTracker)
 		}

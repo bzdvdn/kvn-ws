@@ -327,7 +327,8 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 			tracker := dns.NewTracker(time.Duration(c.cfg.Routing.DNSCache.TTL) * time.Second)
 			routeSet.SetTracker(tracker)
 			resolvBackup, _ = dnsproxy.BackupResolvConf()
-			dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstream)
+			// @sk-task dns-upstreams-list#T3.1: pass Upstreams slice (AC-001)
+			dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstreams...)
 			dnsSrv.SetTracker(tracker)
 			// @sk-task dns-response-tracker#T3.5: SetRouteFunc for TUN mode (was missing — all DNS went TCP upstream)
 			dnsSrv.SetRouteFunc(func(domain string) bool {
@@ -349,9 +350,9 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 					}
 					resolvers = append(resolvers, ns)
 				}
-				// If all resolvers were loopback, use the upstream DNS instead
-				if len(resolvers) == 0 && c.cfg.DNSProxy.Upstream != "" {
-					resolvers = append(resolvers, c.cfg.DNSProxy.Upstream)
+				// If all resolvers were loopback, use the first upstream DNS instead
+				if len(resolvers) == 0 && len(c.cfg.DNSProxy.Upstreams) > 0 {
+					resolvers = append(resolvers, c.cfg.DNSProxy.Upstreams[0])
 				}
 				dnsSrv.SetOrigResolvers(resolvers)
 				// Add exclude routes for public resolvers so DNS proxy bypasses TUN.
@@ -428,7 +429,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 	}
 
 	tunSess := tunnel.NewSession(tunDev, stream, nil, sessionID, "", nil, nil, nil, c.logger, sessionCipher, nil,
-		time.Duration(c.cfg.TunnelTimeout)*time.Second, c.cfg.ProxyMaxConcurrency, nil, nil)
+		time.Duration(c.cfg.TunnelTimeout)*time.Second, c.cfg.ProxyMaxConcurrency, nil, nil, nil)
 	if tunRouter != nil {
 		tunSess.SetTunRouter(tunRouter)
 	}

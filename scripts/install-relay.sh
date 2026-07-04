@@ -236,7 +236,8 @@ EOF
 
   cat >> "$CONFDIR/relay.yaml" <<EOF
     dns:
-      upstream: "${DNS_UPSTREAM}"
+      upstreams:
+        - "${DNS_UPSTREAM}"
       cache_ttl: 60
       transparent: false
 EOF

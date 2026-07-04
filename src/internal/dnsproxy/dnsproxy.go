@@ -35,11 +35,12 @@ type StreamConn interface {
 	Close() error
 }
 
+// @sk-task dns-upstreams-list#T2.1: upstream string → upstreams []string + fallback (AC-005)
 // @sk-task transparent-proxy#T1.3: DNS proxy server skeleton (DEC-003)
 // @sk-task dns-response-tracker#T2.2: tracker field (AC-005)
 type Server struct {
 	listenAddr    string
-	upstream      string
+	upstreams     []string
 	conn          *net.UDPConn
 	mu            sync.Mutex
 	stream        StreamConn
@@ -51,11 +52,12 @@ type Server struct {
 	directRouteFn func(ips []netip.Addr)
 }
 
-func New(listenAddr, upstream string) *Server {
-	if upstream == "" {
-		upstream = "1.1.1.1:53"
+// @sk-task dns-upstreams-list#T2.1: variadic New with fallback defaults (AC-005)
+func New(listenAddr string, upstreams ...string) *Server {
+	if len(upstreams) == 0 {
+		upstreams = []string{"1.1.1.1:53", "8.8.8.8:53"}
 	}
-	return &Server{listenAddr: listenAddr, upstream: upstream, pending: make(map[uint32]chan []byte)}
+	return &Server{listenAddr: listenAddr, upstreams: upstreams, pending: make(map[uint32]chan []byte)}
 }
 
 func (s *Server) SetStream(stream StreamConn) {
@@ -183,17 +185,16 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 		return
 	}
 
-	// fallback: direct TCP to upstream (used when tunnel not available)
+	// fallback: direct TCP to upstreams in order (used when tunnel not available)
 	s.mu.Lock()
-	upstream := s.upstream
+	upstreams := s.upstreams
 	s.mu.Unlock()
 
-	dialer := net.Dialer{Timeout: 5 * time.Second}
-	upConn, err := dialer.DialContext(ctx, "tcp", upstream)
-	if err != nil {
+	if len(upstreams) == 0 {
 		return
 	}
-	defer upConn.Close()
+
+	dialer := net.Dialer{Timeout: 5 * time.Second}
 
 	qlen := len(query)
 	if qlen > math.MaxUint16 {
@@ -204,22 +205,45 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 	wire[1] = byte(qlen & 0xff)
 	copy(wire[2:], query)
 
-	_ = upConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	if _, err := upConn.Write(wire); err != nil {
-		return
-	}
+	var resp []byte
+	var lastErr error
+	for _, addr := range upstreams {
+		upConn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			lastErr = err
+			continue
+		}
 
-	_ = upConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	br := bufio.NewReader(upConn)
-	respLen, err := readUint16(br)
-	if err != nil {
-		return
+		_ = upConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if _, err := upConn.Write(wire); err != nil {
+			upConn.Close()
+			lastErr = err
+			continue
+		}
+
+		_ = upConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		br := bufio.NewReader(upConn)
+		respLen, err := readUint16(br)
+		if err != nil {
+			upConn.Close()
+			lastErr = err
+			continue
+		}
+		if respLen > 1500 {
+			upConn.Close()
+			continue
+		}
+		resp = make([]byte, respLen)
+		if _, err := br.Read(resp); err != nil {
+			upConn.Close()
+			lastErr = err
+			continue
+		}
+		upConn.Close()
+		lastErr = nil
+		break
 	}
-	if respLen > 1500 {
-		return
-	}
-	resp := make([]byte, respLen)
-	if _, err := br.Read(resp); err != nil {
+	if lastErr != nil || resp == nil {
 		return
 	}
 

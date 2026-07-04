@@ -73,9 +73,70 @@ type RelayQuicCfg struct {
 	IdleTimeout int `json:"idle_timeout" mapstructure:"idle_timeout"`
 }
 
+// @sk-task dns-upstreams-list#T1.1: DNSProxyCfg with Upstreams []string + backward compat (AC-001, AC-002, AC-003)
 type DNSProxyCfg struct {
-	Listen   string `json:"listen" mapstructure:"listen"`
-	Upstream string `json:"upstream" mapstructure:"upstream"`
+	Listen    string   `json:"listen" mapstructure:"listen"`
+	Upstreams []string `json:"upstreams,omitempty" mapstructure:"upstreams"`
+}
+
+// @sk-task dns-upstreams-list#T1.1: MarshalJSON — output only upstreams (AC-002)
+func (d DNSProxyCfg) MarshalJSON() ([]byte, error) {
+	m := map[string]interface{}{"listen": d.Listen}
+	if len(d.Upstreams) > 0 {
+		m["upstreams"] = d.Upstreams
+	}
+	return json.Marshal(m)
+}
+
+// @sk-task dns-upstreams-list#T1.1: UnmarshalJSON — accept both upstream and upstreams (AC-002)
+func (d *DNSProxyCfg) UnmarshalJSON(data []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if listen, ok := raw["listen"].(string); ok {
+		d.Listen = listen
+	}
+	if upstreams, ok := raw["upstreams"].([]interface{}); ok {
+		for _, u := range upstreams {
+			if s, ok := u.(string); ok {
+				d.Upstreams = append(d.Upstreams, s)
+			}
+		}
+	} else if upstream, ok := raw["upstream"].(string); ok && upstream != "" {
+		d.Upstreams = []string{upstream}
+	}
+	return nil
+}
+
+// @sk-task dns-upstreams-list#T1.1: MarshalYAML — output only upstreams (AC-002)
+func (d DNSProxyCfg) MarshalYAML() (interface{}, error) {
+	m := map[string]interface{}{"listen": d.Listen}
+	if len(d.Upstreams) > 0 {
+		m["upstreams"] = d.Upstreams
+	}
+	return m, nil
+}
+
+// @sk-task dns-upstreams-list#T1.1: UnmarshalYAML — accept both upstream and upstreams (AC-002)
+func (d *DNSProxyCfg) UnmarshalYAML(value *yaml.Node) error {
+	var raw map[string]interface{}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	if listen, ok := raw["listen"].(string); ok {
+		d.Listen = listen
+	}
+	if upstreams, ok := raw["upstreams"].([]interface{}); ok {
+		for _, u := range upstreams {
+			if s, ok := u.(string); ok {
+				d.Upstreams = append(d.Upstreams, s)
+			}
+		}
+	} else if upstream, ok := raw["upstream"].(string); ok && upstream != "" {
+		d.Upstreams = []string{upstream}
+	}
+	return nil
 }
 
 type ObfuscationCfg struct {
@@ -275,6 +336,15 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		}
 	}
 
+	// @sk-task dns-upstreams-list#T1.1: normalize deprecated upstream → upstreams via viper (AC-002)
+	if upstream := v.GetString("dns_proxy.upstream"); upstream != "" {
+		if v.IsSet("dns_proxy.upstreams") {
+			log.Printf("[config] WARNING: both dns_proxy.upstream and dns_proxy.upstreams specified; upstreams takes priority")
+		} else {
+			v.Set("dns_proxy.upstreams", []string{upstream})
+		}
+	}
+
 	cfg := &ClientConfig{}
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config %s: %w", path, err)
@@ -340,8 +410,8 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	if cfg.DNSProxy.Listen == "" {
 		cfg.DNSProxy.Listen = "127.0.0.54:53"
 	}
-	if cfg.DNSProxy.Upstream == "" {
-		cfg.DNSProxy.Upstream = "1.1.1.1:53"
+	if len(cfg.DNSProxy.Upstreams) == 0 {
+		cfg.DNSProxy.Upstreams = append([]string{}, DefaultDNSUpstreams...)
 	}
 
 	// @sk-task client-relay-mode#T1.1: relay config defaults and validation (AC-003)
@@ -452,11 +522,13 @@ type RelayTermCfg struct {
 	Network        *NetworkCfg      `json:"network,omitempty" mapstructure:"network"`
 }
 
+// @sk-task dns-upstreams-list#T1.1: RelayDNSCfg with Upstreams []string + backward compat (AC-007)
 // @sk-task relay-terminator#T6.1: DNS config for relay routing (RQ-008, RQ-011)
 type RelayDNSCfg struct {
-	Upstream    string `json:"upstream" mapstructure:"upstream"`
-	CacheTTL    int    `json:"cache_ttl" mapstructure:"cache_ttl"`
-	Transparent bool   `json:"transparent" mapstructure:"transparent"`
+	Upstream    string   `json:"upstream,omitempty" mapstructure:"upstream"`     // DEPRECATED: use Upstreams
+	Upstreams   []string `json:"upstreams,omitempty" mapstructure:"upstreams"`
+	CacheTTL    int      `json:"cache_ttl" mapstructure:"cache_ttl"`
+	Transparent bool     `json:"transparent" mapstructure:"transparent"`
 }
 
 // @sk-task relay-terminator#T6.1: routing config for relay terminator (RQ-008, RQ-011)
@@ -511,8 +583,13 @@ func LoadRelayConfig(path string) (*RelayConfig, error) {
 		cfg.TLS.VerifyMode = "insecure"
 	}
 	if cfg.Relay.Routing != nil && cfg.Relay.Routing.DNS != nil {
-		if cfg.Relay.Routing.DNS.Upstream == "" {
-			cfg.Relay.Routing.DNS.Upstream = "1.1.1.1:53"
+		// @sk-task dns-upstreams-list#T1.1: migrate Relay Upstream→Upstreams (AC-007)
+		if len(cfg.Relay.Routing.DNS.Upstreams) == 0 {
+			if cfg.Relay.Routing.DNS.Upstream != "" {
+				cfg.Relay.Routing.DNS.Upstreams = []string{cfg.Relay.Routing.DNS.Upstream}
+			} else {
+				cfg.Relay.Routing.DNS.Upstreams = append([]string{}, DefaultDNSUpstreams...)
+			}
 		}
 		if cfg.Relay.Routing.DNS.CacheTTL <= 0 {
 			cfg.Relay.Routing.DNS.CacheTTL = 60
@@ -523,6 +600,9 @@ func LoadRelayConfig(path string) (*RelayConfig, error) {
 	}
 	return cfg, nil
 }
+
+// @sk-task dns-upstreams-list#T1.1: centralized default DNS upstreams (AC-003)
+var DefaultDNSUpstreams = []string{"1.1.1.1:53", "8.8.8.8:53"}
 
 var DefaultExcludeRanges = []string{
 	"127.0.0.0/8",

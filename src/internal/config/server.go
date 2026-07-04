@@ -33,6 +33,7 @@ type ServerConfig struct {
 	Multiplex    bool            `mapstructure:"multiplex"`
 	MTU          int             `mapstructure:"mtu"`
 	Crypto       CryptoCfg       `mapstructure:"crypto"`
+	DNSUpstreams []string        `mapstructure:"dns_upstreams"`
 }
 
 type CryptoCfg struct {
@@ -225,6 +226,10 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		return nil, err
 	}
 	normalizeTokens(cfg)
+	// @sk-task dns-upstreams-list#T1.2: ServerConfig DNSUpstreams defaults (AC-004)
+	if len(cfg.DNSUpstreams) == 0 {
+		cfg.DNSUpstreams = append([]string{}, DefaultDNSUpstreams...)
+	}
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		return nil, fmt.Errorf("crypto.key is required when crypto.enabled is true")
 	}

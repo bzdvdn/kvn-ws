@@ -6,11 +6,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -348,5 +350,115 @@ func TestSetOrigResolvers(t *testing.T) {
 	}
 	if s.origResolves[1] != "10.0.0.1:53" {
 		t.Errorf("resolvers[1]=%q, want %q", s.origResolves[1], "10.0.0.1:53")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestDNSProxyVariadicNew (AC-005)
+func TestDNSProxyVariadicNew(t *testing.T) {
+	// no upstreams → defaults
+	s1 := New("127.0.0.1:0")
+	if len(s1.upstreams) == 0 {
+		t.Fatal("New() with no args produced empty upstreams")
+	}
+
+	// single upstream
+	s2 := New("127.0.0.1:0", "10.0.0.1:53")
+	if len(s2.upstreams) != 1 || s2.upstreams[0] != "10.0.0.1:53" {
+		t.Fatalf("New() with single upstream = %v, want [10.0.0.1:53]", s2.upstreams)
+	}
+
+	// multiple upstreams
+	s3 := New("127.0.0.1:0", "10.0.0.1:53", "1.1.1.1:53")
+	if len(s3.upstreams) != 2 {
+		t.Fatalf("New() with two upstreams = %v, want [10.0.0.1:53 1.1.1.1:53]", s3.upstreams)
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestDNSProxyNilUpstreams (AC-005)
+func TestDNSProxyNilUpstreams(t *testing.T) {
+	// nil/empty slice → defaults
+	s := New("127.0.0.1:0", []string{}...)
+	if len(s.upstreams) == 0 {
+		t.Fatal("New() with empty variadic produced empty upstreams")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestDNSProxyFallback (AC-005)
+func TestDNSProxyFallback(t *testing.T) {
+	// Start a mock TCP upstream that records the received query
+	upstreamLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upstreamLn.Close()
+	upstreamAddr := upstreamLn.Addr().String()
+
+	var mu sync.Mutex
+	var gotQuery []byte
+	upstreamDone := make(chan struct{})
+	go func() {
+		conn, err := upstreamLn.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Read 2-byte length-prefixed DNS query
+		var lenBuf [2]byte
+		if _, err := io.ReadFull(conn, lenBuf[:]); err != nil {
+			return
+		}
+		qlen := int(binary.BigEndian.Uint16(lenBuf[:]))
+		query := make([]byte, qlen)
+		if _, err := io.ReadFull(conn, query); err != nil {
+			return
+		}
+
+		mu.Lock()
+		gotQuery = query
+		mu.Unlock()
+
+		// Minimal DNS response to unblock forward
+		resp := make([]byte, 16)
+		copy(resp[:2], query[:2]) // copy TXID
+		resp[2] = 0x81            // response flags
+		resp[3] = 0x80
+		wire := make([]byte, 2+len(resp))
+		binary.BigEndian.PutUint16(wire, uint16(len(resp)))
+		copy(wire[2:], resp)
+		conn.Write(wire)
+		close(upstreamDone)
+	}()
+
+	// Create Server with first upstream unreachable, second is our mock
+	s := New("127.0.0.1:0", "198.51.100.1:53", upstreamAddr)
+
+	// Manually set UDP conn so we can call forward
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer udpConn.Close()
+	s.conn = udpConn
+
+	ctx := context.Background()
+	query := dnsQuery("fallback.example.com")
+	clientAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 9999}
+	s.forward(ctx, query, clientAddr)
+
+	select {
+	case <-upstreamDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout: upstream did not receive query")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(gotQuery) == 0 {
+		t.Fatal("upstream received empty query")
+	}
+	domain := extractDNSDomain(gotQuery)
+	if domain != "fallback.example.com" {
+		t.Errorf("upstream got domain %q, want %q", domain, "fallback.example.com")
 	}
 }

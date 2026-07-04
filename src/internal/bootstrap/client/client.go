@@ -60,8 +60,8 @@ func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
 	if cfg.DNSProxy.Listen == "" {
 		cfg.DNSProxy.Listen = "127.0.0.54:53"
 	}
-	if cfg.DNSProxy.Upstream == "" {
-		cfg.DNSProxy.Upstream = "1.1.1.1:53"
+	if len(cfg.DNSProxy.Upstreams) == 0 {
+		cfg.DNSProxy.Upstreams = append([]string{}, config.DefaultDNSUpstreams...)
 	}
 
 	// @sk-task dns-response-tracker#T1.2: DNSCache defaults (AC-003)

@@ -572,3 +572,101 @@ relay:
 		t.Fatalf("Relay.Quic.IdleTimeout = %d, want 30", cfg.Relay.Quic.IdleTimeout)
 	}
 }
+
+// @sk-test dns-upstreams-list#T4.1: TestDNSProxyCfgUpstreams (AC-001)
+func TestDNSProxyCfgUpstreams(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+dns_proxy:
+  listen: "127.0.0.54:53"
+  upstreams:
+    - "10.0.0.1:53"
+    - "1.1.1.1:53"
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if len(cfg.DNSProxy.Upstreams) != 2 {
+		t.Fatalf("DNSProxy.Upstreams = %v, want [10.0.0.1:53 1.1.1.1:53]", cfg.DNSProxy.Upstreams)
+	}
+	if cfg.DNSProxy.Upstreams[0] != "10.0.0.1:53" {
+		t.Errorf("Upstreams[0] = %q, want %q", cfg.DNSProxy.Upstreams[0], "10.0.0.1:53")
+	}
+	if cfg.DNSProxy.Upstreams[1] != "1.1.1.1:53" {
+		t.Errorf("Upstreams[1] = %q, want %q", cfg.DNSProxy.Upstreams[1], "1.1.1.1:53")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestDNSProxyCfgBackwardCompat (AC-002)
+func TestDNSProxyCfgBackwardCompat(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+dns_proxy:
+  listen: "127.0.0.54:53"
+  upstream: "1.1.1.1:53"
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if len(cfg.DNSProxy.Upstreams) != 1 {
+		t.Fatalf("DNSProxy.Upstreams = %v, want [1.1.1.1:53]", cfg.DNSProxy.Upstreams)
+	}
+	if cfg.DNSProxy.Upstreams[0] != "1.1.1.1:53" {
+		t.Errorf("Upstreams[0] = %q, want %q", cfg.DNSProxy.Upstreams[0], "1.1.1.1:53")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestDNSProxyCfgDefaults (AC-003)
+func TestDNSProxyCfgDefaults(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+`)
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if len(cfg.DNSProxy.Upstreams) == 0 {
+		t.Fatal("DNSProxy.Upstreams is empty, want defaults")
+	}
+	if cfg.DNSProxy.Upstreams[0] != "1.1.1.1:53" {
+		t.Errorf("Upstreams[0] = %q, want %q", cfg.DNSProxy.Upstreams[0], "1.1.1.1:53")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestRelayDNSUpstreamBackwardCompat (AC-007)
+func TestRelayDNSUpstreamBackwardCompat(t *testing.T) {
+	path := writeConfig(t, `
+server: wss://example.com/tunnel
+mode: relay
+relay:
+  listen: "0.0.0.0:8443"
+  routing:
+    dns:
+      upstream: "10.0.0.1:53"
+`)
+	cfg, err := LoadRelayConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRelayConfig: %v", err)
+	}
+	if cfg.Relay.Routing == nil || cfg.Relay.Routing.DNS == nil {
+		t.Fatal("Relay.Routing.DNS is nil")
+	}
+	if len(cfg.Relay.Routing.DNS.Upstreams) != 1 {
+		t.Fatalf("Relay.Routing.DNS.Upstreams = %v, want [10.0.0.1:53]", cfg.Relay.Routing.DNS.Upstreams)
+	}
+	if cfg.Relay.Routing.DNS.Upstreams[0] != "10.0.0.1:53" {
+		t.Errorf("Upstreams[0] = %q, want %q", cfg.Relay.Routing.DNS.Upstreams[0], "10.0.0.1:53")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestDefaultDNSUpstreams (AC-003)
+func TestDefaultDNSUpstreams(t *testing.T) {
+	if len(DefaultDNSUpstreams) == 0 {
+		t.Fatal("DefaultDNSUpstreams is empty")
+	}
+	if DefaultDNSUpstreams[0] != "1.1.1.1:53" {
+		t.Errorf("DefaultDNSUpstreams[0] = %q, want %q", DefaultDNSUpstreams[0], "1.1.1.1:53")
+	}
+}

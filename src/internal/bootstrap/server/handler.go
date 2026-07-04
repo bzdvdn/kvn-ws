@@ -187,8 +187,9 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	if s.cfg.Transport == "quic" {
 		tunnelTimeout = 60 * time.Second
 	}
+	// @sk-task dns-upstreams-list#T3.2: pass DNSUpstreams from server config (AC-006)
 	tunSess := tunnel.NewSession(s.tunDev, stream, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams,
-		tunnelTimeout, 1000, assignedIP, assignedIPv6)
+		tunnelTimeout, 1000, assignedIP, assignedIPv6, s.cfg.DNSUpstreams)
 	tunSess.SetDemux(s.tunDemux)
 	if err := tunSess.Run(sessionCtx); err != nil {
 		s.logger.Info("session ended",

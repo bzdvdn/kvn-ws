@@ -55,7 +55,7 @@ interface ClientConfig {
   reconnect?: { min_backoff_sec?: number; max_backoff_sec?: number };
   system_proxy?: boolean;
   transparent?: boolean;
-  dns_proxy?: { listen?: string; upstream?: string };
+  dns_proxy?: { listen?: string; upstream?: string; upstreams?: string[] };
 }
 
 interface ServerEntry {
@@ -423,6 +423,41 @@ function App() {
   };
   const nestGlobal = (parent: string, key: string, value: any) => {
     setGlobalConfig((prev) => ({ ...prev, [parent]: { ...((prev as any)[parent] || {}), [key]: value } }));
+    setDirty(true);
+  };
+
+  // @sk-task dns-upstreams-list#T3.4: DNS upstreams list management (AC-008)
+  const updateDNSUpstream = (idx: number, value: string) => {
+    setGlobalConfig((prev) => {
+      const proxy = { ...((prev as any).dns_proxy || {}), listen: (prev as any).dns_proxy?.listen || "127.0.0.54:53" };
+      const upstreams = [...(proxy.upstreams || ["1.1.1.1:53"])];
+      if (idx >= 0 && idx < upstreams.length) upstreams[idx] = value;
+      proxy.upstreams = upstreams;
+      delete proxy.upstream;
+      return { ...prev, dns_proxy: proxy };
+    });
+    setDirty(true);
+  };
+  const addDNSUpstream = () => {
+    setGlobalConfig((prev) => {
+      const proxy = { ...((prev as any).dns_proxy || {}), listen: (prev as any).dns_proxy?.listen || "127.0.0.54:53" };
+      const upstreams = [...(proxy.upstreams || ["1.1.1.1:53"])];
+      upstreams.push("8.8.8.8:53");
+      proxy.upstreams = upstreams;
+      delete proxy.upstream;
+      return { ...prev, dns_proxy: proxy };
+    });
+    setDirty(true);
+  };
+  const removeDNSUpstream = (idx: number) => {
+    setGlobalConfig((prev) => {
+      const proxy = { ...((prev as any).dns_proxy || {}), listen: (prev as any).dns_proxy?.listen || "127.0.0.54:53" };
+      const upstreams = [...(proxy.upstreams || ["1.1.1.1:53"])];
+      if (idx >= 0 && idx < upstreams.length) upstreams.splice(idx, 1);
+      proxy.upstreams = upstreams.length > 0 ? upstreams : ["1.1.1.1:53"];
+      delete proxy.upstream;
+      return { ...prev, dns_proxy: proxy };
+    });
     setDirty(true);
   };
 
@@ -849,21 +884,29 @@ function App() {
             </label>
             {/* @sk-task system-proxy#T2.2: system proxy checkbox (AC-001) */}
             <Checkbox checked={globalConfig.system_proxy ?? true} onChange={(v) => updateGlobal("system_proxy", v)} label="Use as system proxy" />
-            {/* @sk-task transparent-proxy#T3.1: transparent proxy checkbox + DNS proxy settings (AC-001, AC-009) */}
+            {/* @sk-task transparent-proxy#T3.1: transparent proxy checkbox (AC-001) */}
             {platform === "linux" ? (
               <Checkbox checked={globalConfig.transparent ?? false} onChange={(v) => updateGlobal("transparent", v)} label="Transparent proxy (iptables REDIRECT)" />
             ) : (
               <div style={{ color: "#888", fontSize: 11, marginTop: 4 }}>Transparent proxy not available on {platform}</div>
             )}
-            {globalConfig.transparent && <div style={{ marginLeft: 16, marginTop: 4, padding: "6px 8px", borderLeft: "2px solid #333" }}>
+            {/* @sk-task dns-upstreams-list#T3.4: DNS upstreams list management (AC-008) */}
+            <div style={{ marginTop: 8, padding: "6px 8px", borderLeft: "2px solid #333" }}>
               <label style={lbl}>DNS Proxy Listen
                 <input style={inp} placeholder="127.0.0.54:53" value={globalConfig.dns_proxy?.listen || "127.0.0.54:53"} onChange={(e) => nestGlobal("dns_proxy", "listen", e.target.value)} />
               </label>
-              <label style={lbl}>DNS Upstream (trusted resolver)
-                <input style={inp} placeholder="1.1.1.1:53" value={globalConfig.dns_proxy?.upstream || "1.1.1.1:53"} onChange={(e) => nestGlobal("dns_proxy", "upstream", e.target.value)} />
-                <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>DNS queries are forwarded through the tunnel to this resolver.</div>
-              </label>
-            </div>}
+              <div style={{ marginBottom: 4, fontSize: 12, color: "#888", fontWeight: 500 }}>DNS Upstreams (trusted resolvers, tried in order):</div>
+              {(globalConfig.dns_proxy?.upstreams?.length ? globalConfig.dns_proxy.upstreams : globalConfig.dns_proxy?.upstream ? [globalConfig.dns_proxy.upstream] : ["1.1.1.1:53"]).map((u, i) => (
+                <div key={i} style={{ display: "flex", gap: 4, marginBottom: 4, alignItems: "center" }}>
+                  <input style={{ ...inp, flex: 1 }} placeholder="1.1.1.1:53" value={u} onChange={(e) => updateDNSUpstream(i, e.target.value)} />
+                  <button onClick={() => removeDNSUpstream(i)} style={{ background: "#500", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", padding: "4px 8px", fontSize: 12 }}>×</button>
+                </div>
+              ))}
+              <button onClick={addDNSUpstream} style={{ background: "#335", color: "#e0e0e0", border: "1px solid #448", borderRadius: 4, cursor: "pointer", padding: "4px 10px", fontSize: 11, marginTop: 2 }}>
+                + Add DNS Upstream
+              </button>
+              <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>DNS queries are forwarded through the tunnel to these resolvers in order. The first responsive resolver is used.</div>
+            </div>
           </Section>
         </div>
       </div>

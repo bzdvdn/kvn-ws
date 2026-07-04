@@ -52,6 +52,7 @@ kvn-ws использует YAML-файлы конфигурации для се
 | `mtu` | int | `1400` | MTU TUN-интерфейса |
 | `crypto.enabled` | bool | `false` | Включить шифрование AES-256-GCM |
 | `crypto.key` | string | `""` | 256-битный мастер-ключ, 64 hex символа (обязателен при enabled) |
+| `dns_upstreams` | []string | `[1.1.1.1:53, 8.8.8.8:53]` | DNS-серверы для серверного DNS-forward (используется когда клиент отправляет DNS frame) |
 | `bolt_db_path` | string | `""` | Путь к BoltDB для персистентности IP-пула (пусто = in-memory) |
 | `logging.level` | string | `info` | Уровень логирования (`debug`, `info`, `warn`, `error`) |
 
@@ -130,7 +131,7 @@ logging:
 | `system_proxy` | bool | `false` | Автоуправление системными прокси (Linux/macOS/Windows) |
 | `transparent` | bool | `false` | Прозрачный прокси через iptables REDIRECT (только Linux) |
 | `dns_proxy.listen` | string | `127.0.0.54:53` | Адрес DNS-прокси |
-| `dns_proxy.upstream` | string | `1.1.1.1:53` | Вышестоящий DNS-сервер |
+| `dns_proxy.upstreams` | []string | `[1.1.1.1:53, 8.8.8.8:53]` | Список вышестоящих DNS-серверов (fallback по порядку). Также принимает устаревший `upstream: string` |
 | `log.level` | string | `info` | Уровень логирования (`debug`, `info`, `warn`, `error`) |
 
 ### Пример конфигурации клиента

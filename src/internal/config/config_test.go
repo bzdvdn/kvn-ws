@@ -85,3 +85,72 @@ func TestLoadServerConfigMissingFile(t *testing.T) {
 		t.Fatal("expected error for missing config file")
 	}
 }
+
+// @sk-test dns-upstreams-list#T4.1: TestServerDNSUpstreams (AC-004)
+func TestServerDNSUpstreams(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yaml")
+	content := `
+listen: ":8443"
+tls:
+  cert: "/etc/certs/server.pem"
+  key: "/etc/certs/server-key.pem"
+auth:
+  tokens:
+    - name: test
+      secret: test-secret
+network:
+  pool_ipv4:
+    subnet: "10.88.0.0/16"
+    gateway: "10.88.0.1"
+dns_upstreams:
+  - "10.0.0.1:53"
+  - "1.1.1.1:53"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadServerConfig(path)
+	if err != nil {
+		t.Fatalf("LoadServerConfig: %v", err)
+	}
+	if len(cfg.DNSUpstreams) != 2 {
+		t.Fatalf("DNSUpstreams = %v, want [10.0.0.1:53 1.1.1.1:53]", cfg.DNSUpstreams)
+	}
+	if cfg.DNSUpstreams[0] != "10.0.0.1:53" {
+		t.Errorf("DNSUpstreams[0] = %q, want %q", cfg.DNSUpstreams[0], "10.0.0.1:53")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestServerDNSUpstreamsDefaults (AC-004)
+func TestServerDNSUpstreamsDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yaml")
+	content := `
+listen: ":8443"
+tls:
+  cert: "/etc/certs/server.pem"
+  key: "/etc/certs/server-key.pem"
+auth:
+  tokens:
+    - name: test
+      secret: test-secret
+network:
+  pool_ipv4:
+    subnet: "10.88.0.0/16"
+    gateway: "10.88.0.1"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadServerConfig(path)
+	if err != nil {
+		t.Fatalf("LoadServerConfig: %v", err)
+	}
+	if len(cfg.DNSUpstreams) == 0 {
+		t.Fatal("DNSUpstreams is empty, want defaults")
+	}
+	if cfg.DNSUpstreams[0] != "1.1.1.1:53" {
+		t.Errorf("DNSUpstreams[0] = %q, want %q", cfg.DNSUpstreams[0], "1.1.1.1:53")
+	}
+}

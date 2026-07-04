@@ -181,6 +181,11 @@ $configYaml += @"
 
 log:
   level: info
+dns_proxy:
+  listen: "127.0.0.54:53"
+  upstreams:
+    - "1.1.1.1:53"
+    - "8.8.8.8:53"
 "@
 
 $configYaml | Out-File -FilePath "$ConfigDir\client.yaml" -Encoding utf8

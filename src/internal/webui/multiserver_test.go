@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
 func setupTestServer(t *testing.T) (srv *Server, dir string) {
@@ -309,5 +311,81 @@ func TestSaveGlobalConfig(t *testing.T) {
 	}
 	if cfg["proxy_listen"] != "127.0.0.1:3128" {
 		t.Errorf("proxy_listen = %q, want 127.0.0.1:3128", cfg["proxy_listen"])
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestMergeConfigDNSUpstreams (AC-009)
+func TestMergeConfigDNSUpstreams(t *testing.T) {
+	global := config.ClientConfig{
+		DNSProxy: config.DNSProxyCfg{
+			Listen:    "127.0.0.54:53",
+			Upstreams: []string{"1.1.1.1:53"},
+		},
+	}
+	server := config.ClientConfig{
+		DNSProxy: config.DNSProxyCfg{
+			Listen:    "127.0.0.54:53",
+			Upstreams: []string{"10.0.0.1:53"},
+		},
+	}
+	merged := mergeConfig(&global, &server)
+	if len(merged.DNSProxy.Upstreams) != 1 {
+		t.Fatalf("merged Upstreams = %v, want [10.0.0.1:53]", merged.DNSProxy.Upstreams)
+	}
+	if merged.DNSProxy.Upstreams[0] != "10.0.0.1:53" {
+		t.Errorf("merged Upstreams[0] = %q, want %q", merged.DNSProxy.Upstreams[0], "10.0.0.1:53")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestMergeConfigDNSUpstreamsNotOverridden (AC-009)
+func TestMergeConfigDNSUpstreamsNotOverridden(t *testing.T) {
+	global := config.ClientConfig{
+		DNSProxy: config.DNSProxyCfg{
+			Listen:    "127.0.0.54:53",
+			Upstreams: []string{"1.1.1.1:53", "8.8.8.8:53"},
+		},
+	}
+	server := config.ClientConfig{}
+	merged := mergeConfig(&global, &server)
+	if len(merged.DNSProxy.Upstreams) != 2 {
+		t.Fatalf("merged Upstreams = %v, want global upstreams preserved", merged.DNSProxy.Upstreams)
+	}
+	if merged.DNSProxy.Upstreams[0] != "1.1.1.1:53" {
+		t.Errorf("merged Upstreams[0] = %q, want %q", merged.DNSProxy.Upstreams[0], "1.1.1.1:53")
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestDNSProxyCfgJSONRoundTrip (AC-008)
+func TestDNSProxyCfgJSONRoundTrip(t *testing.T) {
+	// new format: upstreams
+	orig := config.DNSProxyCfg{
+		Listen:    "127.0.0.54:53",
+		Upstreams: []string{"1.1.1.1:53", "8.8.8.8:53"},
+	}
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded config.DNSProxyCfg
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.Listen != orig.Listen {
+		t.Errorf("Listen = %q, want %q", decoded.Listen, orig.Listen)
+	}
+	if len(decoded.Upstreams) != 2 || decoded.Upstreams[0] != "1.1.1.1:53" {
+		t.Errorf("Upstreams = %v, want [1.1.1.1:53 8.8.8.8:53]", decoded.Upstreams)
+	}
+}
+
+// @sk-test dns-upstreams-list#T4.1: TestDNSProxyCfgJSONBackwardCompat (AC-010)
+func TestDNSProxyCfgJSONBackwardCompat(t *testing.T) {
+	oldJSON := `{"listen":"127.0.0.54:53","upstream":"1.1.1.1:53"}`
+	var cfg config.DNSProxyCfg
+	if err := json.Unmarshal([]byte(oldJSON), &cfg); err != nil {
+		t.Fatalf("Unmarshal old format: %v", err)
+	}
+	if len(cfg.Upstreams) != 1 || cfg.Upstreams[0] != "1.1.1.1:53" {
+		t.Errorf("Upstreams = %v, want [1.1.1.1:53]", cfg.Upstreams)
 	}
 }

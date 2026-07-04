@@ -190,3 +190,81 @@ func TestTunGoroutineLeak(t *testing.T) {
 		t.Errorf("goroutine leak: %d goroutines after 10 iterations", leaked)
 	}
 }
+
+// @sk-test dns-upstreams-list#T4.1: TestServerDNSForwardUsesConfig (AC-006)
+func TestServerDNSForwardUsesConfig(t *testing.T) {
+	// Start a mock UDP upstream
+	upstreamConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upstreamConn.Close()
+	upstreamAddr := upstreamConn.LocalAddr().String()
+
+	// Build a DNS query and wrap it in a DNS frame
+	query := []byte{
+		0x00, 0x01, // TXID
+		0x01, 0x00, // flags: standard query
+		0x00, 0x01, // questions: 1
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // rest
+	}
+	// Add label "test.example.com"
+	query = append(query, 4, 't', 'e', 's', 't')
+	query = append(query, 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e')
+	query = append(query, 3, 'c', 'o', 'm')
+	query = append(query, 0x00, 0x00, 0x01, 0x00, 0x01) // QTYPE A, QCLASS IN
+
+	// Construct payload: [4-byte streamID][query]
+	payload := make([]byte, 4+len(query))
+	payload[3] = 1 // streamID = 1 (big-endian)
+	copy(payload[4:], query)
+
+	frameData := encodeFrame(t, &framing.Frame{
+		Type:    framing.FrameTypeDNS,
+		Payload: payload,
+	})
+
+	stream := &mockStreamConn{messages: [][]byte{frameData}}
+	s := &Session{
+		tunDev:        &mockTun{},
+		stream:        stream,
+		logger:        zap.NewNop(),
+		tunnelTimeout: time.Second,
+		dnsUpstreams:  []string{upstreamAddr},
+	}
+
+	// Read from upstream to verify query arrives
+	done := make(chan struct{})
+	var gotQuery []byte
+	go func() {
+		buf := make([]byte, 1500)
+		n, clientAddr, err := upstreamConn.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		gotQuery = make([]byte, n)
+		copy(gotQuery, buf[:n])
+
+		// Send minimal response to unblock forwardDNS
+		resp := make([]byte, 16)
+		copy(resp, buf[:2]) // copy TXID
+		resp[2] = 0x81      // response flags
+		resp[3] = 0x80
+		_, _ = upstreamConn.WriteToUDP(resp, clientAddr)
+		close(done)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = s.wsToTun(ctx)
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout: upstream did not receive DNS query")
+	}
+
+	if len(gotQuery) < 12 {
+		t.Fatal("upstream received incomplete DNS query")
+	}
+}

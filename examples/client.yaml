@@ -31,6 +31,11 @@ proxy_max_concurrency: 1000
 crypto:
   enabled: false
   key: ""
+# dns_proxy:
+#   listen: "127.0.0.54:53"
+#   upstreams:
+#     - "1.1.1.1:53"
+#     - "8.8.8.8:53"
 routing:
   default_route: server
   include_ranges: []

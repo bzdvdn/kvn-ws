@@ -68,10 +68,12 @@ type Session struct {
 	proxyConcurrency int
 	clientIP         net.IP
 	clientIP6        net.IP
+	dnsUpstreams     []string
 
 	outgoingInterceptor OutgoingInterceptor
 }
 
+// @sk-task dns-upstreams-list#T2.2: add dnsUpstreams param (AC-006)
 // @sk-task arch-refactoring#T3.5: add tunnelTimeout and proxyConcurrency params (AC-006)
 func NewSession(
 	tunDev tun.TunDevice,
@@ -89,12 +91,16 @@ func NewSession(
 	proxyConcurrency int,
 	clientIP net.IP,
 	clientIP6 net.IP,
+	dnsUpstreams []string,
 ) *Session {
 	if tunnelTimeout <= 0 {
 		tunnelTimeout = 30 * time.Second
 	}
 	if proxyConcurrency <= 0 {
 		proxyConcurrency = 1000
+	}
+	if len(dnsUpstreams) == 0 {
+		dnsUpstreams = []string{"1.1.1.1:53", "8.8.8.8:53"}
 	}
 	return &Session{
 		tunDev:           tunDev,
@@ -113,6 +119,7 @@ func NewSession(
 		proxyConcurrency: proxyConcurrency,
 		clientIP:         clientIP,
 		clientIP6:        clientIP6,
+		dnsUpstreams:     dnsUpstreams,
 	}
 }
 
@@ -380,6 +387,7 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	go s.forwardProxyStream(streamID, tcpConn, dst, ctx)
 }
 
+// @sk-task dns-upstreams-list#T2.2: use s.dnsUpstreams instead of hardcoded addr (AC-006)
 // @sk-task transparent-proxy#T2.3: server-side DNS forwarder (FrameTypeDNS)
 // must be called in a goroutine to avoid blocking wsToTun read-loop
 func (s *Session) handleDNSFrame(ctx context.Context, payload []byte) {
@@ -389,8 +397,8 @@ func (s *Session) handleDNSFrame(ctx context.Context, payload []byte) {
 	streamID := binary.BigEndian.Uint32(payload[0:4])
 	query := payload[4:]
 
-	upstream := "8.8.8.8:53"
-	resp, err := s.forwardDNS(ctx, query, upstream)
+	upstreams := s.dnsUpstreams
+	resp, err := s.forwardDNS(ctx, query, upstreams)
 	if err != nil {
 		s.logger.Debug("dns forward error", zap.Error(err))
 		return
@@ -413,27 +421,42 @@ func (s *Session) handleDNSFrame(ctx context.Context, payload []byte) {
 	_ = s.stream.WriteMessage(encoded)
 }
 
-func (s *Session) forwardDNS(ctx context.Context, query []byte, upstream string) ([]byte, error) {
-	addr, err := net.ResolveUDPAddr("udp", upstream)
-	if err != nil {
-		return nil, err
+// @sk-task dns-upstreams-list#T2.2: forwardDNS with upstream list + fallback (AC-006)
+func (s *Session) forwardDNS(ctx context.Context, query []byte, upstreams []string) ([]byte, error) {
+	if len(upstreams) == 0 {
+		upstreams = []string{"1.1.1.1:53", "8.8.8.8:53"}
 	}
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return nil, err
+	var lastErr error
+	for _, addr := range upstreams {
+		udpAddr, err := net.ResolveUDPAddr("udp", addr)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		conn, err := net.DialUDP("udp", nil, udpAddr)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		if _, err := conn.Write(query); err != nil {
+			conn.Close()
+			lastErr = err
+			continue
+		}
+		resp := make([]byte, 1500)
+		n, err := conn.Read(resp)
+		conn.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return resp[:n], nil
 	}
-	defer conn.Close()
-
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := conn.Write(query); err != nil {
-		return nil, err
+	if lastErr != nil {
+		return nil, lastErr
 	}
-	resp := make([]byte, 1500)
-	n, err := conn.Read(resp)
-	if err != nil {
-		return nil, err
-	}
-	return resp[:n], nil
+	return nil, fmt.Errorf("dns: no upstream available")
 }
 
 // @sk-task arch-refactoring#T3.3: extracted proxy stream forwarding (AC-005)

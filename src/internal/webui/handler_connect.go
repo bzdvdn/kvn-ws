@@ -193,7 +193,8 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	if server.Crypto.Enabled || server.Crypto.Key != "" {
 		merged.Crypto = server.Crypto
 	}
-	if server.DNSProxy.Listen != "" || server.DNSProxy.Upstream != "" {
+	// @sk-task dns-upstreams-list#T3.3: check Upstreams instead of deprecated Upstream (AC-009)
+	if server.DNSProxy.Listen != "" || len(server.DNSProxy.Upstreams) > 0 {
 		merged.DNSProxy = server.DNSProxy
 	}
 	if server.Relay != nil {

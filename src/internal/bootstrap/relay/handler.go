@@ -142,7 +142,7 @@ func (r *Relay) handleTerminatorStream(ctx context.Context, stream tunnel.Stream
 
 	tunSess := tunnel.NewSession(r.tunDev, stream, r.sm, sessionID, "terminator",
 		nil, nil, nil, r.logger, nil, nil,
-		30*time.Second, 1000, allocatedIP, allocatedIPv6)
+		30*time.Second, 1000, allocatedIP, allocatedIPv6, nil)
 	tunSess.SetDemux(r.tunDemux)
 	if r.ruleSet != nil {
 		tunSess.SetOutgoingInterceptor(r.routeOutgoing)

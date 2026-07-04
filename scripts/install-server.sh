@@ -199,6 +199,9 @@ auth:
   tokens:
     - name: default
       secret: ${TOKEN}
+dns_upstreams:
+  - "1.1.1.1:53"
+  - "8.8.8.8:53"
 logging:
   level: info
 EOF
