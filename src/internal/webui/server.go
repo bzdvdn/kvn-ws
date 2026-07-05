@@ -12,6 +12,9 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 )
 
 //go:embed all:frontend/dist
@@ -35,6 +38,13 @@ func New(port int) (*Server, error) {
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return nil, err
 	}
+
+	// @sk-task kvn-web-redesign#T4.1: cleanup stale DNS from crashed sessions (AC-013)
+	dnsCleanupAddr := "127.0.0.54:53"
+	if wc, loadErr := config.LoadWebUIConfig(filepath.Join(configDir, "config.yaml")); loadErr == nil && wc.ClientConfig.DNSProxy.Listen != "" {
+		dnsCleanupAddr = wc.ClientConfig.DNSProxy.Listen
+	}
+	dnsproxy.CleanupStaleDNS(dnsCleanupAddr)
 
 	state := NewAppState()
 
@@ -81,6 +91,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.baseCtx = ctx
 	go s.state.broadcastLogs(ctx)
 	go s.state.broadcastStatus(ctx)
+	go s.state.broadcastMetrics(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {

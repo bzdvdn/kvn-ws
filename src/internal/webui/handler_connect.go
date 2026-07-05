@@ -13,6 +13,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/bootstrap/client"
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
+	metricclient "github.com/bzdvdn/kvn-ws/src/internal/metrics/client"
 )
 
 type connectResponse struct {
@@ -56,12 +57,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// @sk-task kvn-web-redesign#T1.2: start metrics sender with client lifecycle (AC-013)
+	collector := s.state.MetricCollector()
+	collector.Start()
+
 	cl, err := client.NewFromConfig(&cfg)
 	if err != nil {
 		s.state.setStatus(StatusError)
 		s.state.PushLog(LogEntry{Line: "create client: " + err.Error(), Level: "error"})
 		return
 	}
+	cl.SetMetricCollector(collector)
 
 	baseLogger, _, err := logger.New(cfg.Log.Level)
 	if err != nil {
@@ -94,10 +100,28 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	doneCh := make(chan struct{})
 	s.state.SetDoneCh(doneCh)
 
+	metricCtx, metricCancel := context.WithCancel(ctx)
+	metricOut := make(chan metricclient.MetricSnapshot, 32)
+	sender := metricclient.NewSender(collector, metricOut, time.Second)
+	go sender.Run(metricCtx)
+
 	go func() {
 		defer close(doneCh)
+		defer metricCancel()
 		s.state.setStatus(StatusConnected)
 		s.state.PushLog(LogEntry{Line: "connected to " + cfg.Server, Level: "info"})
+
+		// forward metrics from sender to state broadcast
+		go func() {
+			for {
+				select {
+				case <-metricCtx.Done():
+					return
+				case m := <-metricOut:
+					s.state.PushMetric(m)
+				}
+			}
+		}()
 
 		if err := cl.Run(ctx); err != nil {
 			s.state.setStatus(StatusError)

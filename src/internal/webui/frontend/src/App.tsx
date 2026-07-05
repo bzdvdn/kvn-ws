@@ -1,983 +1,292 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-// @sk-task import-export--qr-config-ui#T3.1: QR code generation (AC-003)
+import { useState } from "react";
 import QRCode from "qrcode";
+import { AppProvider, useApp } from "./context";
+import ServerCards from "./ServerCards";
+import TabbedForm from "./TabbedForm";
+import TrafficMeter from "./TrafficMeter";
+import LogPanel from "./LogPanel";
+import { colors, borderRadius, fontSize } from "./theme";
 
-type Status = "disconnected" | "connecting" | "connected" | "error";
-
-interface SourceRule {
-  geoip?: string;
-  geosite?: string;
-  cidr?: string;
-  url?: string;
-}
-
-interface ClientConfig {
-  server?: string;
-  auth?: { token?: string };
-  transport?: string;
-  obfuscation?: {
-    enabled?: boolean;
-    utls?: { enabled?: boolean; fallback?: boolean };
-    padding?: { enabled?: boolean; size?: number };
-  };
-  mode?: string;
-  mtu?: number;
-  ipv6?: boolean;
-  auto_reconnect?: boolean;
-  multiplex?: boolean;
-  max_message_size?: number;
-  proxy_listen?: string;
-  proxy_auth?: { username?: string; password?: string };
-  log?: { level?: string };
-  tls?: { verify_mode?: string; server_name?: string; ca_file?: string; sni?: string[] };
-  kill_switch?: { enabled?: boolean };
-  crypto?: { enabled?: boolean; key?: string };
-  routing?: {
-    default_route?: string;
-    include_ranges?: string[];
-    exclude_ranges?: string[];
-    include_ips?: string[];
-    exclude_ips?: string[];
-    include_domains?: string[];
-    exclude_domains?: string[];
-    geoip_path?: string;
-    geoip_url?: string;
-    geosite_path?: string;
-    geosite_url?: string;
-    source_ttl_hours?: number;
-    include_sources?: SourceRule[];
-    exclude_sources?: SourceRule[];
-    dns_cache?: {
-      enabled?: boolean;
-      ttl?: number;
-    };
-  };
-  reconnect?: { min_backoff_sec?: number; max_backoff_sec?: number };
-  system_proxy?: boolean;
-  transparent?: boolean;
-  dns_proxy?: { listen?: string; upstream?: string; upstreams?: string[] };
-}
-
-interface ServerEntry {
-  name: string;
-  server?: string;
-  auth?: { token?: string };
-  transport?: string;
-  // all other ClientConfig fields
-  [key: string]: any;
-}
-
-interface ServersResponse {
-  active_server: string;
-  servers: ServerEntry[];
-}
-
-interface LogEntry {
-  line: string;
-  level: string;
-  action?: number;
-  ip?: string;
-  ts?: string;
-}
-
-const inp: React.CSSProperties = {
-  width: "100%", padding: 6, border: "1px solid #444",
-  background: "#222", color: "#e0e0e0", borderRadius: 4, fontSize: 13,
-  boxSizing: "border-box",
-};
-const lbl: React.CSSProperties = {
-  display: "block", marginBottom: 8, fontSize: 12, color: "#888", fontWeight: 500,
+const cardStyle: React.CSSProperties = {
+  background: colors.card,
+  borderRadius: borderRadius.xl,
+  padding: 16,
+  border: `1px solid ${colors.cardBorder}`,
 };
 
-function Section({ title, children, defaultOpen }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen ?? false);
-  return (
-    <div style={{ marginBottom: 8, border: "1px solid #2a2a2a", borderRadius: 6 }}>
-      <div onClick={() => setOpen(!open)}
-        style={{ padding: "6px 10px", background: "#222", cursor: "pointer", fontWeight: 600, fontSize: 12, userSelect: "none", borderRadius: 6, letterSpacing: "0.3px" }}>
-        {open ? "▾" : "▸"} {title}
-      </div>
-      {open && <div style={{ padding: "8px 10px" }}>{children}</div>}
-    </div>
-  );
-}
+const btnPrimary: React.CSSProperties = {
+  padding: "7px 14px",
+  borderRadius: borderRadius.md,
+  border: "none",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+  background: colors.accent,
+  color: "#fff",
+};
 
-function App() {
-  // @sk-task multi-server#T3.1: multi-server state (AC-001, AC-002, AC-003)
-  const [servers, setServers] = useState<ServerEntry[]>([]);
-  const [activeServer, setActiveServer] = useState("");
-  const [serverConfig, setServerConfig] = useState<ClientConfig>({});
-  const [globalConfig, setGlobalConfig] = useState<ClientConfig>({});
+const btnSuccess: React.CSSProperties = {
+  ...btnPrimary,
+  background: colors.success,
+  color: "#111",
+};
 
-  const [status, setStatus] = useState<Status>("disconnected");
-  const [platform, setPlatform] = useState("linux");
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [showToken, setShowToken] = useState(false);
-  const [logFilter, setLogFilter] = useState<Record<string, boolean>>({ debug: true, info: true, warn: true, error: true });
-  const [logSearch, setLogSearch] = useState("");
-  // @sk-task import-export--qr-config-ui#T2.1: import textarea state (AC-002)
+const btnInfo: React.CSSProperties = {
+  ...btnPrimary,
+  background: colors.info,
+};
+
+const btnDanger: React.CSSProperties = {
+  ...btnPrimary,
+  background: colors.errorBg,
+  color: colors.error,
+  border: `1px solid ${colors.errorBorder}`,
+};
+
+const btnOutline: React.CSSProperties = {
+  padding: "7px 14px",
+  borderRadius: borderRadius.md,
+  border: `1px solid ${colors.cardBorder}`,
+  background: "transparent",
+  color: colors.textDim,
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 600,
+};
+
+const sectionLabel: React.CSSProperties = {
+  fontSize: fontSize.sm,
+  color: colors.textMuted,
+  textTransform: "uppercase",
+  letterSpacing: "0.4px",
+  marginBottom: 6,
+};
+
+function AppInner() {
+  const {
+    servers, activeServer, serverConfig, globalConfig, status, logs, metrics, latestMetric,
+    dirty, saving, toast, connect, disconnect, saveAll, addServer, deleteServer, selectServer,
+    exportConfig, doImport, showToast, setFormValid, serverName, setServerName,
+    updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
+    addSourceRule, removeSourceRule, updateSourceRule, refreshSources,
+  } = useApp();
+
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
-  const [importError, setImportError] = useState("");
-  // @sk-task import-export--qr-config-ui#T2.1: save button highlight on import (AC-002)
-  const [importDirty, setImportDirty] = useState(false);
-  // @sk-task import-export--qr-config-ui#T3.1: QR modal state (AC-003)
   const [qrOpen, setQrOpen] = useState(false);
-  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
-  // @sk-task import-export--qr-config-ui#T1.1: toast notification (AC-001)
-  const [toast, setToast] = useState("");
-  const toastTimer = useRef<ReturnType<typeof setTimeout>>();
-  const logEndRef = useRef<HTMLDivElement>(null);
-  // @sk-task multi-server: original name for PUT URL (AC-002)
-  const originalServerRef = useRef(activeServer);
-  // @sk-task multi-server#T3.1: dirty tracking (AC-002)
-  const [dirty, setDirty] = useState(false);
-  const [switchTarget, setSwitchTarget] = useState<string | null>(null);
-  // @sk-task multi-server: collapse/expand toggles (AC-001)
-  const [allExpanded, setAllExpanded] = useState(false);
-  const sectionKey = allExpanded ? "exp" : "col";
-  // @sk-task multi-server: delete confirmation modal (AC-003)
+  const [qrData, setQrData] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  // @sk-task multi-server: last saved indicator
-  const [lastSavedAt, setLastSavedAt] = useState(0);
-  const [lastSavedText, setLastSavedText] = useState("");
 
-  // @sk-task multi-server#T3.1: load servers on mount (AC-001)
-  const loadServers = useCallback(async (switchTo?: string) => {
-    try {
-      const r = await fetch("/api/servers");
-      const data: ServersResponse = await r.json();
-      setServers(data.servers);
-      const target = switchTo || data.active_server;
-      setActiveServer(target);
-      originalServerRef.current = target;
-      const active = data.servers.find((s) => s.name === target);
-      if (active) {
-        const { name, ...cfg } = active;
-        setServerConfig(cfg);
-      }
-    } catch {}
-  }, []);
-
-  // @sk-task multi-server#T3.1: load global config on mount (AC-001)
-  const loadGlobalConfig = useCallback(async () => {
-    try {
-      const r = await fetch("/api/config");
-      const data = await r.json();
-      if (data.config) setGlobalConfig(data.config);
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    loadServers();
-    loadGlobalConfig();
-    fetch("/api/platform")
-      .then((r) => r.json())
-      .then((data) => { if (data.os) setPlatform(data.os); })
-      .catch(() => {});
-  }, [loadServers, loadGlobalConfig]);
-
-  useEffect(() => {
-    const es = new EventSource("/api/logs");
-    es.addEventListener("status", (e) => {
-      try { const d = JSON.parse(e.data); if (d.status) setStatus(d.status); } catch {}
-    });
-    es.addEventListener("log", (e) => {
-      try { const entry = JSON.parse(e.data) as LogEntry; setLogs((prev) => [...prev.slice(-999), entry]); } catch {}
-    });
-    return () => es.close();
-  }, []);
-
-  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
-
-  // @sk-task multi-server: update last saved indicator
-  useEffect(() => {
-    if (!lastSavedAt) return;
-    const tick = () => {
-      const sec = Math.floor((Date.now() - lastSavedAt) / 1000);
-      setLastSavedText(sec < 60 ? `${sec}s ago` : `${Math.floor(sec / 60)}m ago`);
-    };
-    tick();
-    const iv = setInterval(tick, 10000);
-    return () => clearInterval(iv);
-  }, [lastSavedAt]);
-
-  const filteredLogs = logs.filter((e) => {
-    if (logSearch && !e.line.toLowerCase().includes(logSearch.toLowerCase()) && !(e.ip || "").toLowerCase().includes(logSearch.toLowerCase())) return false;
-    return logFilter[e.level] ?? true;
-  });
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), 2500);
-  }, []);
-
-  // @sk-task multi-server#T3.1: switch server with dirty check (AC-002)
-  const doSwitchServer = useCallback((name: string) => {
-    const sv = servers.find((s) => s.name === name);
-    if (!sv) return;
-    setActiveServer(name);
-    originalServerRef.current = name;
-    const { name: _, ...cfg } = sv;
-    setServerConfig(cfg);
-    setDirty(false);
-    setSwitchTarget(null);
-    setStatus("disconnected");
-  }, [servers]);
-
-  // @sk-task multi-server#T3.1: switch server with dirty check (AC-002)
-  const handleSwitchServer = useCallback((name: string) => {
-    if (dirty) {
-      setSwitchTarget(name);
-    } else {
-      doSwitchServer(name);
-    }
-  }, [dirty, doSwitchServer]);
-
-  // @sk-task multi-server#T3.1: confirm or cancel server switch (AC-002)
-  const confirmSwitch = useCallback(async (action: "save" | "discard") => {
-    if (!switchTarget) return;
-    if (action === "save") {
-      await saveAll();
-    }
-    doSwitchServer(switchTarget);
-  }, [switchTarget, doSwitchServer]);
-
-  const cancelSwitch = useCallback(() => {
-    setSwitchTarget(null);
-  }, []);
-
-  // @sk-task import-export--qr-config-ui#T1.1: export to clipboard (AC-001)
-  // @sk-task multi-server#T3.2: export selected server config (AC-005)
-  const exportConfig = useCallback(async () => {
-    const json = JSON.stringify(serverConfig);
-    try {
-      await navigator.clipboard.writeText(json);
-      showToast("Config copied to clipboard");
-    } catch {
-      showToast("Failed to copy");
-    }
-  }, [serverConfig, showToast]);
-
-  // @sk-task import-export--qr-config-ui#T2.1: import from JSON (AC-002)
-  // @sk-task multi-server#T3.2: import creates new server (AC-004)
-  const doImport = useCallback(async () => {
-    setImportError("");
-    let parsed: any;
-    try {
-      parsed = JSON.parse(importText);
-      if (typeof parsed !== "object" || parsed === null) throw new Error("not an object");
-    } catch (e: any) {
-      setImportError(e.message || "Invalid JSON");
-      return;
-    }
-    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const name = `Imported ${ts}`;
-    try {
-      const r = await fetch("/api/servers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, ...parsed }),
-      });
-      if (!r.ok) {
-        const err = await r.text();
-        setImportError(err);
-        return;
-      }
-      setImportOpen(false);
-      setImportText("");
-      showToast("Server imported — switch to it and connect");
-      await loadServers();
-    } catch (e: any) {
-      setImportError(e.message || "Import failed");
-    }
-  }, [importText, showToast, loadServers]);
-
-  // @sk-task import-export--qr-config-ui#T3.1: QR code generation (AC-003)
-  // @sk-task multi-server#T3.2: QR from selected server config (AC-005)
-  const openQr = useCallback(async () => {
+  const handleQr = async () => {
+    const data = JSON.stringify({ ...serverConfig, name: activeServer }, null, 2);
+    setQrData(data);
     setQrOpen(true);
-  }, []);
-
-  useEffect(() => {
-    if (!qrOpen || !qrCanvasRef.current) return;
-    const json = JSON.stringify(serverConfig);
-    QRCode.toCanvas(qrCanvasRef.current, json, { width: 280, margin: 2 }, (err) => {
-      if (err) showToast("QR generation failed");
-    });
-  }, [qrOpen, serverConfig, showToast]);
-
-  const hasConfig = Object.keys(serverConfig).length > 0;
-
-  // @sk-task multi-server#T3.1: save global + server config (AC-001, AC-003)
-  const saveAll = useCallback(async () => {
-    setSaving(true);
-    try {
-      const r1 = await fetch("/api/config/global", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active_server: activeServer, ...globalConfig }),
-      });
-      if (!r1.ok) throw new Error("save global failed");
-      const originName = originalServerRef.current;
-      if (originName) {
-        const cfg = { ...serverConfig };
-        if (cfg.routing && typeof cfg.routing.dns_cache === "boolean") {
-          cfg.routing = { ...cfg.routing, dns_cache: { enabled: cfg.routing.dns_cache, ttl: 60 } };
-        }
-        const r2 = await fetch(`/api/servers/${encodeURIComponent(originName)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: activeServer, ...cfg }),
-        });
-        if (!r2.ok) throw new Error("save server failed");
-        originalServerRef.current = activeServer;
-      }
-      setDirty(false);
-      setImportDirty(false);
-      await loadServers();
-      setLastSavedAt(Date.now());
-      setLastSavedText("just now");
-      showToast("Saved");
-    } catch (e) {
-      showToast("Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }, [globalConfig, activeServer, serverConfig, loadServers, showToast]);
-
-  // @sk-task multi-server#T3.1: add new server cloning current config (AC-003)
-  const addServer = useCallback(async () => {
-    const n = servers.length + 1;
-    const name = `Server ${n}`;
-    try {
-      const r = await fetch("/api/servers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, ...serverConfig }),
-      });
-      if (!r.ok) return;
-      await loadServers(name);
-      setDirty(false);
-    } catch {}
-  }, [servers, loadServers, serverConfig]);
-
-  // @sk-task multi-server: delete server with modal (AC-003)
-  const deleteServer = useCallback(() => {
-    if (!activeServer || servers.length <= 1) return;
-    setDeleteTarget(activeServer);
-  }, [activeServer, servers]);
-
-  const confirmDelete = useCallback(async () => {
-    if (!deleteTarget) return;
-    try {
-      const r = await fetch(`/api/servers/${encodeURIComponent(deleteTarget)}`, { method: "DELETE" });
-      if (!r.ok) return;
-      await loadServers();
-      setDirty(false);
-      showToast(`Deleted "${deleteTarget}"`);
-    } catch {
-      showToast("Delete failed");
-    } finally {
-      setDeleteTarget(null);
-    }
-  }, [deleteTarget, loadServers, showToast]);
-
-  const saveConfig = useCallback(async () => {
-    await saveAll();
-  }, [saveAll]);
-
-  // @sk-task multi-server#T3.1: connect uses selected server (AC-006)
-  const connect = useCallback(async () => {
-    if (dirty) await saveAll();
-    if (!activeServer) { showToast("No server selected"); return; }
-    // Sync active_server to backend before connecting
-    await fetch("/api/config/global", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ active_server: activeServer, ...globalConfig }),
-    });
-    await fetch("/api/connect", { method: "POST" });
-  }, [dirty, saveAll, activeServer, globalConfig, showToast]);
-
-  const disconnect = useCallback(async () => { await fetch("/api/disconnect", { method: "POST" }); }, []);
-
-  // @sk-task multi-server#T3.1: mark dirty on any server field change (AC-002)
-  const updateServer = <K extends keyof ClientConfig>(key: K, value: ClientConfig[K]) => {
-    setServerConfig((prev) => ({ ...prev, [key]: value }));
-    setDirty(true);
-  };
-  const nestServer = (parent: string, key: string, value: any) => {
-    setServerConfig((prev) => ({ ...prev, [parent]: { ...((prev as any)[parent] || {}), [key]: value } }));
-    setDirty(true);
-  };
-  const nestServer2 = (parent: string, child: string, key: string, value: any) => {
-    setServerConfig((prev) => ({ ...prev, [parent]: { ...((prev as any)[parent] || {}), [child]: { ...((((prev as any)[parent] || {}) as any)[child] || {}), [key]: value } } }));
-    setDirty(true);
-  };
-  const updateGlobal = <K extends keyof ClientConfig>(key: K, value: ClientConfig[K]) => {
-    setGlobalConfig((prev) => ({ ...prev, [key]: value }));
-    setDirty(true);
-  };
-  const nestGlobal = (parent: string, key: string, value: any) => {
-    setGlobalConfig((prev) => ({ ...prev, [parent]: { ...((prev as any)[parent] || {}), [key]: value } }));
-    setDirty(true);
   };
 
-  // @sk-task dns-upstreams-list#T3.4: DNS upstreams list management (AC-008)
-  const updateDNSUpstream = (idx: number, value: string) => {
-    setGlobalConfig((prev) => {
-      const proxy = { ...((prev as any).dns_proxy || {}), listen: (prev as any).dns_proxy?.listen || "127.0.0.54:53" };
-      const upstreams = [...(proxy.upstreams || ["1.1.1.1:53"])];
-      if (idx >= 0 && idx < upstreams.length) upstreams[idx] = value;
-      proxy.upstreams = upstreams;
-      delete proxy.upstream;
-      return { ...prev, dns_proxy: proxy };
-    });
-    setDirty(true);
-  };
-  const addDNSUpstream = () => {
-    setGlobalConfig((prev) => {
-      const proxy = { ...((prev as any).dns_proxy || {}), listen: (prev as any).dns_proxy?.listen || "127.0.0.54:53" };
-      const upstreams = [...(proxy.upstreams || ["1.1.1.1:53"])];
-      upstreams.push("8.8.8.8:53");
-      proxy.upstreams = upstreams;
-      delete proxy.upstream;
-      return { ...prev, dns_proxy: proxy };
-    });
-    setDirty(true);
-  };
-  const removeDNSUpstream = (idx: number) => {
-    setGlobalConfig((prev) => {
-      const proxy = { ...((prev as any).dns_proxy || {}), listen: (prev as any).dns_proxy?.listen || "127.0.0.54:53" };
-      const upstreams = [...(proxy.upstreams || ["1.1.1.1:53"])];
-      if (idx >= 0 && idx < upstreams.length) upstreams.splice(idx, 1);
-      proxy.upstreams = upstreams.length > 0 ? upstreams : ["1.1.1.1:53"];
-      delete proxy.upstream;
-      return { ...prev, dns_proxy: proxy };
-    });
-    setDirty(true);
-  };
-
-  // @sk-task geoip-geosite-integration#T5.1: source rule editing (AC-010)
-  const updateSourceRule = (list: "include_sources" | "exclude_sources", idx: number, field: string, value: string | undefined) => {
-    setServerConfig((prev) => {
-      const routing = { ...((prev as any).routing || {}) };
-      const sources = [...(routing[list] || [])];
-      sources[idx] = { ...sources[idx], [field]: value || undefined };
-      // clear other fields
-      ["geoip", "geosite", "cidr", "url"].forEach((f) => { if (f !== field) delete sources[idx][f]; });
-      routing[list] = sources;
-      return { ...prev, routing };
-    });
-    setDirty(true);
-  };
-  const addSourceRule = (list: "include_sources" | "exclude_sources") => {
-    setServerConfig((prev) => {
-      const routing = { ...((prev as any).routing || {}) };
-      routing[list] = [...(routing[list] || []), {}];
-      return { ...prev, routing };
-    });
-    setDirty(true);
-  };
-  const removeSourceRule = (list: "include_sources" | "exclude_sources", idx: number) => {
-    setServerConfig((prev) => {
-      const routing = { ...((prev as any).routing || {}) };
-      routing[list] = (routing[list] || []).filter((_: any, i: number) => i !== idx);
-      return { ...prev, routing };
-    });
-    setDirty(true);
-  };
-  // @sk-task geoip-geosite-integration#T5.1: refresh sources (AC-011)
-  const refreshSources = useCallback(async () => {
-    try {
-      const r = await fetch("/api/config/refresh-sources", { method: "POST" });
-      const data = await r.json();
-      showToast(data.status === "ok" ? "Sources refreshed" : data.status || "Refresh done");
-    } catch {
-      showToast("Refresh failed");
-    }
-  }, [showToast]);
-
-  const sc = status === "connected" ? "#4caf50" : status === "error" ? "#f44336" : status === "connecting" ? "#ff9800" : "#666";
+  const isConnected = status === "connected" || status === "connecting";
 
   return (
-    <div style={{ display: "flex", height: "100vh", fontFamily: "'Segoe UI', system-ui, sans-serif", color: "#d0d0d0", background: "#161616" }}>
-
-      {/* Left: Settings */}
-      <div style={{ width: 480, minWidth: 480, display: "flex", flexDirection: "column", borderRight: "1px solid #2a2a2a" }}>
-        {/* Header */}
-        <div style={{ padding: "8px 12px", borderBottom: "1px solid #2a2a2a", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontWeight: 700, fontSize: 14, marginRight: "auto" }}>KVN Web UI</span>
-          {/* @sk-task multi-server#T3.1: server selector dropdown (AC-001) */}
-          <select value={activeServer} onChange={(e) => handleSwitchServer(e.target.value)}
-            style={{ background: "#222", color: "#e0e0e0", border: "1px solid #444", borderRadius: 4, padding: "3px 6px", fontSize: 12 }}>
-            {servers.map((s) => (
-              <option key={s.name} value={s.name}>{s.name}</option>
-            ))}
-          </select>
-          <button onClick={connect} disabled={status === "connecting" || status === "connected"}
-            style={{ padding: "4px 10px", background: "#2e7d32", border: "none", borderRadius: 4, color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 600, opacity: status === "connected" || status === "connecting" ? 0.5 : 1 }}>
-            Connect
-          </button>
-          <button onClick={disconnect} disabled={status === "disconnected"}
-            style={{ padding: "4px 10px", background: "#b71c1c", border: "none", borderRadius: 4, color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 600, opacity: status === "disconnected" ? 0.5 : 1 }}>
-            Disconnect
-          </button>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: sc, display: "inline-block" }} />
-          <span style={{ color: sc, fontSize: 10, textTransform: "uppercase", fontWeight: 600 }}>{status}</span>
-        </div>
-
-        {/* Switch confirm dialog */}
-        {switchTarget && (
-          <div style={{ padding: "8px 12px", borderBottom: "1px solid #ff9800", background: "#2a2a00" }}>
-            <div style={{ fontSize: 12, color: "#ff9800", marginBottom: 6 }}>Unsaved changes — save before switching?</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => confirmSwitch("save")}
-                style={{ padding: "4px 10px", background: "#1a5a9e", border: "none", borderRadius: 4, color: "#fff", fontSize: 11, cursor: "pointer" }}>Save & Switch</button>
-              <button onClick={() => confirmSwitch("discard")}
-                style={{ padding: "4px 10px", background: "#555", border: "none", borderRadius: 4, color: "#ccc", fontSize: 11, cursor: "pointer" }}>Discard & Switch</button>
-              <button onClick={cancelSwitch}
-                style={{ padding: "4px 10px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+    <div style={{ display: "flex", gap: 16, maxWidth: 1260, width: "100%", margin: "0 auto", height: "calc(100vh - 48px)" }}>
+      {/* Left Panel */}
+      <div style={{ width: 500, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Header card */}
+        <div style={cardStyle}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>
+              <span style={{ color: colors.accent }}>KVN</span> <span style={{ color: colors.text }}>Web UI</span>
             </div>
-          </div>
-        )}
-
-        {/* Buttons */}
-        <div style={{ padding: "8px 12px", display: "flex", gap: 6, borderBottom: "1px solid #2a2a2a", flexWrap: "wrap", alignItems: "center" }}>
-          <button onClick={saveConfig} disabled={saving}
-            style={{ padding: "7px 12px", background: importDirty || dirty ? "#f57c00" : "#1a5a9e", border: "none", borderRadius: 4, color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
-            {saving ? "..." : importDirty || dirty ? "Save ⚡" : "Save"}
-          </button>
-          {lastSavedText && <span style={{ fontSize: 10, color: "#555" }}>{lastSavedText}</span>}
-          {/* @sk-task multi-server#T3.1: Add/Delete server buttons (AC-003) */}
-          <button onClick={addServer}
-            style={{ padding: "7px 10px", background: "#2a5a2a", border: "1px solid #3a7a3a", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer" }}>
-            + Add
-          </button>
-          <button onClick={deleteServer} disabled={servers.length <= 1}
-            style={{ padding: "7px 10px", background: "#5a2a2a", border: "1px solid #7a3a3a", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer", opacity: servers.length <= 1 ? 0.4 : 1 }}>
-            Delete
-          </button>
-          {/* @sk-task import-export--qr-config-ui#T1.1: Export button (AC-001) */}
-          <button onClick={exportConfig}
-            style={{ padding: "7px 10px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer" }}>
-            Export
-          </button>
-          {/* @sk-task import-export--qr-config-ui#T2.1: Import button (AC-002) */}
-          <button onClick={() => { setImportOpen(!importOpen); setImportError(""); }}
-            style={{ padding: "7px 10px", background: importOpen ? "#555" : "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer" }}>
-            Import
-          </button>
-          {/* @sk-task import-export--qr-config-ui#T3.1: QR button (AC-003) */}
-          <button onClick={openQr} disabled={!hasConfig}
-            style={{ padding: "7px 10px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer", opacity: hasConfig ? 1 : 0.4 }}>
-            QR
-          </button>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            <button onClick={() => setAllExpanded(!allExpanded)}
-              style={{ padding: "4px 8px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#aaa", fontSize: 11, cursor: "pointer" }}>
-              {allExpanded ? "▴ Collapse" : "▾ Expand"}
-            </button>
-          </div>
-        </div>
-        {/* @sk-task import-export--qr-config-ui#T2.1: Import textarea (AC-002) */}
-        {importOpen && (
-          <div style={{ padding: "8px 12px", borderBottom: "1px solid #2a2a2a" }}>
-            <textarea style={{ ...inp, minHeight: 100, fontSize: 11, fontFamily: "monospace" }}
-              placeholder="Paste JSON config here..."
-              value={importText} onChange={(e) => setImportText(e.target.value)} />
-            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-              <button onClick={doImport}
-                style={{ padding: "5px 12px", background: "#1a5a9e", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, cursor: "pointer" }}>
-                Import as new server
-              </button>
-              <button onClick={() => { setImportOpen(false); setImportText(""); setImportError(""); }}
-                style={{ padding: "5px 12px", background: "#555", border: "none", borderRadius: 4, color: "#ccc", fontSize: 12, cursor: "pointer" }}>
-                Cancel
-              </button>
-            </div>
-            {importError && <div style={{ color: "#f44336", fontSize: 11, marginTop: 4 }}>{importError}</div>}
-          </div>
-        )}
-
-        {/* @sk-task import-export--qr-config-ui#T3.1: QR modal (AC-003) */}
-        {qrOpen && (
-          <div style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex",
-            alignItems: "center", justifyContent: "center", zIndex: 1000,
-          }} onClick={() => setQrOpen(false)}>
             <div style={{
-              background: "#fff", padding: 24, borderRadius: 12, display: "flex",
-              flexDirection: "column", alignItems: "center", gap: 12,
-            }} onClick={(e) => e.stopPropagation()}>
-              <canvas ref={qrCanvasRef} />
-              <button onClick={() => { setQrOpen(false); navigator.clipboard.writeText(JSON.stringify(serverConfig)); showToast("Config copied"); }}
-                style={{ padding: "6px 16px", background: "#1a5a9e", border: "none", borderRadius: 4, color: "#fff", fontSize: 13, cursor: "pointer" }}>
-                Copy & Close
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* @sk-task multi-server: Delete confirmation modal (AC-003) */}
-        {deleteTarget && (
-          <div style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex",
-            alignItems: "center", justifyContent: "center", zIndex: 1000,
-          }} onClick={() => setDeleteTarget(null)}>
-            <div style={{
-              background: "#1e1e1e", padding: 24, borderRadius: 12, display: "flex",
-              flexDirection: "column", alignItems: "center", gap: 16, border: "1px solid #7a3a3a",
-            }} onClick={(e) => e.stopPropagation()}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#f44336" }}>Delete server</div>
-              <div style={{ fontSize: 13, color: "#ccc" }}>
-                Delete <strong style={{ color: "#e0e0e0" }}>{deleteTarget}</strong>?
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={confirmDelete}
-                  style={{ padding: "7px 16px", background: "#b71c1c", border: "none", borderRadius: 4, color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
-                  Delete
-                </button>
-                <button onClick={() => setDeleteTarget(null)}
-                  style={{ padding: "7px 16px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", fontSize: 13, cursor: "pointer" }}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* @sk-task import-export--qr-config-ui#T1.1: Toast notification (AC-001) */}
-        {toast && (
-          <div style={{
-            position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-            background: "#333", color: "#e0e0e0", padding: "8px 20px", borderRadius: 8,
-            fontSize: 13, zIndex: 1001, border: "1px solid #555",
-          }}>
-            {toast}
-          </div>
-        )}
-
-        {/* Scrollable settings */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
-          {/* @sk-task multi-server#T3.1: server-specific settings section (AC-003) */}
-          <Section key={`srv-${sectionKey}`} title={`Server: ${activeServer}`} defaultOpen={true}>
-            <label style={lbl}>Name
-              <input style={inp} placeholder="Server name" value={activeServer} onChange={(e) => {
-                const newName = e.target.value;
-                setActiveServer(newName);
-                setDirty(true);
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "4px 12px", borderRadius: 20,
+              background: status === "connected" ? colors.successBg : status === "error" ? colors.errorBg : colors.cardBg,
+              color: status === "connected" ? colors.success : status === "error" ? colors.error : colors.textDim,
+              fontSize: 12, fontWeight: 600,
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: "50%",
+                background: status === "connected" ? colors.success : status === "error" ? colors.error : colors.textMuted,
+                boxShadow: status === "connected" ? `0 0 6px ${colors.success}55` : "none",
               }} />
-            </label>
-            <label style={lbl}>Server
-              <input style={inp} placeholder="wss://example.com/tunnel" value={serverConfig.server || ""} onChange={(e) => updateServer("server", e.target.value)} />
-            </label>
-            <label style={lbl}>Token
-              <div style={{ display: "flex", gap: 3 }}>
-                <input type={showToken ? "text" : "password"} style={inp} placeholder="auth token" value={serverConfig.auth?.token || ""}
-                  onChange={(e) => nestServer("auth", "token", e.target.value)} />
-                <button onClick={() => setShowToken(!showToken)} style={{ padding: "4px 6px", background: "#333", border: "1px solid #444", borderRadius: 4, color: "#aaa", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>
-                  {showToken ? "Hide" : "Show"}
-                </button>
-              </div>
-            </label>
-            <label style={lbl}>Mode
-              <select style={inp} value={serverConfig.mode || "proxy"} onChange={(e) => updateServer("mode", e.target.value)}>
-                <option value="proxy">Proxy (SOCKS5/HTTP)</option>
-                {platform === "linux" && <option value="tun">TUN</option>}
-              </select>
-              {platform !== "linux" && <div style={{ color: "#888", fontSize: 10, marginTop: 2 }}>TUN mode not available on {platform}</div>}
-            </label>
-            <label style={lbl}>Transport
-              <select style={inp} value={serverConfig.transport || "tcp"} onChange={(e) => updateServer("transport", e.target.value)}>
-                <option value="tcp">TCP (WebSocket)</option>
-                <option value="quic">QUIC (UDP)</option>
-              </select>
-            </label>
-          </Section>
+              {status}
+            </div>
+          </div>
 
-          <Section key={`tls-${sectionKey}`} title="TLS" defaultOpen={allExpanded}>
-            <label style={lbl}>Verify Mode
-              <select style={inp} value={serverConfig.tls?.verify_mode || "verify"} onChange={(e) => nestServer("tls", "verify_mode", e.target.value)}>
-                <option value="verify">Verify</option>
-                <option value="insecure">Insecure</option>
-                <option value="none">None</option>
-              </select>
-            </label>
-            <label style={lbl}>Server Name (SNI)
-              <input style={inp} placeholder="example.com" value={serverConfig.tls?.server_name || ""} onChange={(e) => nestServer("tls", "server_name", e.target.value)} />
-            </label>
-            <label style={lbl}>CA File
-              <input style={inp} placeholder="/path/to/ca.pem" value={serverConfig.tls?.ca_file || ""} onChange={(e) => nestServer("tls", "ca_file", e.target.value)} />
-            </label>
-            {/* @sk-task whitelist-obfuscation#T3.3: SNI chip list (AC-004) */}
-            <ChipList label="Custom SNI (random on connect)" values={serverConfig.tls?.sni} onChange={(v) => nestServer("tls", "sni", v)} />
-          </Section>
+          {/* Traffic Meter - only when connected */}
+          {status === "connected" && (
+            <TrafficMeter metrics={metrics} latest={latestMetric} />
+          )}
+        </div>
 
-          <Section key={`adv-${sectionKey}`} title="Advanced" defaultOpen={allExpanded}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              <label style={lbl}>MTU
-                <input type="number" style={inp} value={serverConfig.mtu ?? 1400} onChange={(e) => updateServer("mtu", e.target.value ? parseInt(e.target.value) : 1400)} />
-              </label>
-              <label style={lbl}>Max Message Size (bytes)
-                <input type="number" style={inp} value={serverConfig.max_message_size ?? 10485760} onChange={(e) => updateServer("max_message_size", e.target.value ? parseInt(e.target.value) : 10485760)} />
-              </label>
-            </div>
-            <Checkbox checked={serverConfig.ipv6 ?? false} onChange={(v) => updateServer("ipv6", v)} label="Enable IPv6" />
-            <Checkbox checked={serverConfig.auto_reconnect ?? true} onChange={(v) => updateServer("auto_reconnect", v)} label="Auto Reconnect" />
-            <Checkbox checked={serverConfig.multiplex ?? false} onChange={(v) => updateServer("multiplex", v)} label="Multiplex" />
-            {/* @sk-task whitelist-obfuscation#T3.3: obfuscation sub-settings (AC-005) */}
-            <Checkbox checked={serverConfig.obfuscation?.enabled ?? false} onChange={(v) => nestServer("obfuscation", "enabled", v)} label="Obfuscation (anti-DPI)" />
-            {serverConfig.obfuscation?.enabled && <div style={{ marginLeft: 16, marginTop: 4, padding: "6px 8px", borderLeft: "2px solid #333" }}>
-              <Checkbox checked={serverConfig.obfuscation?.utls?.enabled ?? false} onChange={(v) => nestServer2("obfuscation", "utls", "enabled", v)} label="uTLS (Chrome JA3 fingerprint)" />
-              {serverConfig.obfuscation?.utls?.enabled && <div style={{ marginLeft: 16 }}>
-                <Checkbox checked={serverConfig.obfuscation?.utls?.fallback ?? true} onChange={(v) => nestServer2("obfuscation", "utls", "fallback", v)} label="uTLS Fallback (crypto/tls on error)" />
-              </div>}
-              <Checkbox checked={serverConfig.obfuscation?.padding?.enabled ?? false} onChange={(v) => nestServer2("obfuscation", "padding", "enabled", v)} label="WS Padding (fixed packet size)" />
-              {serverConfig.obfuscation?.padding?.enabled && <div style={{ marginLeft: 16 }}>
-                <label style={lbl}>Padding Size
-                  <input type="number" style={inp} value={serverConfig.obfuscation?.padding?.size ?? 512} onChange={(e) => nestServer2("obfuscation", "padding", "size", parseInt(e.target.value) || 512)} />
-                </label>
-              </div>}
-            </div>}
-          </Section>
+        {/* Server selector + actions */}
+        <div style={{ ...cardStyle, padding: "12px 16px" }}>
+          <div style={sectionLabel}>Active Server</div>
+          <ServerCards
+            servers={servers}
+            activeServer={activeServer}
+            status={status}
+            onSelect={selectServer}
+            onAdd={addServer}
+            onDelete={(name) => setDeleteTarget(name)}
+            onCopyConfig={(name) => {
+              const srv = servers.find(s => s.name === name);
+              if (srv) navigator.clipboard.writeText(JSON.stringify(srv, null, 2)).then(() => showToast("Config copied")).catch(() => {});
+            }}
+          />
 
-          <Section key={`route-${sectionKey}`} title="Routing" defaultOpen={allExpanded}>
-            <label style={lbl}>Default Route
-              <select style={inp} value={serverConfig.routing?.default_route || "server"} onChange={(e) => nestServer("routing", "default_route", e.target.value)}>
-                <option value="server">Server (VPN)</option>
-                <option value="direct">Direct (bypass)</option>
-              </select>
-            </label>
-            <ChipList label="Include CIDR" values={serverConfig.routing?.include_ranges} onChange={(v) => nestServer("routing", "include_ranges", v)} />
-            <ChipList label="Exclude CIDR" values={serverConfig.routing?.exclude_ranges} onChange={(v) => nestServer("routing", "exclude_ranges", v)} />
-            <ChipList label="Include IPs" values={serverConfig.routing?.include_ips} onChange={(v) => nestServer("routing", "include_ips", v)} />
-            <ChipList label="Exclude IPs" values={serverConfig.routing?.exclude_ips} onChange={(v) => nestServer("routing", "exclude_ips", v)} />
-            <ChipList label="Include Domains" values={serverConfig.routing?.include_domains} onChange={(v) => nestServer("routing", "include_domains", v)} />
-            <ChipList label="Exclude Domains" values={serverConfig.routing?.exclude_domains} onChange={(v) => nestServer("routing", "exclude_domains", v)} />
-            <div style={{ marginTop: 4, padding: "6px 8px", border: "1px solid #2a2a2a", borderRadius: 4 }}>
-              <div style={{ fontSize: 12, color: "#888", fontWeight: 500, marginBottom: 4 }}>GeoIP / GeoSite Databases</div>
-              <label style={lbl}>GeoIP Path
-                <input style={inp} placeholder="/etc/geoip.dat" value={serverConfig.routing?.geoip_path || ""} onChange={(e) => nestServer("routing", "geoip_path", e.target.value)} />
-              </label>
-              <label style={lbl}>GeoIP URL
-                <input style={inp} placeholder="https://example.com/geoip.dat" value={serverConfig.routing?.geoip_url || ""} onChange={(e) => nestServer("routing", "geoip_url", e.target.value)} />
-              </label>
-              <label style={lbl}>GeoSite Path
-                <input style={inp} placeholder="/etc/geosite.dat" value={serverConfig.routing?.geosite_path || ""} onChange={(e) => nestServer("routing", "geosite_path", e.target.value)} />
-              </label>
-              <label style={lbl}>GeoSite URL
-                <input style={inp} placeholder="https://example.com/geosite.dat" value={serverConfig.routing?.geosite_url || ""} onChange={(e) => nestServer("routing", "geosite_url", e.target.value)} />
-              </label>
-              <label style={lbl}>Source TTL (hours)
-                <input type="number" style={inp} value={serverConfig.routing?.source_ttl_hours ?? 24} onChange={(e) => nestServer("routing", "source_ttl_hours", parseInt(e.target.value) || 24)} />
-              </label>
-            </div>
-            {/* @sk-task geoip-geosite-integration#T5.1: routing sources UI (AC-010) */}
-            <div style={{ marginTop: 8, padding: "6px 8px", border: "1px solid #2a2a2a", borderRadius: 4 }}>
-              <div style={{ fontSize: 12, color: "#888", fontWeight: 500, marginBottom: 4 }}>Include Sources</div>
-              {(serverConfig.routing?.include_sources || []).map((src, i) => (
-                <div key={i} style={{ display: "flex", gap: 3, marginBottom: 3, alignItems: "center" }}>
-                  <select style={{ ...inp, width: 80, fontSize: 11 }} value={src.geoip ? "geoip" : src.geosite ? "geosite" : src.cidr ? "cidr" : src.url ? "url" : "geoip"}
-                    onChange={(e) => updateSourceRule("include_sources", i, e.target.value, "")}>
-                    <option value="geoip">GeoIP</option>
-                    <option value="geosite">GeoSite</option>
-                    <option value="cidr">CIDR</option>
-                    <option value="url">URL</option>
-                  </select>
-                  <input style={{ ...inp, flex: 1, fontSize: 11 }} placeholder="value"
-                    value={src.geoip || src.geosite || src.cidr || src.url || ""}
-                    onChange={(e) => {
-                      const type = src.geoip ? "geoip" : src.geosite ? "geosite" : src.cidr ? "cidr" : src.url ? "url" : "geoip";
-                      updateSourceRule("include_sources", i, type, e.target.value);
-                    }} />
-                  <button onClick={() => removeSourceRule("include_sources", i)}
-                    style={{ padding: "2px 6px", background: "#5a2a2a", border: "1px solid #7a3a3a", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 12 }}>×</button>
-                </div>
-              ))}
-              <button onClick={() => addSourceRule("include_sources")}
-                style={{ padding: "3px 8px", background: "#2a5a2a", border: "1px solid #3a7a3a", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 11, marginTop: 2 }}>+ Add Source</button>
-            </div>
-            <div style={{ marginTop: 4, padding: "6px 8px", border: "1px solid #2a2a2a", borderRadius: 4 }}>
-              <div style={{ fontSize: 12, color: "#888", fontWeight: 500, marginBottom: 4 }}>Exclude Sources</div>
-              {(serverConfig.routing?.exclude_sources || []).map((src, i) => (
-                <div key={i} style={{ display: "flex", gap: 3, marginBottom: 3, alignItems: "center" }}>
-                  <select style={{ ...inp, width: 80, fontSize: 11 }} value={src.geoip ? "geoip" : src.geosite ? "geosite" : src.cidr ? "cidr" : src.url ? "url" : "geoip"}
-                    onChange={(e) => updateSourceRule("exclude_sources", i, e.target.value, "")}>
-                    <option value="geoip">GeoIP</option>
-                    <option value="geosite">GeoSite</option>
-                    <option value="cidr">CIDR</option>
-                    <option value="url">URL</option>
-                  </select>
-                  <input style={{ ...inp, flex: 1, fontSize: 11 }} placeholder="value"
-                    value={src.geoip || src.geosite || src.cidr || src.url || ""}
-                    onChange={(e) => {
-                      const type = src.geoip ? "geoip" : src.geosite ? "geosite" : src.cidr ? "cidr" : src.url ? "url" : "geoip";
-                      updateSourceRule("exclude_sources", i, type, e.target.value);
-                    }} />
-                  <button onClick={() => removeSourceRule("exclude_sources", i)}
-                    style={{ padding: "2px 6px", background: "#5a2a2a", border: "1px solid #7a3a3a", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 12 }}>×</button>
-                </div>
-              ))}
-              <button onClick={() => addSourceRule("exclude_sources")}
-                style={{ padding: "3px 8px", background: "#2a5a2a", border: "1px solid #3a7a3a", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 11, marginTop: 2 }}>+ Add Source</button>
-            </div>
-            <button onClick={refreshSources}
-              style={{ padding: "4px 10px", background: "#333", border: "1px solid #555", borderRadius: 4, color: "#ccc", cursor: "pointer", fontSize: 11, marginTop: 4 }}>
-              Refresh Sources
-            </button>
-            {/* @sk-task dns-response-tracker#T3.4: DNS cache enabled checkbox + TTL input (AC-003) */}
-            <div style={{ marginTop: 8, padding: "6px 8px", border: "1px solid #2a2a2a", borderRadius: 4 }}>
-              <Checkbox checked={serverConfig.routing?.dns_cache?.enabled ?? false} onChange={(v) => nestServer2("routing", "dns_cache", "enabled", v)} label="DNS Cache (IP→domain tracking)" />
-              <div style={{ fontSize: 10, color: "#555", marginTop: 2, marginBottom: 4 }}>Track DNS responses for domain-based routing rules by IP</div>
-              {serverConfig.routing?.dns_cache?.enabled && <label style={lbl}>DNS Cache TTL (s)
-                <input type="number" style={inp} value={serverConfig.routing?.dns_cache?.ttl ?? 60} onChange={(e) => nestServer2("routing", "dns_cache", "ttl", parseInt(e.target.value) || 60)} />
-              </label>}
-            </div>
-          </Section>
-
-          <Section key={`ks-${sectionKey}`} title="Kill Switch & Reconnect" defaultOpen={allExpanded}>
-            <Checkbox checked={serverConfig.kill_switch?.enabled ?? false} onChange={(v) => nestServer("kill_switch", "enabled", v)} label="Kill Switch (block on disconnect)" />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 6 }}>
-              <label style={lbl}>Min Backoff (s)
-                <input type="number" style={inp} value={serverConfig.reconnect?.min_backoff_sec ?? 1} onChange={(e) => nestServer("reconnect", "min_backoff_sec", parseInt(e.target.value) || 1)} />
-              </label>
-              <label style={lbl}>Max Backoff (s)
-                <input type="number" style={inp} value={serverConfig.reconnect?.max_backoff_sec ?? 30} onChange={(e) => nestServer("reconnect", "max_backoff_sec", parseInt(e.target.value) || 30)} />
-              </label>
-            </div>
-          </Section>
-
-          <Section key={`enc-${sectionKey}`} title="Encryption" defaultOpen={allExpanded}>
-            <Checkbox checked={serverConfig.crypto?.enabled ?? false} onChange={(v) => nestServer("crypto", "enabled", v)} label="AES-256-GCM Encryption" />
-            {serverConfig.crypto?.enabled && (
-              <label style={lbl}>Key
-                <input type="password" style={inp} placeholder="hex 256-bit key" value={serverConfig.crypto?.key || ""} onChange={(e) => nestServer("crypto", "key", e.target.value)} />
-              </label>
-            )}
-          </Section>
-
-          {/* @sk-task multi-server#T3.1: global settings section (AC-001) */}
-          <Section key={`global-${sectionKey}`} title="Global Settings" defaultOpen={allExpanded}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              <label style={lbl}>Log Level
-                <select style={inp} value={globalConfig.log?.level || "info"} onChange={(e) => nestGlobal("log", "level", e.target.value)}>
-                  <option value="debug">Debug</option>
-                  <option value="info">Info</option>
-                  <option value="warn">Warn</option>
-                  <option value="error">Error</option>
-                </select>
-                <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>Client log level (file/terminal). Live Log filter below.</div>
-              </label>
-            </div>
-            <label style={lbl}>Proxy Listen
-              <input style={inp} placeholder="127.0.0.1:2310" value={globalConfig.proxy_listen || "127.0.0.1:2310"} onChange={(e) => updateGlobal("proxy_listen", e.target.value)} />
-            </label>
-            <label style={lbl}>Proxy Username
-              <input style={inp} value={globalConfig.proxy_auth?.username || ""} onChange={(e) => nestGlobal("proxy_auth", "username", e.target.value)} />
-            </label>
-            <label style={lbl}>Proxy Password
-              <input type="password" style={inp} value={globalConfig.proxy_auth?.password || ""} onChange={(e) => nestGlobal("proxy_auth", "password", e.target.value)} />
-            </label>
-            {/* @sk-task system-proxy#T2.2: system proxy checkbox (AC-001) */}
-            <Checkbox checked={globalConfig.system_proxy ?? true} onChange={(v) => updateGlobal("system_proxy", v)} label="Use as system proxy" />
-            {/* @sk-task transparent-proxy#T3.1: transparent proxy checkbox (AC-001) */}
-            {platform === "linux" ? (
-              <Checkbox checked={globalConfig.transparent ?? false} onChange={(v) => updateGlobal("transparent", v)} label="Transparent proxy (iptables REDIRECT)" />
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {isConnected ? (
+              <button style={btnDanger} onClick={disconnect}>Disconnect</button>
             ) : (
-              <div style={{ color: "#888", fontSize: 11, marginTop: 4 }}>Transparent proxy not available on {platform}</div>
-            )}
-            {/* @sk-task dns-upstreams-list#T3.4: DNS upstreams list management (AC-008) */}
-            <div style={{ marginTop: 8, padding: "6px 8px", borderLeft: "2px solid #333" }}>
-              <label style={lbl}>DNS Proxy Listen
-                <input style={inp} placeholder="127.0.0.54:53" value={globalConfig.dns_proxy?.listen || "127.0.0.54:53"} onChange={(e) => nestGlobal("dns_proxy", "listen", e.target.value)} />
-              </label>
-              <div style={{ marginBottom: 4, fontSize: 12, color: "#888", fontWeight: 500 }}>DNS Upstreams (trusted resolvers, tried in order):</div>
-              {(globalConfig.dns_proxy?.upstreams?.length ? globalConfig.dns_proxy.upstreams : globalConfig.dns_proxy?.upstream ? [globalConfig.dns_proxy.upstream] : ["1.1.1.1:53"]).map((u, i) => (
-                <div key={i} style={{ display: "flex", gap: 4, marginBottom: 4, alignItems: "center" }}>
-                  <input style={{ ...inp, flex: 1 }} placeholder="1.1.1.1:53" value={u} onChange={(e) => updateDNSUpstream(i, e.target.value)} />
-                  <button onClick={() => removeDNSUpstream(i)} style={{ background: "#500", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", padding: "4px 8px", fontSize: 12 }}>×</button>
-                </div>
-              ))}
-              <button onClick={addDNSUpstream} style={{ background: "#335", color: "#e0e0e0", border: "1px solid #448", borderRadius: 4, cursor: "pointer", padding: "4px 10px", fontSize: 11, marginTop: 2 }}>
-                + Add DNS Upstream
+              <button style={btnPrimary} onClick={connect} disabled={saving}>
+                Connect
               </button>
-              <div style={{ fontSize: 10, color: "#555", marginTop: 4 }}>DNS queries are forwarded through the tunnel to these resolvers in order. The first responsive resolver is used.</div>
+            )}
+            <button style={btnSuccess} onClick={saveAll} disabled={saving}>
+              Save{dirty ? " ●" : ""}
+            </button>
+            <button style={btnInfo} onClick={exportConfig}>Export</button>
+            <button style={btnInfo} onClick={() => setImportOpen(!importOpen)}>Import</button>
+            <button style={btnPrimary} onClick={handleQr} title="QR Code">
+              <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor" style={{ display: "block" }}>
+                <rect x="1" y="1" width="7" height="7" rx="1.2" />
+                <rect x="3" y="3" width="3" height="3" rx="0.5" fill="#111" />
+                <rect x="12" y="1" width="7" height="3" rx="0.8" />
+                <rect x="1" y="12" width="7" height="3" rx="0.8" />
+                <rect x="12" y="8" width="3" height="7" rx="0.8" />
+                <rect x="12" y="16" width="7" height="3" rx="0.8" />
+                <rect x="16" y="12" width="3" height="3" rx="0.5" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Import panel */}
+          {importOpen && (
+            <div style={{ marginTop: 8 }}>
+              <textarea
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder="Paste server JSON config..."
+                style={{
+                  width: "100%", height: 80, padding: 8,
+                  borderRadius: borderRadius.md,
+                  border: `1px solid ${colors.inputBorder}`,
+                  background: colors.inputBg,
+                  color: colors.text,
+                  fontSize: 12, fontFamily: "monospace",
+                  resize: "vertical",
+                }}
+              />
+              <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                <button style={btnPrimary} onClick={() => { doImport(importText); setImportOpen(false); setImportText(""); }}>
+                  Import
+                </button>
+                <button style={btnOutline} onClick={() => setImportOpen(false)}>Cancel</button>
+              </div>
             </div>
-          </Section>
+          )}
+        </div>
+
+        {/* Settings form */}
+        <div style={{ ...cardStyle, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={sectionLabel}>Server Settings</div>
+          <TabbedForm
+            serverConfig={serverConfig}
+            globalConfig={globalConfig}
+            serverName={serverName}
+            onServerNameChange={setServerName}
+            onUpdateServer={updateServer}
+            onNestServer={nestServer}
+            onNestServer2={nestServer2}
+            onUpdateGlobal={updateGlobal}
+            onNestGlobal={nestGlobal}
+            onAddSourceRule={addSourceRule}
+            onRemoveSourceRule={removeSourceRule}
+            onUpdateSourceRule={updateSourceRule}
+            onRefreshSources={refreshSources}
+            onFormValidityChange={setFormValid}
+          />
         </div>
       </div>
 
-      {/* Right: Logs */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ padding: "6px 12px", borderBottom: "1px solid #2a2a2a", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#666", letterSpacing: "0.5px" }}>LIVE LOG</span>
-          {["debug", "info", "warn", "error"].map((lvl) => (
-            <label key={lvl} style={{ fontSize: 11, color: "#888", cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
-              <input type="checkbox" checked={logFilter[lvl] ?? true} onChange={(e) => setLogFilter((p) => ({ ...p, [lvl]: e.target.checked }))}
-                style={{ cursor: "pointer" }} />
-              <span style={{ color: lvl === "error" ? "#f44336" : lvl === "warn" ? "#ff9800" : lvl === "info" ? "#c0c0c0" : "#666" }}>{lvl}</span>
-            </label>
-          ))}
-          <input style={{ flex: 1, minWidth: 100, padding: "3px 6px", border: "1px solid #444", background: "#222", color: "#e0e0e0", borderRadius: 4, fontSize: 11 }}
-            placeholder="Filter IP or text..." value={logSearch} onChange={(e) => setLogSearch(e.target.value)} />
-          {filteredLogs.length !== logs.length && <span style={{ fontSize: 10, color: "#555" }}>{filteredLogs.length}/{logs.length}</span>}
+      {/* Right Panel - Logs */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <div style={{ ...cardStyle, flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <LogPanel logs={logs} />
         </div>
-        <pre style={{ flex: 1, margin: 0, padding: 12, overflowY: "auto", background: "#0d0d0d", color: "#c0c0c0", fontSize: 12, lineHeight: 1.6, fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace" }}>
-          {filteredLogs.length === 0 && <span style={{ color: "#444" }}>No entries yet. Connect to see logs.</span>}
-          {filteredLogs.map((entry, i) => (
-            <div key={i} style={{ color: entry.level === "error" ? "#f44336" : entry.level === "warn" ? "#ff9800" : "#c0c0c0" }}>
-              {entry.ts && <span style={{ color: "#666" }}>{entry.ts} </span>}
-              <span>{entry.line}</span>
-              {entry.action !== undefined && <span style={{ color: "#888" }}> action:{entry.action}</span>}
-              {entry.ip && <span style={{ color: "#888" }}> ip:{entry.ip}</span>}
-            </div>
-          ))}
-          <div ref={logEndRef} />
-        </pre>
       </div>
 
+      {/* QR Modal */}
+      {qrOpen && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+        }} onClick={() => setQrOpen(false)}>
+          <div style={{
+            background: colors.card, borderRadius: borderRadius.xl,
+            padding: 24, border: `1px solid ${colors.cardBorder}`,
+          }} onClick={(e) => e.stopPropagation()}>
+            <QRCodeSVG data={qrData} />
+            <div style={{ textAlign: "center", marginTop: 8, fontSize: 12, color: colors.textDim }}>
+              Scan with KVN Android app
+            </div>
+            <button style={{ ...btnOutline, marginTop: 8, width: "100%" }} onClick={() => setQrOpen(false)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {deleteTarget && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+        }} onClick={() => setDeleteTarget(null)}>
+          <div style={{
+            background: colors.card, borderRadius: borderRadius.xl,
+            padding: 24, border: `1px solid ${colors.cardBorder}`, maxWidth: 400,
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Delete server?</div>
+            <div style={{ fontSize: 13, color: colors.textDim, marginBottom: 16 }}>
+              Are you sure you want to delete "{deleteTarget}"? This cannot be undone.
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button style={btnOutline} onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button style={btnDanger} onClick={() => { deleteServer(deleteTarget); setDeleteTarget(null); }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          padding: "10px 20px", borderRadius: borderRadius.lg,
+          background: colors.card, color: colors.text,
+          border: `1px solid ${colors.cardBorder}`, zIndex: 100,
+          animation: "fi 0.2s",
+        }}>
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
 
-function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+function QRCodeSVG({ data }: { data: string }) {
+  const ref = React.useRef<HTMLCanvasElement>(null);
+  React.useEffect(() => {
+    if (ref.current) QRCode.toCanvas(ref.current, data, { width: 200 });
+  }, [data]);
+  return <canvas ref={ref} width={200} height={200} />;
+}
+
+// @sk-task kvn-web-redesign#T2.5: app shell with component composition and context (AC-005)
+export default function App() {
   return (
-    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#aaa", marginBottom: 4, cursor: "pointer" }}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ cursor: "pointer" }} />
-      {label}
-    </label>
+    <AppProvider>
+      <AppInner />
+    </AppProvider>
   );
 }
 
-function ChipList({ label, values, onChange }: { label: string; values?: string[]; onChange: (v: string[]) => void }) {
-  const [input, setInput] = useState("");
-  const list = values || [];
-  const add = () => {
-    const trimmed = input.trim();
-    if (trimmed && !list.includes(trimmed)) { onChange([...list, trimmed]); setInput(""); }
-  };
-  return (
-    <div style={{ marginBottom: 6 }}>
-      <div style={{ fontSize: 12, color: "#888", fontWeight: 500, marginBottom: 3 }}>{label}</div>
-      <div style={{ display: "flex", gap: 3, marginBottom: 3 }}>
-        <input style={{ ...inp, flex: 1, fontSize: 12 }} value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Add..." />
-        <button onClick={add} style={{ padding: "3px 8px", background: "#333", border: "1px solid #444", borderRadius: 4, color: "#aaa", cursor: "pointer", fontSize: 13 }}>+</button>
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-        {list.map((v, i) => (
-          <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 3, background: "#2a2a2a", padding: "1px 6px", borderRadius: 10, fontSize: 11 }}>
-            {v}
-            <button onClick={() => onChange(list.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: "#f44336", cursor: "pointer", padding: 0, fontSize: 13, lineHeight: 1 }}>×</button>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default App;
+import React from "react";

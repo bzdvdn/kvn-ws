@@ -19,6 +19,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
+	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
@@ -47,6 +48,13 @@ func (c *Client) runProxyMode(ctx context.Context) {
 			sleepWithContext(ctx, backoff)
 			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
 			continue
+		}
+		if c.metricCollector != nil {
+			stream = &transport.CountingStreamConn{
+				StreamConn: stream,
+				AddTX:      c.metricCollector.AddTX,
+				AddRX:      c.metricCollector.AddRX,
+			}
 		}
 
 		c.runProxySession(ctx, stream, c.cfg.Transparent)

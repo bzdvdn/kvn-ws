@@ -18,6 +18,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
+	metricclient "github.com/bzdvdn/kvn-ws/src/internal/metrics/client"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/systemproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/transparent"
@@ -29,11 +30,16 @@ type Client struct {
 	logger    *zap.Logger
 	masterKey []byte
 
-	dnsSrv *dnsproxy.Server
+	dnsSrv          *dnsproxy.Server
+	metricCollector *metricclient.Collector
 }
 
 func (c *Client) SetLogger(l *zap.Logger) {
 	c.logger = l
+}
+
+func (c *Client) SetMetricCollector(mc *metricclient.Collector) {
+	c.metricCollector = mc
 }
 
 // @sk-task kvn-web#T2.2: NewFromConfig creates Client from existing config (AC-003)

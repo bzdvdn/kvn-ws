@@ -6,18 +6,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"time"
 
 	"github.com/webview/webview_go"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/systemproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/webui"
-	"go.uber.org/zap"
 )
 
-// @sk-task kvn-desktop#T2.3: windows self-contained server + webview (AC-003, AC-004)
-// @sk-task desktop-tray#T2.4: windows tray lifecycle integration (AC-001, AC-002, AC-003)
 func platformRun(svc *ServiceManager, port int, serverURL string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -35,8 +30,6 @@ func platformRun(svc *ServiceManager, port int, serverURL string) error {
 	}()
 
 	waitForServer(serverURL, 10*time.Second)
-
-	proxyState := systemproxy.New(nil)
 
 	SetServerRestart(func() error {
 		cancel()
@@ -66,66 +59,15 @@ func platformRun(svc *ServiceManager, port int, serverURL string) error {
 		return nil
 	})
 
-	if noTrayMode {
-		return legacyWindowsRun(serverURL, proxyState)
-	}
-
-	tray := newPlatformTray()
-
-	showWindow := func() {
-		w := webview.New(false)
-		defer w.Destroy()
-		w.SetTitle("KVN Desktop")
-		w.SetSize(900, 600, webview.HintNone)
-		w.Navigate(serverURL)
-		injectRestartButton(w, svc)
-		w.Run()
-	}
-
-	go tray.Run()
-	showWindow()
-
-	for action := range tray.ActionCh() {
-		switch action {
-		case TrayShow:
-			showWindow()
-		case TrayQuit:
-			disconnectClient(serverURL)
-			_ = proxyState.Restore(context.Background(), zap.NewNop())
-			cancel()
-			tray.Stop()
-			return nil
-		}
-	}
-
-	return nil
-}
-
-// @sk-task desktop-tray#T2.4: legacy windows path without tray (AC-007)
-func legacyWindowsRun(serverURL string, proxyState *systemproxy.State) error {
 	w := webview.New(false)
 	defer w.Destroy()
-
 	w.SetTitle("KVN Desktop")
-	w.SetSize(900, 600, webview.HintNone)
+	w.SetSize(1280, 800, webview.HintNone)
 	w.Navigate(serverURL)
-
+	injectRestartButton(w, svc)
 	w.Run()
 
-	disconnectClient(serverURL)
-	_ = proxyState.Restore(context.Background(), zap.NewNop())
-
 	return nil
-}
-
-func disconnectClient(url string) {
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Post(url+"/api/disconnect", "application/json", nil)
-	if err != nil {
-		log.Printf("kvn-desktop: disconnect request: %v", err)
-		return
-	}
-	resp.Body.Close()
 }
 
 func waitForServer(url string, timeout time.Duration) {

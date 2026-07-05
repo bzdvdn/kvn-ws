@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/bootstrap/client"
+	metricclient "github.com/bzdvdn/kvn-ws/src/internal/metrics/client"
 )
 
 type Status string
@@ -35,15 +36,21 @@ type AppState struct {
 	subCh       chan chan LogEntry
 	statusCh    chan Status
 	statusSubCh chan chan Status
+	metricCh       chan metricclient.MetricSnapshot
+	metricSubCh    chan chan metricclient.MetricSnapshot
+	metricCollector *metricclient.Collector
 }
 
 func NewAppState() *AppState {
 	return &AppState{
-		status:      StatusDisconnected,
-		logCh:       make(chan LogEntry, 1000),
-		subCh:       make(chan chan LogEntry),
-		statusCh:    make(chan Status, 100),
-		statusSubCh: make(chan chan Status),
+		status:         StatusDisconnected,
+		logCh:          make(chan LogEntry, 1000),
+		subCh:          make(chan chan LogEntry),
+		statusCh:       make(chan Status, 100),
+		statusSubCh:    make(chan chan Status),
+		metricCh:       make(chan metricclient.MetricSnapshot, 100),
+		metricSubCh:    make(chan chan metricclient.MetricSnapshot),
+		metricCollector: metricclient.NewCollector(),
 	}
 }
 
@@ -97,6 +104,54 @@ func (s *AppState) SetDoneCh(doneCh chan struct{}) {
 	s.mu.Lock()
 	s.doneCh = doneCh
 	s.mu.Unlock()
+}
+
+func (s *AppState) MetricCollector() *metricclient.Collector {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.metricCollector
+}
+
+func (s *AppState) PushMetric(m metricclient.MetricSnapshot) {
+	select {
+	case s.metricCh <- m:
+	default:
+	}
+}
+
+func (s *AppState) SubscribeMetric() chan metricclient.MetricSnapshot {
+	ch := make(chan metricclient.MetricSnapshot, 100)
+	s.metricSubCh <- ch
+	return ch
+}
+
+func (s *AppState) UnsubscribeMetric(ch chan metricclient.MetricSnapshot) {
+	s.metricSubCh <- ch
+}
+
+// @sk-task kvn-web-redesign#T1.2: broadcast metrics to SSE subscribers (AC-013)
+func (s *AppState) broadcastMetrics(ctx context.Context) {
+	subs := map[chan metricclient.MetricSnapshot]struct{}{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case m := <-s.metricCh:
+			for ch := range subs {
+				select {
+				case ch <- m:
+				default:
+				}
+			}
+		case ch := <-s.metricSubCh:
+			if _, ok := subs[ch]; ok {
+				delete(subs, ch)
+				close(ch)
+			} else {
+				subs[ch] = struct{}{}
+			}
+		}
+	}
 }
 
 func (s *AppState) PushLog(entry LogEntry) {

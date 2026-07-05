@@ -16,6 +16,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
+	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
@@ -66,6 +67,13 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 			sleepWithContext(ctx, backoff)
 			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
 			continue
+		}
+		if c.metricCollector != nil {
+			stream = &transport.CountingStreamConn{
+				StreamConn: stream,
+				AddTX:      c.metricCollector.AddTX,
+				AddRX:      c.metricCollector.AddRX,
+			}
 		}
 
 		removeKillSwitch(c.cfg, c.logger)
