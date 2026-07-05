@@ -144,7 +144,7 @@ UNIT
     echo "Installed. Manage with: systemctl [start|stop|status] kvn-web.service"
     if [ "$DESKTOP" = true ] && [ -n "$DESKTOP_BINARY_SRC" ]; then
       install -m 0755 "$DESKTOP_BINARY_SRC" "$BIN_DIR/kvn-desktop"
-      ICON_DIR=/usr/local/share/icons/hicolor/256x256/apps
+      ICON_DIR=/usr/share/icons/hicolor/256x256/apps
       ICON_SRC=""
       if [ -f "$SERVICES_DIR/kvn-desktop.png" ]; then
         ICON_SRC="$SERVICES_DIR/kvn-desktop.png"
@@ -158,8 +158,8 @@ UNIT
       else
         ICON_NAME="preferences-system-network"
       fi
-      mkdir -p /usr/local/share/applications
-      cat > /usr/local/share/applications/kvn-desktop.desktop <<DESKTOP_FILE
+      mkdir -p /usr/share/applications
+      cat > /usr/share/applications/kvn-desktop.desktop <<DESKTOP_FILE
 [Desktop Entry]
 Name=KVN Desktop
 Comment=KVN Web UI desktop wrapper
@@ -168,10 +168,11 @@ Icon=$ICON_NAME
 Terminal=false
 Type=Application
 Categories=Network;Utility;
+StartupNotify=true
 DESKTOP_FILE
-      echo "  Desktop: $BIN_DIR/kvn-desktop + /usr/local/share/applications/kvn-desktop.desktop"
-      update-desktop-database /usr/local/share/applications/ 2>/dev/null || true
-      gtk-update-icon-cache /usr/local/share/icons/hicolor/ 2>/dev/null || true
+      echo "  Desktop: $BIN_DIR/kvn-desktop + /usr/share/applications/kvn-desktop.desktop"
+      update-desktop-database 2>/dev/null || true
+      gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
     fi
     ;;
   darwin)
