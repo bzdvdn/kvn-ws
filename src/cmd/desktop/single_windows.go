@@ -32,7 +32,7 @@ func guardSingleInstance() bool {
 		return true
 	}
 
-	if syscallErrToUintptr(windows.ERROR_ALREADY_EXISTS) == e1 {
+	if e1 == windows.ERROR_ALREADY_EXISTS {
 		procCloseHandle.Call(uintptr(handle))
 		focusExistingWindow()
 		return false
@@ -58,9 +58,4 @@ func focusExistingWindow() {
 	}
 }
 
-func syscallErrToUintptr(e error) uintptr {
-	if se, ok := e.(windows.Errno); ok {
-		return uintptr(se)
-	}
-	return 0
-}
+

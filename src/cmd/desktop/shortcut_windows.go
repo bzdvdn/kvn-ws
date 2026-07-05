@@ -5,12 +5,23 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-// @sk-task desktop-tray#T3.2: windows .lnk shortcut registration (AC-005)
+var (
+	modole32                = windows.NewLazySystemDLL("ole32.dll")
+	procCoCreateInstance    = modole32.NewProc("CoCreateInstance")
+)
+
+var (
+	iidShellLink  = &windows.GUID{Data1: 0x000214F9, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	clsidShellLink = &windows.GUID{Data1: 0x00021401, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	iidPersistFile = &windows.GUID{Data1: 0x0000010B, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+)
+
 func maybeRegisterShortcut() error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -44,14 +55,23 @@ func maybeRegisterShortcut() error {
 	return nil
 }
 
-func createShortcut(target, path string) error {
-	// CLSID_ShellLink
-	clsid := windows.GUID{Data1: 0x00021401, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	// IID_IShellLinkW
-	iid := windows.GUID{Data1: 0x000214F9, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+func coCreateInstance(clsid, iid *windows.GUID, ppv unsafe.Pointer) error {
+	r, _, _ := procCoCreateInstance.Call(
+		uintptr(unsafe.Pointer(clsid)),
+		0,
+		windows.CLSCTX_INPROC_SERVER,
+		uintptr(unsafe.Pointer(iid)),
+		uintptr(ppv),
+	)
+	if r != 0 {
+		return windows.Errno(r)
+	}
+	return nil
+}
 
+func createShortcut(target, path string) error {
 	var shellLink *IShellLinkW
-	if err := windows.CoCreateInstance(&clsid, nil, windows.CLSCTX_INPROC_SERVER, &iid, unsafe.Pointer(&shellLink)); err != nil {
+	if err := coCreateInstance(clsidShellLink, iidShellLink, unsafe.Pointer(&shellLink)); err != nil {
 		return err
 	}
 	defer shellLink.Release()
@@ -59,7 +79,7 @@ func createShortcut(target, path string) error {
 	shellLink.SetPath(target)
 
 	var persistFile *IPersistFile
-	if err := shellLink.QueryInterface(&iidPersistFile, unsafe.Pointer(&persistFile)); err != nil {
+	if err := shellLink.QueryInterface(iidPersistFile, unsafe.Pointer(&persistFile)); err != nil {
 		return err
 	}
 	defer persistFile.Release()
@@ -76,25 +96,25 @@ type IShellLinkW struct {
 }
 
 type IShellLinkWVtbl struct {
-	QueryInterface uintptr
-	AddRef         uintptr
-	Release        uintptr
-	GetPath        uintptr
-	SetPath        uintptr
-	GetIDList      uintptr
-	SetIDList      uintptr
-	GetDescription uintptr
-	SetDescription uintptr
-	GetWorkingDirectory uintptr
-	SetWorkingDirectory uintptr
-	GetArguments    uintptr
-	SetArguments    uintptr
-	GetHotkey      uintptr
-	SetHotkey      uintptr
-	GetShowCmd     uintptr
-	SetShowCmd     uintptr
-	GetIconLocation uintptr
-	SetIconLocation uintptr
+	QueryInterface       uintptr
+	AddRef               uintptr
+	Release              uintptr
+	GetPath              uintptr
+	SetPath              uintptr
+	GetIDList            uintptr
+	SetIDList            uintptr
+	GetDescription       uintptr
+	SetDescription       uintptr
+	GetWorkingDirectory  uintptr
+	SetWorkingDirectory  uintptr
+	GetArguments         uintptr
+	SetArguments         uintptr
+	GetHotkey            uintptr
+	SetHotkey            uintptr
+	GetShowCmd           uintptr
+	SetShowCmd           uintptr
+	GetIconLocation      uintptr
+	SetIconLocation      uintptr
 }
 
 func (s *IShellLinkW) SetPath(path string) error {
@@ -102,7 +122,7 @@ func (s *IShellLinkW) SetPath(path string) error {
 	if err != nil {
 		return err
 	}
-	ret, _, _ := windows.SyscallN(s.lpVtbl.SetPath, uintptr(unsafe.Pointer(s)), uintptr(unsafe.Pointer(pathPtr)))
+	ret, _, _ := syscall.Syscall(s.lpVtbl.SetPath, 2, uintptr(unsafe.Pointer(s)), uintptr(unsafe.Pointer(pathPtr)), 0)
 	if ret != 0 {
 		return windows.Errno(ret)
 	}
@@ -110,7 +130,7 @@ func (s *IShellLinkW) SetPath(path string) error {
 }
 
 func (s *IShellLinkW) QueryInterface(iid *windows.GUID, out unsafe.Pointer) error {
-	ret, _, _ := windows.SyscallN(s.lpVtbl.QueryInterface, uintptr(unsafe.Pointer(s)), uintptr(unsafe.Pointer(iid)), uintptr(out))
+	ret, _, _ := syscall.Syscall(s.lpVtbl.QueryInterface, 3, uintptr(unsafe.Pointer(s)), uintptr(unsafe.Pointer(iid)), uintptr(out))
 	if ret != 0 {
 		return windows.Errno(ret)
 	}
@@ -118,7 +138,7 @@ func (s *IShellLinkW) QueryInterface(iid *windows.GUID, out unsafe.Pointer) erro
 }
 
 func (s *IShellLinkW) Release() {
-	windows.SyscallN(s.lpVtbl.Release, uintptr(unsafe.Pointer(s)))
+	syscall.Syscall(s.lpVtbl.Release, 1, uintptr(unsafe.Pointer(s)), 0, 0)
 }
 
 type IPersistFile struct {
@@ -142,7 +162,7 @@ func (p *IPersistFile) Save(path *uint16, remember bool) error {
 	if remember {
 		rememberVal = 1
 	}
-	ret, _, _ := windows.SyscallN(p.lpVtbl.Save, uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(path)), uintptr(rememberVal))
+	ret, _, _ := syscall.Syscall(p.lpVtbl.Save, 3, uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(path)), uintptr(rememberVal))
 	if ret != 0 {
 		return windows.Errno(ret)
 	}
@@ -150,7 +170,5 @@ func (p *IPersistFile) Save(path *uint16, remember bool) error {
 }
 
 func (p *IPersistFile) Release() {
-	windows.SyscallN(p.lpVtbl.Release, uintptr(unsafe.Pointer(p)))
+	syscall.Syscall(p.lpVtbl.Release, 1, uintptr(unsafe.Pointer(p)), 0, 0)
 }
-
-var iidPersistFile = windows.GUID{Data1: 0x0000010B, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
