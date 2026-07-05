@@ -90,12 +90,12 @@ iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-clie
 
 **Linux / macOS:**
 ```bash
-sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.sh)" -- --start
+sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.sh)" -- --desktop --start
 ```
 
 **Windows (PowerShell Admin):**
 ```powershell
-iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.ps1 -OutFile install-web.ps1; .\install-web.ps1 -Start
+iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.ps1 -OutFile install-web.ps1; .\install-web.ps1 -Desktop -Start
 ```
 
 Web UI: http://127.0.0.1:2311
