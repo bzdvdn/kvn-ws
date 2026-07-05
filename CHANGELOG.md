@@ -6,17 +6,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.5.1] — 2026-07-05
 
 ### Added
 
-- **kvn-desktop: system tray with close-to-tray lifecycle** — GtkStatusIcon (Linux), NSStatusBar (macOS), Shell_NotifyIconW (Windows). Context menu: Show/Hide/Quit. `--no-tray` flag restores legacy close=exit behavior. Auto-registers `.desktop` shortcut on Linux and `.lnk` shortcuts on Windows. Single-instance guard via pidfile+flock (Unix) / CreateMutexW (Windows).
+- **kvn-web: redesigned UI** — новая архитектура фронтенда: React Context для состояния, `TabbedForm` с переиспользуемыми компонентами (`FormField`, `ServerCards`, `LogPanel`, `TrafficMeter`). Метрики трафика (RX/TX, скорость) через `MetricCollector` + `Sender`. Вывод логов в реальном времени через `LogPanel`. Переработан `App.tsx` (с -700 строк).
+- **Android: per-server override UI** — `SettingsScreen` с переопределением параметров для каждого сервера (маршрутизация, DNS, proxy, шифрование). `TrafficScreen` с графиками. Рефакторинг `ConnectScreen` (-400 строк). Новые spec/plan/tasks.
+- **kvn-desktop: brand icon across platforms** — единая иконка (щит KVN из `favicon.svg`) на всех платформах: встроена в `.exe` через `.syso` (Windows), установка в `~/.local/share/icons/` (Linux), в `Contents/Resources` `.app` bundle (macOS). `.desktop` / `Info.plist` / `.lnk` ссылаются на кастомную иконку.
 - **DNS upstreams: список upstream'ов вместо одного** — `config.DNSProxyCfg.Upstreams []string`, `config.RelayDNSCfg.Upstreams []string`, `config.ServerConfig.DNSUpstreams`. Backward compat для старого поля `upstream` (custom `UnmarshalYAML`/`UnmarshalJSON`). `dnsproxy.New` variadic (`listen string, upstreams ...string`). Fallback-цикл в `dnsproxy.forward` — при ошибке/таймауте первого upstream перебор следующих. Web UI: динамический список input'ов с кнопками Add/Remove. `mergeConfig` в `handler_connect.go` проверяет `Upstreams` вместо `Upstream`. Default: `["1.1.1.1:53", "8.8.8.8:53"]`.
 
 ### Fixed
 
 - **Web UI: DNS proxy секция не отображалась в Global Settings** — Go-бинарник через `//go:embed all:frontend/dist` отдавал старую сборку `dist/` без фикса upstreams. Пересобраны фронтенд (`npm run build`) и Go-бинарник.
-- **kvn-desktop: pre-existing golangci-lint issues** — исправлены G306 (permissions), gocritic (octalLiteral, exitAfterDefer), unconvert (CGo unsafe.Pointer), gofmt. Добавлены `//nolint` маркеры для false positive (CGo dupImport, unused noopTray на других платформах).
+- **Windows: closing kvn-desktop больше не убивает kvn-web** — webui-сервер больше не встроен в desktop-процесс; при закрытии окна завершается только `kvn-desktop.exe`, `kvn-web.exe` продолжает работать как внешний процесс. `ServiceManager.Start/Stop` запускают/останавливают `kvn-web.exe` с `--no-browser --port 2311`.
+- **macOS: .desktop shortcut заменён на .app bundle** — `shortcut_darwin.go` создаёт `~/Applications/KVN Desktop.app/Contents/Info.plist` с `CFBundleName`, `CFBundleIconFile`, symlink бинарника. Приложение отображается в Launchpad.
+- **Windows desktop build: совместимость с golang.org/x/sys v0.44.0** — `windows.SyscallN`/`windows.CoCreateInstance` заменены на `syscall.Syscall` (stdlib) и прямой вызов `ole32.CoCreateInstance` через `NewLazySystemDLL`. Исправлена type mismatch в `single_windows.go`.
+
+### Removed
+
+- **kvn-desktop: system tray** — удалён мёртвый код tray (GtkStatusIcon, Shell_NotifyIconW, NSStatusBar stub, `--no-tray` flag, `noTrayMode`). Tray был написан, но никогда не интегрирован в lifecycle приложения. Все сопутствующие иконки (`connected.png`, `disconnected.png`, `kvn.ico`) удалены; заменены на единый brand icon.
+
+### Changed
+
+- **kvn-desktop: Windows lifecycle** — `app_windows.go` переписан по модели Linux/macOS: подключение к внешнему `kvn-web.exe` вместо встроенного сервера. Убран `SetServerRestart`/`SetServerStop`. `service_windows.go` теперь реально запускает/останавливает процесс.
+- **kvn-desktop: macOS shortcut** — `shortcut_unix.go` ограничен тегом `linux` (только `.desktop`). Добавлен `shortcut_darwin.go` с генерацией `.app` bundle.
 
 ## [0.5.0] — 2026-07-04
 
