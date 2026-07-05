@@ -98,11 +98,15 @@ DESKTOP_BINARY_SRC=""
 if [ "$DESKTOP" = true ]; then
   if [ -f "$SCRIPT_DIR/kvn-desktop" ]; then
     DESKTOP_BINARY_SRC="$SCRIPT_DIR/kvn-desktop"
+    echo "Using local desktop binary: $DESKTOP_BINARY_SRC"
   elif [ -f "$SCRIPT_DIR/bin/kvn-desktop" ]; then
     DESKTOP_BINARY_SRC="$SCRIPT_DIR/bin/kvn-desktop"
+    echo "Using local desktop binary: $DESKTOP_BINARY_SRC"
+  elif [ -n "${SERVICES_DIR:-}" ] && [ -f "$SERVICES_DIR/kvn-desktop" ]; then
+    DESKTOP_BINARY_SRC="$SERVICES_DIR/kvn-desktop"
+    echo "Using desktop binary from archive: $DESKTOP_BINARY_SRC"
   else
-    # fallback: download archive does not contain kvn-desktop yet
-    echo "WARN: kvn-desktop binary not found locally, skipping."
+    echo "WARN: kvn-desktop binary not found. Skipping desktop installation."
     echo "  Build it with: go build -o bin/kvn-desktop ./src/cmd/desktop"
   fi
 fi
@@ -141,10 +145,18 @@ UNIT
     if [ "$DESKTOP" = true ] && [ -n "$DESKTOP_BINARY_SRC" ]; then
       install -m 0755 "$DESKTOP_BINARY_SRC" "$BIN_DIR/kvn-desktop"
       ICON_DIR=/usr/local/share/icons/hicolor/256x256/apps
-      ICON_SRC="$SCRIPT_DIR/../src/cmd/desktop/icons/kvn-desktop.png"
-      mkdir -p "$ICON_DIR"
-      if [ -f "$ICON_SRC" ]; then
+      ICON_SRC=""
+      if [ -f "$SERVICES_DIR/kvn-desktop.png" ]; then
+        ICON_SRC="$SERVICES_DIR/kvn-desktop.png"
+      elif [ -f "$SCRIPT_DIR/../src/cmd/desktop/icons/kvn-desktop.png" ]; then
+        ICON_SRC="$SCRIPT_DIR/../src/cmd/desktop/icons/kvn-desktop.png"
+      fi
+      ICON_NAME="kvn-desktop"
+      if [ -n "$ICON_SRC" ]; then
+        mkdir -p "$ICON_DIR"
         install -m 644 "$ICON_SRC" "$ICON_DIR/kvn-desktop.png"
+      else
+        ICON_NAME="preferences-system-network"
       fi
       mkdir -p /usr/local/share/applications
       cat > /usr/local/share/applications/kvn-desktop.desktop <<DESKTOP_FILE
@@ -152,12 +164,14 @@ UNIT
 Name=KVN Desktop
 Comment=KVN Web UI desktop wrapper
 Exec=$BIN_DIR/kvn-desktop
-Icon=kvn-desktop
+Icon=$ICON_NAME
 Terminal=false
 Type=Application
 Categories=Network;Utility;
 DESKTOP_FILE
       echo "  Desktop: $BIN_DIR/kvn-desktop + /usr/local/share/applications/kvn-desktop.desktop"
+      update-desktop-database /usr/local/share/applications/ 2>/dev/null || true
+      gtk-update-icon-cache /usr/local/share/icons/hicolor/ 2>/dev/null || true
     fi
     ;;
   darwin)
@@ -203,8 +217,13 @@ PLIST
       install -m 0755 "$DESKTOP_BINARY_SRC" "$BIN_DIR/kvn-desktop"
       mkdir -p "/Applications/KVN Desktop.app/Contents/MacOS"
       mkdir -p "/Applications/KVN Desktop.app/Contents/Resources"
-      ICON_SRC="$SCRIPT_DIR/../src/cmd/desktop/icons/kvn-desktop.png"
-      if [ -f "$ICON_SRC" ]; then
+      ICON_SRC=""
+      if [ -f "$SERVICES_DIR/kvn-desktop.png" ]; then
+        ICON_SRC="$SERVICES_DIR/kvn-desktop.png"
+      elif [ -f "$SCRIPT_DIR/../src/cmd/desktop/icons/kvn-desktop.png" ]; then
+        ICON_SRC="$SCRIPT_DIR/../src/cmd/desktop/icons/kvn-desktop.png"
+      fi
+      if [ -n "$ICON_SRC" ]; then
         install -m 644 "$ICON_SRC" "/Applications/KVN Desktop.app/Contents/Resources/kvn-desktop.png"
       fi
       cat > "/Applications/KVN Desktop.app/Contents/Info.plist" <<PLIST

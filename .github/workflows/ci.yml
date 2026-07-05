@@ -265,7 +265,7 @@ jobs:
             fi
           done
 
-      - name: Copy install scripts to dist
+      - name: Copy install scripts + desktop icon to dist
         run: |
           for dir in dist/kvn-*; do
             [ -d "$dir" ] || continue
@@ -278,6 +278,10 @@ jobs:
               cp scripts/install-relay.sh "$dir/" 2>/dev/null || true
               cp scripts/kvn-web.service "$dir/" 2>/dev/null || true
               cp scripts/kvn-web.plist "$dir/" 2>/dev/null || true
+            fi
+            # desktop icon: copy to archive dir (used by install-web.sh --desktop)
+            if [ -f src/cmd/desktop/icons/kvn-desktop.png ]; then
+              cp src/cmd/desktop/icons/kvn-desktop.png "$dir/"
             fi
           done
           cp scripts/install-server.sh dist/
