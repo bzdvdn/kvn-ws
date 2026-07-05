@@ -11,11 +11,11 @@ func platformRun(svc *ServiceManager, port int, serverURL string) error {
 	defer w.Destroy()
 	w.SetTitle("KVN Desktop")
 	w.SetSize(1280, 800, webview.HintNone)
+	injectRestartButton(w, svc)
 	if !checkServer(serverURL) {
 		showErrorPage(w, svc, serverURL)
 	} else {
 		w.Navigate(serverURL)
-		injectRestartButton(w, svc)
 	}
 	w.Run()
 	return nil
