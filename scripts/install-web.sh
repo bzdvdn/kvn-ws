@@ -140,13 +140,19 @@ UNIT
     echo "Installed. Manage with: systemctl [start|stop|status] kvn-web.service"
     if [ "$DESKTOP" = true ] && [ -n "$DESKTOP_BINARY_SRC" ]; then
       install -m 0755 "$DESKTOP_BINARY_SRC" "$BIN_DIR/kvn-desktop"
+      ICON_DIR=/usr/local/share/icons/hicolor/256x256/apps
+      ICON_SRC="$SCRIPT_DIR/../src/cmd/desktop/icons/kvn-desktop.png"
+      mkdir -p "$ICON_DIR"
+      if [ -f "$ICON_SRC" ]; then
+        install -m 644 "$ICON_SRC" "$ICON_DIR/kvn-desktop.png"
+      fi
       mkdir -p /usr/local/share/applications
       cat > /usr/local/share/applications/kvn-desktop.desktop <<DESKTOP_FILE
 [Desktop Entry]
 Name=KVN Desktop
 Comment=KVN Web UI desktop wrapper
 Exec=$BIN_DIR/kvn-desktop
-Icon=preferences-system-network
+Icon=kvn-desktop
 Terminal=false
 Type=Application
 Categories=Network;Utility;
@@ -196,6 +202,11 @@ PLIST
     if [ "$DESKTOP" = true ] && [ -n "$DESKTOP_BINARY_SRC" ]; then
       install -m 0755 "$DESKTOP_BINARY_SRC" "$BIN_DIR/kvn-desktop"
       mkdir -p "/Applications/KVN Desktop.app/Contents/MacOS"
+      mkdir -p "/Applications/KVN Desktop.app/Contents/Resources"
+      ICON_SRC="$SCRIPT_DIR/../src/cmd/desktop/icons/kvn-desktop.png"
+      if [ -f "$ICON_SRC" ]; then
+        install -m 644 "$ICON_SRC" "/Applications/KVN Desktop.app/Contents/Resources/kvn-desktop.png"
+      fi
       cat > "/Applications/KVN Desktop.app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -209,6 +220,8 @@ PLIST
     <string>kvn-desktop</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>kvn-desktop</string>
 </dict>
 </plist>
 PLIST

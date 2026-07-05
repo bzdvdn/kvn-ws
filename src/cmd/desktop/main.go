@@ -8,12 +8,9 @@ import (
 )
 
 // @sk-task kvn-desktop#T1.1: entrypoint with cli flags (AC-001, AC-002, AC-003)
-// @sk-task desktop-tray#T1.3: --no-tray flag (AC-007)
-// @sk-task desktop-tray#T2.5: tray integration delegate to platformRun (AC-001, AC-002, AC-003)
 func main() {
 	port := flag.Int("port", 2311, "KVN Web UI port")
 	serverURL := flag.String("server", "", "KVN Web UI URL (default http://127.0.0.1:<port>)")
-	noTray := flag.Bool("no-tray", false, "disable system tray, close=exit")
 	flag.Parse()
 
 	url := *serverURL
@@ -22,15 +19,12 @@ func main() {
 	}
 
 	svc := &ServiceManager{}
-	noTrayMode = *noTray
 
-	// @sk-task desktop-tray#T4.3: single-instance guard before everything (AC-006)
 	if !guardSingleInstance() {
 		os.Exit(0)
 	}
 	defer releaseGuard()
 
-	// @sk-task desktop-tray#T3.3: shortcut registration after single-instance guard (AC-004, AC-005)
 	if err := maybeRegisterShortcut(); err != nil {
 		log.Printf("kvn-desktop: shortcut registration: %v", err)
 	}
@@ -39,5 +33,3 @@ func main() {
 		log.Fatalf("kvn-desktop: %v", err) //nolint:gocritic // log.Fatalf exit is acceptable here
 	}
 }
-
-var noTrayMode bool

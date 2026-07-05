@@ -3,50 +3,28 @@
 package main
 
 import (
-	"errors"
-	"sync"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
 )
-
-// @sk-task kvn-desktop#T1.1: windows service stubs — server is embedded (AC-003)
-
-var (
-	serverRestart func() error
-	serverStop    func() error
-	mu            sync.Mutex
-)
-
-func SetServerRestart(fn func() error) {
-	mu.Lock()
-	defer mu.Unlock()
-	serverRestart = fn
-}
-
-func SetServerStop(fn func() error) {
-	mu.Lock()
-	defer mu.Unlock()
-	serverStop = fn
-}
 
 func (s *ServiceManager) Start() error {
-	return errors.New("server is managed by the application process")
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	kvnWebPath := filepath.Join(filepath.Dir(exe), "kvn-web.exe")
+	cmd := exec.Command(kvnWebPath, "--no-browser", "--port", "2311")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd.Start()
 }
 
 func (s *ServiceManager) Stop() error {
-	mu.Lock()
-	fn := serverStop
-	mu.Unlock()
-	if fn != nil {
-		return fn()
-	}
-	return errors.New("server stop not available")
+	return exec.Command("taskkill", "/IM", "kvn-web.exe", "/F").Run()
 }
 
 func (s *ServiceManager) Restart() error {
-	mu.Lock()
-	fn := serverRestart
-	mu.Unlock()
-	if fn != nil {
-		return fn()
-	}
-	return errors.New("server restart not available")
+	_ = s.Stop()
+	return s.Start()
 }

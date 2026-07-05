@@ -79,5 +79,3 @@ type metricEvent struct {
 	RxSpeed    float64 `json:"rx_speed"`
 	Reconnects int64   `json:"reconnects"`
 }
-
-

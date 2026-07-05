@@ -72,9 +72,9 @@ type Collector struct {
 	startedAt  time.Time
 	reconnects int64
 
-	mu       sync.Mutex
-	txBytes  int64
-	rxBytes  int64
+	mu        sync.Mutex
+	txBytes   int64
+	rxBytes   int64
 	latencyMs float64
 
 	done chan struct{}
@@ -82,8 +82,8 @@ type Collector struct {
 
 func NewCollector() *Collector {
 	return &Collector{
-		rb:    NewRingBuffer(60),
-		done:  make(chan struct{}),
+		rb:   NewRingBuffer(60),
+		done: make(chan struct{}),
 	}
 }
 

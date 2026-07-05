@@ -27,29 +27,29 @@ type LogEntry struct {
 
 // @sk-task kvn-web#T1.3: app state management (AC-003, AC-004)
 type AppState struct {
-	mu          sync.Mutex
-	cl          *client.Client
-	cancel      context.CancelFunc
-	doneCh      chan struct{}
-	status      Status
-	logCh       chan LogEntry
-	subCh       chan chan LogEntry
-	statusCh    chan Status
-	statusSubCh chan chan Status
-	metricCh       chan metricclient.MetricSnapshot
-	metricSubCh    chan chan metricclient.MetricSnapshot
+	mu              sync.Mutex
+	cl              *client.Client
+	cancel          context.CancelFunc
+	doneCh          chan struct{}
+	status          Status
+	logCh           chan LogEntry
+	subCh           chan chan LogEntry
+	statusCh        chan Status
+	statusSubCh     chan chan Status
+	metricCh        chan metricclient.MetricSnapshot
+	metricSubCh     chan chan metricclient.MetricSnapshot
 	metricCollector *metricclient.Collector
 }
 
 func NewAppState() *AppState {
 	return &AppState{
-		status:         StatusDisconnected,
-		logCh:          make(chan LogEntry, 1000),
-		subCh:          make(chan chan LogEntry),
-		statusCh:       make(chan Status, 100),
-		statusSubCh:    make(chan chan Status),
-		metricCh:       make(chan metricclient.MetricSnapshot, 100),
-		metricSubCh:    make(chan chan metricclient.MetricSnapshot),
+		status:          StatusDisconnected,
+		logCh:           make(chan LogEntry, 1000),
+		subCh:           make(chan chan LogEntry),
+		statusCh:        make(chan Status, 100),
+		statusSubCh:     make(chan chan Status),
+		metricCh:        make(chan metricclient.MetricSnapshot, 100),
+		metricSubCh:     make(chan chan metricclient.MetricSnapshot),
 		metricCollector: metricclient.NewCollector(),
 	}
 }

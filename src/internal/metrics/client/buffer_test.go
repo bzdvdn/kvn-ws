@@ -166,8 +166,8 @@ func TestSenderRunContextCancel(t *testing.T) {
 func TestSenderRunPushesMetrics(t *testing.T) {
 	collector := NewCollector()
 	collector.Start()
-	collector.AddTX(1_000_000)    // 1MB
-	collector.AddRX(2_000_000)    // 2MB
+	collector.AddTX(1_000_000) // 1MB
+	collector.AddRX(2_000_000) // 2MB
 	out := make(chan MetricSnapshot, 10)
 	sender := NewSender(collector, out, 10*time.Millisecond)
 

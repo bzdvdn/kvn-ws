@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build linux
 
 package main
 
@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 )
 
-// @sk-task desktop-tray#T3.1: unix .desktop shortcut registration (AC-004)
 func maybeRegisterShortcut() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -25,11 +24,26 @@ func maybeRegisterShortcut() error {
 		return err
 	}
 
+	iconDir := filepath.Join(home, ".local", "share", "icons", "hicolor", "256x256", "apps")
+	if err := os.MkdirAll(iconDir, 0o755); err != nil {
+		return err
+	}
+
+	iconData, err := readIconBytes("kvn-desktop.png")
+	if err != nil {
+		return err
+	}
+
+	iconPath := filepath.Join(iconDir, "kvn-desktop.png")
+	if err := os.WriteFile(iconPath, iconData, 0o600); err != nil {
+		return err
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
 
-	content := "[Desktop Entry]\nType=Application\nName=KVN Desktop\nExec=" + exe + "\nTerminal=false\nCategories=Network;\n"
+	content := "[Desktop Entry]\nType=Application\nName=KVN Desktop\nComment=KVN Web UI desktop wrapper\nExec=" + exe + "\nIcon=kvn-desktop\nTerminal=false\nCategories=Network;\n"
 	return os.WriteFile(path, []byte(content), 0o600)
 }
