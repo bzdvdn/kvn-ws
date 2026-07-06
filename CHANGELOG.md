@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.3] — 2026-07-06
+
 ### Added
 
 - **Proxy mode: configurable parallel connections** — `proxy_connections` (default 10) в `ClientConfig`. Управляет числом параллельных WS-транспортных соединений в proxy mode, устраняя contention на едином `wmu`. Совместим с web UI — поле на вкладке Advanced.
@@ -15,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **kvn-web: дедупликация конфигов** — строковые списки в routing автоматически дедуплицируются при сохранении через API и при merge в `mergeConfig`. Порядок первого вхождения сохраняется.
 - **kvn-web: отображение дефолтов** — `SetClientDefaults` экспортирован и вызывается в API-хендлерах (`GET /api/config`, `GET /api/servers`), так что UI всегда показывает актуальные значения по умолчанию (auto_reconnect, proxy_connections, mtu и др.), а не zero values.
 - **kvn-web: show/hide для поля Token** — кнопка 👁️/🙈 переключает видимость токена аутентификации.
+
+### Fixed
+
+- **kvn-desktop: Windows EXE без иконки** — `.ico` файлы были только 16×16 (747 байт) — на высоких DPI выглядят как отсутствие иконки. Перегенерированы в мультирезолюционные (16–256px). CI команда `rsrc` не содержала `-ico` флаг, и `.syso` записывался в `winres/` вместо корня пакета — Go linker не подхватывал ни иконку, ни UAC-манифест.
+- **CI: golangci-lint errcheck** — 2 unchecked type assertion в `src/internal/tunnel/session.go` (lines 351, 492). Исправлены через `_, _` pattern.
 
 ## [0.5.1] — 2026-07-05
 
