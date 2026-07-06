@@ -166,8 +166,9 @@ if ($Desktop) {
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     }
     $webExe = "$BinDir\$WebBinaryName"
-    $action = New-ScheduledTaskAction -Execute $webExe `
-        -Argument "--no-browser --port $Port"
+    # Use PowerShell to start the process hidden (no console window).
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument "-WindowStyle Hidden -Command ""Start-Process '$webExe' -ArgumentList '--no-browser --port $Port' -WindowStyle Hidden"""
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
         -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)

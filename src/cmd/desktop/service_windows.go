@@ -5,7 +5,10 @@ package main
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -21,13 +24,29 @@ func checkPort() bool {
 	return true
 }
 
-// Start triggers the scheduled task for kvn-web. If kvn-web is already
-// listening on the target port this is a no-op.
+// startKvnWeb launches kvn-web.exe directly with no visible window.
+// The scheduled task handles autostart at logon; this is used only for
+// Start/Restart triggered from the desktop UI (error page button).
+func startKvnWeb() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	kvnWebPath := filepath.Join(filepath.Dir(exe), "kvn-web.exe")
+	cmd := exec.Command(kvnWebPath, "--no-browser", "--port", fmt.Sprint(kvnWebPort))
+	// HideWindow prevents a console window from appearing.
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
+	return cmd.Start()
+}
+
+// Start launches kvn-web.exe if it is not already listening on the target port.
 func (s *ServiceManager) Start() error {
 	if checkPort() {
 		return nil
 	}
-	return exec.Command("schtasks", "/Run", "/TN", "kvn-web").Run()
+	return startKvnWeb()
 }
 
 // Stop kills all kvn-web.exe processes by image name.
