@@ -224,6 +224,8 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	if server.Relay != nil {
 		merged.Relay = server.Relay
 	}
+	// @sk-task kvn-web-config-update#T3.2: dedup routing strings in merged config (AC-004, AC-007)
+	dedupRoutingStrings(merged.Routing)
 	return merged
 }
 

@@ -18,6 +18,8 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// @sk-task kvn-web-config-update#T3.1: apply defaults so UI shows correct values (AC-005, AC-006)
+	config.SetClientDefaults(&cfg.ClientConfig)
 	writeJSON(w, http.StatusOK, map[string]any{"config": cfg.ClientConfig})
 }
 
@@ -42,6 +44,7 @@ func (s *Server) handleSaveGlobalConfig(w http.ResponseWriter, r *http.Request) 
 		cfg.ActiveServer = body.ActiveServer
 	}
 	cfg.ClientConfig = body.ClientConfig
+	dedupRoutingStrings(cfg.Routing)
 
 	if err := s.saveWebUIConfig(cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -57,6 +60,9 @@ func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	for i := range cfg.Servers {
+		config.SetClientDefaults(&cfg.Servers[i].ClientConfig)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"active_server": cfg.ActiveServer,
@@ -158,6 +164,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		cfg.Servers[idx].Name = entry.Name
 	}
 	cfg.Servers[idx].ClientConfig = entry.ClientConfig
+	dedupRoutingStrings(cfg.Servers[idx].Routing)
 
 	// @sk-task multi-server: ensure routing defaults on update (AC-001)
 	sv := &cfg.Servers[idx]
@@ -279,6 +286,30 @@ func (s *Server) loadWebUIConfig() (*config.WebUIConfig, error) {
 
 func (s *Server) saveWebUIConfig(cfg *config.WebUIConfig) error {
 	return config.SaveWebUIConfig(s.cfgPath(), cfg)
+}
+
+// @sk-task kvn-web-config-update#T3.1: dedup routes (AC-004, AC-007)
+func dedupRoutingStrings(r *config.RoutingCfg) {
+	if r == nil {
+		return
+	}
+	dedup := func(s []string) []string {
+		seen := make(map[string]struct{}, len(s))
+		res := make([]string, 0, len(s))
+		for _, v := range s {
+			if _, ok := seen[v]; !ok {
+				seen[v] = struct{}{}
+				res = append(res, v)
+			}
+		}
+		return res
+	}
+	r.IncludeRanges = dedup(r.IncludeRanges)
+	r.ExcludeRanges = dedup(r.ExcludeRanges)
+	r.IncludeIPs = dedup(r.IncludeIPs)
+	r.ExcludeIPs = dedup(r.ExcludeIPs)
+	r.IncludeDomains = dedup(r.IncludeDomains)
+	r.ExcludeDomains = dedup(r.ExcludeDomains)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

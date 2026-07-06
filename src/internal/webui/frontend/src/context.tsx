@@ -41,6 +41,10 @@ export interface AppState {
   removeSourceRule: (list: "include_sources" | "exclude_sources", idx: number) => void;
   updateSourceRule: (list: "include_sources" | "exclude_sources", idx: number, field: string, val: string | undefined) => void;
   refreshSources: () => Promise<void>;
+
+  // @sk-task kvn-web-config-update#T2.1: routing string list callbacks (AC-001, AC-002, AC-003)
+  addRoutingString: (list: string, val: string) => void;
+  removeRoutingString: (list: string, idx: number) => void;
 }
 
 const AppCtx = createContext<AppState | null>(null);
@@ -304,6 +308,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setDirty(true);
   }, []);
 
+  // @sk-task kvn-web-config-update#T2.1: add/remove routing string items (AC-001, AC-002, AC-003)
+  const addRoutingString = useCallback((list: string, val: string) => {
+    if (!val.trim()) return;
+    setServerConfig((prev) => {
+      const routing = { ...prev.routing };
+      const items = [...((routing as any)[list] || [])];
+      if (items.includes(val.trim())) return prev;
+      items.push(val.trim());
+      (routing as any)[list] = items;
+      return { ...prev, routing };
+    });
+    setDirty(true);
+  }, []);
+
+  const removeRoutingString = useCallback((list: string, idx: number) => {
+    setServerConfig((prev) => {
+      const routing = { ...prev.routing };
+      const items = [...((routing as any)[list] || [])];
+      items.splice(idx, 1);
+      (routing as any)[list] = items;
+      return { ...prev, routing };
+    });
+    setDirty(true);
+  }, []);
+
   const refreshSources = useCallback(async () => {
     try {
       const r = await fetch("/api/config/refresh-sources", { method: "POST" });
@@ -319,6 +348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     connect, disconnect, saveAll, addServer, deleteServer, selectServer, exportConfig, doImport, showToast,
     updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
     addSourceRule, removeSourceRule, updateSourceRule, refreshSources,
+    addRoutingString, removeRoutingString,
     formValid, setFormValid,
     logPaused, setLogPaused,
     serverName, setServerName,

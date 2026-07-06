@@ -350,72 +350,12 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config %s: %w", path, err)
 	}
-	if cfg.MTU == 0 {
-		cfg.MTU = 1400
-	}
-	if cfg.ProxyListen == "" {
-		cfg.ProxyListen = "127.0.0.1:2310"
-	}
-	if cfg.AutoReconnect == nil {
-		v := true
-		cfg.AutoReconnect = &v
-	}
-	if cfg.Mode == "" {
-		cfg.Mode = "proxy"
-	}
-	// @sk-task production-gap#T1.1: default to trusted client verification (AC-001)
-	if cfg.TLS.VerifyMode == "" {
-		cfg.TLS.VerifyMode = "verify"
-	}
-	if cfg.Routing == nil {
-		cfg.Routing = &RoutingCfg{
-			DefaultRoute:  "server",
-			ExcludeRanges: DefaultExcludeRanges,
-		}
-	} else if cfg.Routing.DefaultRoute == "" {
-		cfg.Routing.DefaultRoute = "server"
-	}
-	// deduplicate and ensure all DefaultExcludeRanges are present
-	unique := make([]string, 0, len(cfg.Routing.ExcludeRanges)+len(DefaultExcludeRanges))
-	seen := make(map[string]bool, len(cfg.Routing.ExcludeRanges))
-	for _, r := range cfg.Routing.ExcludeRanges {
-		if !seen[r] {
-			unique = append(unique, r)
-			seen[r] = true
-		}
-	}
-	for _, d := range DefaultExcludeRanges {
-		if !seen[d] {
-			unique = append([]string{d}, unique...)
-			seen[d] = true
-		}
-	}
-	cfg.Routing.ExcludeRanges = unique
+	SetClientDefaults(cfg)
 	if len(cfg.TLS.SNI) > 0 && cfg.TLS.VerifyMode == "verify" {
 		log.Printf("[config] WARNING: tls.sni=%v with verify_mode=verify will fail — SNI domain doesn't match server certificate. Set verify_mode=insecure when using custom SNI.", cfg.TLS.SNI)
 	}
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		cfg.Crypto.Enabled = false
-	}
-	// @sk-task arch-refactoring#T1.1: defaults for MaxMessageSize, TunnelTimeout, ProxyMaxConcurrency (AC-006)
-	if cfg.MaxMessageSize <= 0 {
-		cfg.MaxMessageSize = 10 * 1024 * 1024
-	}
-	if cfg.TunnelTimeout <= 0 {
-		cfg.TunnelTimeout = 30
-	}
-	if cfg.ProxyMaxConcurrency <= 0 {
-		cfg.ProxyMaxConcurrency = 1000
-	}
-	if cfg.ProxyConnections <= 0 {
-		cfg.ProxyConnections = 10
-	}
-
-	if cfg.DNSProxy.Listen == "" {
-		cfg.DNSProxy.Listen = "127.0.0.54:53"
-	}
-	if len(cfg.DNSProxy.Upstreams) == 0 {
-		cfg.DNSProxy.Upstreams = append([]string{}, DefaultDNSUpstreams...)
 	}
 
 	// @sk-task client-relay-mode#T1.1: relay config defaults and validation (AC-003)
@@ -454,6 +394,67 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		log.Println("[config] WARNING: secrets (auth.token, crypto.key) loaded from config file. Use environment variables KVN_CLIENT_* for production.")
 	}
 	return cfg, nil
+}
+
+// @sk-task kvn-web-config-update#T3.1: exported defaults for web UI (AC-005, AC-006)
+func SetClientDefaults(cfg *ClientConfig) {
+	if cfg.MTU == 0 {
+		cfg.MTU = 1400
+	}
+	if cfg.ProxyListen == "" {
+		cfg.ProxyListen = "127.0.0.1:2310"
+	}
+	if cfg.AutoReconnect == nil {
+		v := true
+		cfg.AutoReconnect = &v
+	}
+	if cfg.Mode == "" {
+		cfg.Mode = "proxy"
+	}
+	if cfg.TLS.VerifyMode == "" {
+		cfg.TLS.VerifyMode = "verify"
+	}
+	if cfg.Routing == nil {
+		cfg.Routing = &RoutingCfg{
+			DefaultRoute:  "server",
+			ExcludeRanges: DefaultExcludeRanges,
+		}
+	} else if cfg.Routing.DefaultRoute == "" {
+		cfg.Routing.DefaultRoute = "server"
+	}
+	unique := make([]string, 0, len(cfg.Routing.ExcludeRanges)+len(DefaultExcludeRanges))
+	seen := make(map[string]bool, len(cfg.Routing.ExcludeRanges))
+	for _, r := range cfg.Routing.ExcludeRanges {
+		if !seen[r] {
+			unique = append(unique, r)
+			seen[r] = true
+		}
+	}
+	for _, d := range DefaultExcludeRanges {
+		if !seen[d] {
+			unique = append([]string{d}, unique...)
+			seen[d] = true
+		}
+	}
+	cfg.Routing.ExcludeRanges = unique
+	if cfg.MaxMessageSize <= 0 {
+		cfg.MaxMessageSize = 10 * 1024 * 1024
+	}
+	if cfg.TunnelTimeout <= 0 {
+		cfg.TunnelTimeout = 30
+	}
+	if cfg.ProxyMaxConcurrency <= 0 {
+		cfg.ProxyMaxConcurrency = 1000
+	}
+	if cfg.ProxyConnections <= 0 {
+		cfg.ProxyConnections = 10
+	}
+	if cfg.DNSProxy.Listen == "" {
+		cfg.DNSProxy.Listen = "127.0.0.54:53"
+	}
+	if len(cfg.DNSProxy.Upstreams) == 0 {
+		cfg.DNSProxy.Upstreams = append([]string{}, DefaultDNSUpstreams...)
+	}
 }
 
 // @sk-task kvn-web#T1.1: SaveClientConfig writes config to YAML (AC-005)

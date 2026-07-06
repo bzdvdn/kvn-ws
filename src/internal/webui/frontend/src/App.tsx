@@ -69,6 +69,7 @@ function AppInner() {
     exportConfig, doImport, showToast, setFormValid, serverName, setServerName,
     updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
     addSourceRule, removeSourceRule, updateSourceRule, refreshSources,
+    addRoutingString, removeRoutingString,
   } = useApp();
 
   const [importOpen, setImportOpen] = useState(false);
@@ -203,6 +204,8 @@ function AppInner() {
             onRemoveSourceRule={removeSourceRule}
             onUpdateSourceRule={updateSourceRule}
             onRefreshSources={refreshSources}
+            onAddRoutingString={addRoutingString}
+            onRemoveRoutingString={removeRoutingString}
             onFormValidityChange={setFormValid}
           />
         </div>

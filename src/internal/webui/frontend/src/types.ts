@@ -24,6 +24,8 @@ export interface ClientConfig {
   max_message_size?: number;
   tunnel_timeout?: number;
   proxy_listen?: string;
+  // @sk-task kvn-web-config-update#T1.1: proxy_connections field (AC-005, AC-006)
+  proxy_connections?: number;
   proxy_auth?: { username?: string; password?: string };
   log?: { level?: string };
   tls?: { verify_mode?: string; server_name?: string; ca_file?: string; sni?: string[] };

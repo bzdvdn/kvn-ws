@@ -17,6 +17,8 @@ interface TabbedFormProps {
   onRemoveSourceRule: (list: "include_sources" | "exclude_sources", idx: number) => void;
   onUpdateSourceRule: (list: "include_sources" | "exclude_sources", idx: number, field: string, val: string | undefined) => void;
   onRefreshSources: () => void;
+  onAddRoutingString: (list: string, val: string) => void;
+  onRemoveRoutingString: (list: string, idx: number) => void;
   onFormValidityChange?: (isValid: boolean) => void;
 }
 
@@ -158,9 +160,54 @@ function SrcRow({ src, idx, list, onUpdate, onRemove }: {
   );
 }
 
+// @sk-task kvn-web-config-update#T2.1: ChipList component for string[] routing fields (AC-001, AC-002, AC-003)
+function ChipList({ items, label, placeholder, onAdd, onRemove }: {
+  items: string[];
+  label: string;
+  placeholder: string;
+  onAdd: (val: string) => void;
+  onRemove: (idx: number) => void;
+}) {
+  const [inputVal, setInputVal] = useState("");
+  const handleAdd = () => {
+    if (!inputVal.trim()) return;
+    if (items.includes(inputVal.trim())) { setInputVal(""); return; }
+    onAdd(inputVal.trim());
+    setInputVal("");
+  };
+  return (
+    <div style={fieldStyle()}>
+      <span style={labelStyle()}>{label}</span>
+      <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+        <input
+          style={{ ...chipStyle, flex: 1 }}
+          placeholder={placeholder}
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAdd(); } }}
+        />
+        <button style={{ ...btnSmall, padding: "2px 10px" }} onClick={handleAdd}>+</button>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        {items.map((item, i) => (
+          <span key={i} style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            padding: "2px 6px", background: colors.cardBg, borderRadius: borderRadius.sm,
+            border: `1px solid ${colors.cardBorder}`, fontSize: 12, color: colors.text,
+          }}>
+            {item}
+            <span style={{ cursor: "pointer", color: colors.error, fontWeight: 700, fontSize: 13, lineHeight: 1 }} onClick={() => onRemove(i)}>×</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // @sk-task kvn-web-redesign#T2.2: tabbed settings form with 5 tabs (AC-005)
 export default function TabbedForm(props: TabbedFormProps) {
   const [activeTab, setActiveTab] = useState(0);
+  const [showToken, setShowToken] = useState(false);
   const { serverConfig, globalConfig } = props;
   const { errors, validate, isValid } = useFieldValidation();
   const validityRef = useRef(isValid);
@@ -188,7 +235,10 @@ export default function TabbedForm(props: TabbedFormProps) {
       </FormField>
       <div style={fieldStyle()}>
         <span style={labelStyle()}>Auth Token</span>
-        <input style={inputStyle} type="password" value={serverConfig.auth?.token || ""} onChange={(e) => props.onNestServer("auth", "token", e.target.value)} placeholder="Token" />
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <input style={{ ...inputStyle, flex: 1 }} type={showToken ? "text" : "password"} value={serverConfig.auth?.token || ""} onChange={(e) => props.onNestServer("auth", "token", e.target.value)} placeholder="Token" />
+          <button style={{ ...btnSmall, padding: "2px 8px", minWidth: 32 }} onClick={() => setShowToken(!showToken)}>{showToken ? "🙈" : "👁️"}</button>
+        </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <div style={fieldStyle()}>
@@ -268,34 +318,52 @@ export default function TabbedForm(props: TabbedFormProps) {
 
       <div style={subBlockStyle}>
         <div style={subTitleStyle}>Include Rules</div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>CIDR</span>
-          <input style={chipStyle} placeholder="10.0.0.0/8, 192.168.0.0/16" />
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>IPs</span>
-          <input style={chipStyle} placeholder="1.1.1.1, 8.8.8.8" />
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Domains</span>
-          <input style={chipStyle} placeholder="example.com, .internal.corp" />
-        </div>
+        <ChipList
+          items={serverConfig.routing?.include_ranges || []}
+          label="CIDR"
+          placeholder="10.0.0.0/8"
+          onAdd={(v) => props.onAddRoutingString("include_ranges", v)}
+          onRemove={(i) => props.onRemoveRoutingString("include_ranges", i)}
+        />
+        <ChipList
+          items={serverConfig.routing?.include_ips || []}
+          label="IPs"
+          placeholder="1.1.1.1"
+          onAdd={(v) => props.onAddRoutingString("include_ips", v)}
+          onRemove={(i) => props.onRemoveRoutingString("include_ips", i)}
+        />
+        <ChipList
+          items={serverConfig.routing?.include_domains || []}
+          label="Domains"
+          placeholder="example.com"
+          onAdd={(v) => props.onAddRoutingString("include_domains", v)}
+          onRemove={(i) => props.onRemoveRoutingString("include_domains", i)}
+        />
       </div>
 
       <div style={subBlockStyle}>
         <div style={subTitleStyle}>Exclude Rules</div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>CIDR</span>
-          <input style={chipStyle} placeholder="0.0.0.0/0" />
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>IPs</span>
-          <input style={chipStyle} placeholder="10.0.0.1" />
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Domains</span>
-          <input style={chipStyle} placeholder="local, localhost" />
-        </div>
+        <ChipList
+          items={serverConfig.routing?.exclude_ranges || []}
+          label="CIDR"
+          placeholder="192.168.0.0/16"
+          onAdd={(v) => props.onAddRoutingString("exclude_ranges", v)}
+          onRemove={(i) => props.onRemoveRoutingString("exclude_ranges", i)}
+        />
+        <ChipList
+          items={serverConfig.routing?.exclude_ips || []}
+          label="IPs"
+          placeholder="10.0.0.1"
+          onAdd={(v) => props.onAddRoutingString("exclude_ips", v)}
+          onRemove={(i) => props.onRemoveRoutingString("exclude_ips", i)}
+        />
+        <ChipList
+          items={serverConfig.routing?.exclude_domains || []}
+          label="Domains"
+          placeholder="local"
+          onAdd={(v) => props.onAddRoutingString("exclude_domains", v)}
+          onRemove={(i) => props.onRemoveRoutingString("exclude_domains", i)}
+        />
       </div>
 
       <div style={subBlockStyle}>
@@ -363,6 +431,11 @@ export default function TabbedForm(props: TabbedFormProps) {
         <div style={fieldStyle()}>
           <span style={labelStyle()}>Max Message Size</span>
           <input style={inputStyle} type="number" value={serverConfig.max_message_size ?? 10485760} onChange={(e) => props.onUpdateServer("max_message_size", parseInt(e.target.value) || 10485760)} />
+        </div>
+        <div style={fieldStyle()}>
+          {/* @sk-task kvn-web-config-update#T2.2: proxy_connections tuning field (AC-005, AC-006) */}
+          <span style={labelStyle()}>Proxy Connections</span>
+          <input style={inputStyle} type="number" value={serverConfig.proxy_connections || 10} onChange={(e) => props.onUpdateServer("proxy_connections", parseInt(e.target.value) || 10)} />
         </div>
       </div>
 
