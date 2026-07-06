@@ -3,23 +3,34 @@
 package main
 
 import (
-	"os"
+	"fmt"
+	"net"
 	"os/exec"
-	"path/filepath"
-	"syscall"
+	"time"
 )
 
-func (s *ServiceManager) Start() error {
-	exe, err := os.Executable()
+const kvnWebPort = 2311
+
+// checkPort dials the local TCP port and returns true if something is listening.
+func checkPort() bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", kvnWebPort), 2*time.Second)
 	if err != nil {
-		return err
+		return false
 	}
-	kvnWebPath := filepath.Join(filepath.Dir(exe), "kvn-web.exe")
-	cmd := exec.Command(kvnWebPath, "--no-browser", "--port", "2311")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	return cmd.Start()
+	_ = conn.Close()
+	return true
 }
 
+// Start triggers the scheduled task for kvn-web. If kvn-web is already
+// listening on the target port this is a no-op.
+func (s *ServiceManager) Start() error {
+	if checkPort() {
+		return nil
+	}
+	return exec.Command("schtasks", "/Run", "/TN", "kvn-web").Run()
+}
+
+// Stop kills all kvn-web.exe processes by image name.
 func (s *ServiceManager) Stop() error {
 	return exec.Command("taskkill", "/IM", "kvn-web.exe", "/F").Run()
 }

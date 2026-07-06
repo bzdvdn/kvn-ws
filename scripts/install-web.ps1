@@ -3,7 +3,8 @@
     Install kvn-web on Windows from GitHub release.
 .DESCRIPTION
     Downloads the latest kvn-web binary, creates Start Menu and Desktop shortcuts.
-    No Windows service — user launches kvn-web.exe via shortcut when needed.
+    No Windows service — kvn-web runs as a scheduled task when -Desktop is used,
+    otherwise the user launches kvn-web.exe via shortcut when needed.
 .PARAMETER Port
     Web UI port (default: 2311).
 .PARAMETER Version
@@ -33,7 +34,7 @@ $Repo = "bzdvdn/kvn-ws"
 $BinaryName = if ($Desktop) { "kvn-desktop.exe" } else { "kvn-web.exe" }
 $BinDir = "$env:ProgramFiles\KVN"
 
-# kvn-desktop depends on kvn-web.exe as a child process (service_windows.go:17)
+# kvn-desktop depends on kvn-web.exe running on the same host (scheduled task or standalone)
 $WebBinaryName = "kvn-web.exe"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
@@ -156,6 +157,27 @@ if ($Startup) {
     }
 }
 
+# --- Register scheduled task for kvn-web (always with -Desktop) ---
+if ($Desktop) {
+    Write-Step "Registering scheduled task 'kvn-web'..."
+    $taskName = "kvn-web"
+    $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($existing) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    }
+    $webExe = "$BinDir\$WebBinaryName"
+    $action = New-ScheduledTaskAction -Execute $webExe `
+        -Argument "--no-browser --port $Port"
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+    # Run as the installing user with Limited (non-admin) rights.
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERNAME" -RunLevel Limited
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
+        -Settings $settings -Principal $principal -Force | Out-Null
+    Write-Ok "Scheduled task '$taskName' registered (runs at logon as $env:USERNAME)"
+}
+
 # --- Summary ---
 Write-Host ""
 Write-Host "=== ${BinaryName} installation complete ===" -ForegroundColor Green
@@ -165,13 +187,17 @@ Write-Host "  Desktop: $([System.IO.Path]::GetFileNameWithoutExtension($BinaryNa
 if ($Startup) {
     Write-Host "  Autostart: Startup folder (runs at logon)" -ForegroundColor Yellow
 }
+if ($Desktop) {
+    Write-Host "  kvn-web autostart: Scheduled task 'kvn-web' (runs at logon)" -ForegroundColor Yellow
+}
 Write-Host ""
 if ($Desktop) {
     Write-Host "Usage:" -ForegroundColor Green
-    Write-Host "  1. Double-click the desktop shortcut to start kvn-desktop" -ForegroundColor Cyan
-    Write-Host "  2. Native window opens with KVN Web UI" -ForegroundColor Cyan
-    Write-Host "  3. Click Connect to enable VPN + system proxy" -ForegroundColor Cyan
-    Write-Host "  4. Close the window to disconnect and cleanup" -ForegroundColor Cyan
+    Write-Host "  1. kvn-web starts automatically at logon (scheduled task)" -ForegroundColor Cyan
+    Write-Host "  2. Double-click the desktop shortcut to start kvn-desktop" -ForegroundColor Cyan
+    Write-Host "  3. Native window opens with KVN Web UI" -ForegroundColor Cyan
+    Write-Host "  4. Click Connect to enable VPN + system proxy" -ForegroundColor Cyan
+    Write-Host "  5. Close the window to disconnect and cleanup" -ForegroundColor Cyan
 } else {
     Write-Host "Usage:" -ForegroundColor Green
     Write-Host "  1. Double-click the desktop shortcut to start kvn-web" -ForegroundColor Cyan

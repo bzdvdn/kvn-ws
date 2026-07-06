@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **kvn-desktop: Windows EXE без иконки** — `.ico` файлы были только 16×16 (747 байт) — на высоких DPI выглядят как отсутствие иконки. Перегенерированы в мультирезолюционные (16–256px). CI команда `rsrc` не содержала `-ico` флаг, и `.syso` записывался в `winres/` вместо корня пакета — Go linker не подхватывал ни иконку, ни UAC-манифест.
 - **CI: golangci-lint errcheck** — 2 unchecked type assertion в `src/internal/tunnel/session.go` (lines 351, 492). Исправлены через `_, _` pattern.
+- **kvn-desktop: Windows proxy stream read error** — `kvn-web` больше не запускается как child-процесс `kvn-desktop`. Scheduled task `kvn-web` стартует `kvn-web.exe --no-browser --port 2311` при logon; `kvn-desktop` только управляет через `schtasks /Run` / `taskkill`. Полная изоляция от job object / console handles WebView2.
 
 ## [0.5.1] — 2026-07-05
 
