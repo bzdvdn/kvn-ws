@@ -42,6 +42,15 @@ type tunReadResult struct {
 	buf []byte
 }
 
+// streamWriter provides per-stream ordered async writes to a target TCP
+// connection. wsToTun enqueues data into a buffered channel; a single
+// goroutine drains the channel sequentially so order is preserved and
+// wsToTun never blocks on a slow target.
+type streamWriter struct {
+	conn net.Conn
+	ch   chan []byte
+}
+
 // OutgoingInterceptor is called before writing a data frame to the TUN device.
 // If it returns true, the frame is considered handled and TUN write is skipped.
 type OutgoingInterceptor func(payload []byte) (handled bool, err error)
@@ -60,6 +69,7 @@ type Session struct {
 	logger           *zap.Logger
 	cipher           *crypto.SessionCipher
 	proxyStreams     *proxy.SessionStreams
+	streamWriters    sync.Map // uint32 → *streamWriter, per-stream ordered writes
 	proxySem         chan struct{}
 	tunRouter        *routing.TunRouter
 	tunReaderCh      chan tunReadResult
@@ -332,17 +342,16 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	dst := string(payload[6 : 6+dstLen])
 	data := payload[6+dstLen:]
 
-	if v, ok := s.proxyStreams.Load(streamID); ok {
-		buf := make([]byte, len(data))
-		copy(buf, data)
-		s.logger.Debug("proxy write existing",
-			zap.Int("n", len(buf)),
-			zap.Binary("hex", buf[:min(len(buf), 8)]),
-		)
-		_ = v.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
-		if _, err := v.Write(buf); err != nil {
-			s.logger.Debug("proxy write existing error", zap.Error(err))
+	if _, ok := s.proxyStreams.Load(streamID); ok {
+		// Async ordered write via per-stream goroutine.
+		sw, ok := s.streamWriters.Load(streamID)
+		if !ok {
+			return
 		}
+		bw := sw.(*streamWriter)
+		tmp := make([]byte, len(data))
+		copy(tmp, data)
+		bw.ch <- tmp
 		return
 	}
 
@@ -366,13 +375,26 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	}
 	s.proxyStreams.Store(streamID, tcpConn)
 	s.logger.Info("proxy tunnel", zap.String("dst", dst), zap.String("ip", dst))
-	if len(data) > 0 {
-		show := len(data)
-		if show > 8 {
-			show = 8
+
+	// Start per-stream ordered writer goroutine.
+	sw := &streamWriter{
+		conn: tcpConn,
+		ch:   make(chan []byte, 64),
+	}
+	s.streamWriters.Store(streamID, sw)
+	go func() {
+		for buf := range sw.ch {
+			_ = sw.conn.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
+			if _, err := sw.conn.Write(buf); err != nil {
+				break
+			}
 		}
-		s.logger.Debug("proxy write new", zap.Int("n", len(data)), zap.Binary("hex", data[:show]))
-		_, _ = tcpConn.Write(data)
+	}()
+
+	if len(data) > 0 {
+		tmp := make([]byte, len(data))
+		copy(tmp, data)
+		sw.ch <- tmp
 	}
 
 	select {
@@ -381,6 +403,7 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 		s.logger.Warn("proxy concurrency limit reached, dropping stream", zap.Uint32("stream_id", streamID))
 		_ = tcpConn.Close()
 		s.proxyStreams.Delete(streamID)
+		s.streamWriters.Delete(streamID)
 		return
 	}
 
@@ -464,6 +487,10 @@ func (s *Session) forwardDNS(ctx context.Context, query []byte, upstreams []stri
 func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, parentCtx context.Context) {
 	defer func() {
 		<-s.proxySem
+		if sw, ok := s.streamWriters.Load(sid); ok {
+			s.streamWriters.Delete(sid)
+			close(sw.(*streamWriter).ch)
+		}
 		_ = tcp.Close()
 		s.proxyStreams.Delete(sid)
 		if parentCtx.Err() != nil {

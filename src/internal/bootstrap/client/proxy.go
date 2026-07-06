@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -23,12 +24,24 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
+// @sk-task win-proxy-multi-conn#T2.1: N parallel transport connections, proxySlot type (AC-001)
+type proxySlot struct {
+	stream transport.StreamConn
+	mgr    *proxy.Manager
+}
+
 // @sk-task arch-refactoring#T3.1: use common dialStream (AC-004)
+// @sk-task win-proxy-multi-conn#T4.1: reconnect loop with config-driven connection count (AC-003)
 func (c *Client) runProxyMode(ctx context.Context) {
 	// @sk-task dns-cache-cleanup: clean stale resolv.conf from previous killed session
 	dnsproxy.CleanupStaleDNS(c.cfg.DNSProxy.Listen)
 
 	minBackoff, maxBackoff := parseBackoff(c.cfg.Reconnect)
+
+	numConns := c.cfg.ProxyConnections
+	if numConns <= 0 {
+		numConns = 10
+	}
 
 	backoff := minBackoff
 	attempt := 0
@@ -40,14 +53,33 @@ func (c *Client) runProxyMode(ctx context.Context) {
 		}
 
 		attempt++
-		c.logger.Info("connecting", zap.Int("attempt", attempt), zap.Duration("backoff", backoff))
+		c.logger.Info("connecting", zap.Int("attempt", attempt), zap.Duration("backoff", backoff), zap.Int("conns", numConns))
 
-		stream, err := dialStream(ctx, c.cfg, c.logger)
-		if err != nil {
-			c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
+		slots := c.dialProxySlots(ctx, numConns)
+		if slots == nil {
+			c.logger.Warn("dial failed", zap.Duration("retry_in", backoff))
 			sleepWithContext(ctx, backoff)
 			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
 			continue
+		}
+
+		c.runProxySessionMulti(ctx, slots, c.cfg.Transparent)
+		backoff = nextBackoff(backoff, minBackoff, maxBackoff)
+	}
+}
+
+// @sk-task win-proxy-multi-conn#T2.3: dial N connections + handshake for each (AC-001)
+func (c *Client) dialProxySlots(ctx context.Context, numConns int) []*proxySlot {
+	slots := make([]*proxySlot, numConns)
+	// Dial all connections sequentially so each gets a full handshake.
+	// If any fails we close the ones we opened and return nil.
+	for i := 0; i < numConns; i++ {
+		stream, err := dialStream(ctx, c.cfg, c.logger)
+		if err != nil {
+			for j := 0; j < i; j++ {
+				_ = slots[j].stream.Close()
+			}
+			return nil
 		}
 		if c.metricCollector != nil {
 			stream = &transport.CountingStreamConn{
@@ -56,18 +88,90 @@ func (c *Client) runProxyMode(ctx context.Context) {
 				AddRX:      c.metricCollector.AddRX,
 			}
 		}
+		if !c.doHandshake(ctx, stream) {
+			_ = stream.Close()
+			for j := 0; j < i; j++ {
+				_ = slots[j].stream.Close()
+			}
+			return nil
+		}
+		slots[i] = &proxySlot{stream: stream}
+	}
+	return slots
+}
 
-		c.runProxySession(ctx, stream, c.cfg.Transparent)
-		backoff = nextBackoff(backoff, minBackoff, maxBackoff)
+// doHandshake performs the client↔server hello exchange on a single transport stream.
+// Returns false on failure.
+// @sk-task win-proxy-multi-conn#T2.2: full ClientHello↔ServerHello handshake (AC-001)
+func (c *Client) doHandshake(ctx context.Context, stream transport.StreamConn) bool {
+	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
+		ProtoVersion: handshake.ProtoVersion,
+		Ipv6:         c.cfg.IPv6,
+		Token:        c.cfg.Auth.Token,
+		Mtu:          c.cfg.MTU,
+	})
+	if err != nil {
+		c.logger.Warn("encode client hello", zap.Error(err))
+		return false
+	}
+	helloData, err := helloFrame.Encode()
+	if err != nil {
+		c.logger.Warn("encode hello frame", zap.Error(err))
+		return false
+	}
+	if err := stream.WriteMessage(helloData); err != nil {
+		framing.ReturnBuffer(helloData)
+		c.logger.Warn("send hello", zap.Error(err))
+		return false
+	}
+	framing.ReturnBuffer(helloData)
+
+	respData, err := stream.ReadMessage()
+	if err != nil {
+		c.logger.Warn("read server hello", zap.Error(err))
+		return false
+	}
+	var respFrame framing.Frame
+	if err := respFrame.Decode(respData); err != nil {
+		c.logger.Warn("decode server hello", zap.Error(err))
+		return false
+	}
+	switch respFrame.Type {
+	case framing.FrameTypeAuth:
+		authErr, _ := handshake.DecodeAuthError(&respFrame)
+		c.logger.Warn("auth rejected", zap.String("reason", authErr.Reason))
+		return false
+	case framing.FrameTypeHello:
+		serverHello, err := handshake.DecodeServerHello(&respFrame)
+		if err != nil {
+			c.logger.Warn("decode server hello", zap.Error(err))
+			return false
+		}
+		c.logger.Info("handshake complete",
+			zap.String("session", serverHello.SessionId),
+			zap.String("assigned_ip", serverHello.AssignedIp.String()),
+		)
+		return true
+	default:
+		c.logger.Warn("unexpected handshake response", zap.Int("type", int(respFrame.Type)))
+		return false
 	}
 }
 
-// @sk-task quic-proxy-mode#T2.2: runProxySession takes proxy.StreamConn (AC-001, AC-002, AC-003)
-// @sk-task transparent-proxy#T3.1: transparent mode — listen on 0.0.0.0, enable transparent detection (AC-001)
-func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, transparent bool) {
-	defer func() { _ = stream.Close() }()
+// @sk-task win-proxy-multi-conn#T3.1: per-slot Manager (AC-001, AC-002)
+// @sk-task win-proxy-multi-conn#T3.2: round-robin stream distribution in onConn (AC-002)
+// @sk-task win-proxy-multi-conn#T3.4: DNS proxy bound to slot 0 (AC-006)
+// @sk-task win-proxy-multi-conn#T3.5: QUIC keepalive on slot 0 (AC-007)
+// @sk-task win-proxy-multi-conn#T3.6: teardown all slots on any error (AC-003)
+func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, transparent bool) {
+	// Close all streams on exit
+	defer func() {
+		for _, slot := range slots {
+			_ = slot.stream.Close()
+		}
+	}()
 
-	// @sk-task transparent-proxy#T5.5: build routeSet before DNS proxy for domain-based routing
+	// Shared resources — routing, DNS tracker, DNS proxy
 	var routeSet *routing.RuleSet
 	if c.cfg.Routing != nil {
 		rs, err := routing.NewRuleSet(c.cfg.Routing, c.logger)
@@ -77,68 +181,12 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			routeSet = rs
 		}
 	}
-	// @sk-task dns-response-tracker#T3.3: init Tracker and set on routeSet
 	var dnsTracker *dns.Tracker
 	if routeSet != nil && c.cfg.Routing != nil && c.cfg.Routing.DNSCache != nil && c.cfg.Routing.DNSCache.Enabled {
 		dnsTracker = dns.NewTracker(time.Duration(c.cfg.Routing.DNSCache.TTL) * time.Second)
 		routeSet.SetTracker(dnsTracker)
 	}
 
-	{
-		helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
-			ProtoVersion: handshake.ProtoVersion,
-			Ipv6:         c.cfg.IPv6,
-			Token:        c.cfg.Auth.Token,
-			Mtu:          c.cfg.MTU,
-		})
-		if err != nil {
-			c.logger.Warn("encode client hello", zap.Error(err))
-			return
-		}
-		helloData, err := helloFrame.Encode()
-		if err != nil {
-			c.logger.Warn("encode hello frame", zap.Error(err))
-			return
-		}
-		if err := stream.WriteMessage(helloData); err != nil {
-			framing.ReturnBuffer(helloData)
-			c.logger.Warn("send hello", zap.Error(err))
-			return
-		}
-		framing.ReturnBuffer(helloData)
-
-		respData, err := stream.ReadMessage()
-		if err != nil {
-			c.logger.Warn("read server hello", zap.Error(err))
-			return
-		}
-		var respFrame framing.Frame
-		if err := respFrame.Decode(respData); err != nil {
-			c.logger.Warn("decode server hello", zap.Error(err))
-			return
-		}
-		switch respFrame.Type {
-		case framing.FrameTypeAuth:
-			authErr, _ := handshake.DecodeAuthError(&respFrame)
-			c.logger.Warn("auth rejected", zap.String("reason", authErr.Reason))
-			return
-		case framing.FrameTypeHello:
-			serverHello, err := handshake.DecodeServerHello(&respFrame)
-			if err != nil {
-				c.logger.Warn("decode server hello", zap.Error(err))
-				return
-			}
-			c.logger.Info("handshake complete",
-				zap.String("session", serverHello.SessionId),
-				zap.String("assigned_ip", serverHello.AssignedIp.String()),
-			)
-		default:
-			c.logger.Warn("unexpected handshake response", zap.Int("type", int(respFrame.Type)))
-			return
-		}
-	}
-
-	// Start DNS proxy after successful handshake — ensures tunnel works before intercepting DNS
 	var dnsCtx context.Context
 	var dnsCancel context.CancelFunc
 	var resolvBackup *dnsproxy.ResolvConfBackup
@@ -176,7 +224,8 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			if resolvBackup != nil {
 				_ = dnsproxy.OverrideResolvConf(c.cfg.DNSProxy.Listen)
 			}
-			c.dnsSrv.SetStream(stream)
+			// Use the first slot's stream for DNS responses
+			c.dnsSrv.SetStream(slots[0].stream)
 		}
 		defer func() {
 			if c.dnsSrv != nil {
@@ -197,7 +246,13 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 		}()
 	}
 
-	streamMgr := proxy.NewManager(stream)
+	// Create one Manager per slot
+	for i, slot := range slots {
+		slot.mgr = proxy.NewManager(slot.stream, func(format string, args ...any) {
+			c.logger.Warn(fmt.Sprintf(format, args...))
+		})
+		slots[i] = slot
+	}
 
 	var proxyAuth *proxy.ProxyAuth
 	if c.cfg.ProxyAuth != nil {
@@ -210,6 +265,11 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			listenAddr = "0.0.0.0:" + port
 		}
 	}
+
+	// Round-robin across slots
+	var nextSlot atomic.Uint64
+	numSlots := uint64(len(slots))
+
 	pl := proxy.NewListener(listenAddr, proxyAuth, func(client net.Conn, dst string) {
 		c.logger.Debug("proxy onconn", zap.String("dst", dst))
 		if routeSet != nil {
@@ -217,8 +277,6 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			if err != nil {
 				host = dst
 			}
-			// @sk-task dns-routing#T6.1: check suffix domains first (AC-001, AC-002)
-			// @sk-task fix-critical-leaks#T3.3: RouteDirect lifecycle via errgroup (AC-003)
 			if action := routeSet.MatchDomain(host); action == routing.RouteDirect {
 				c.logger.Info("proxy domain direct", zap.String("dst", dst), zap.String("ip", dst))
 				go func() {
@@ -251,12 +309,10 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			}
 			ipAddr := net.ParseIP(host)
 			if ipAddr == nil {
-				// @sk-task fix-critical-leaks#T2.2: DNS ctx propagation (AC-005)
 				addrs, _ := net.DefaultResolver.LookupHost(ctx, host)
 				if len(addrs) > 0 {
 					ipAddr = net.ParseIP(addrs[0])
 				}
-				// @sk-task dns-response-tracker#T3.3: track resolved IP→domain in proxy mode
 				if dnsTracker != nil && len(addrs) > 0 {
 					var ips []netip.Addr
 					for _, a := range addrs {
@@ -278,7 +334,6 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 				}
 			}
 			if nip.IsValid() && routeSet.Route(nip) == routing.RouteDirect {
-				// @sk-task fix-critical-leaks#T3.3: RouteDirect lifecycle via errgroup (AC-003)
 				c.logger.Info("proxy direct", zap.String("dst", dst), zap.String("ip", dst))
 				go func() {
 					defer func() { _ = client.Close() }()
@@ -310,16 +365,20 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 			}
 		}
 
+		// Pick a slot by round-robin
+		idx := nextSlot.Add(1) % numSlots
+		slot := slots[idx]
+
 		s := &proxy.Stream{
 			ID:    proxy.NewStreamID(),
 			Dst:   dst,
 			Local: client,
 		}
-		streamMgr.Add(s)
+		slot.mgr.Add(s)
 
 		go func() {
-			s.ForwardToStream(stream)
-			streamMgr.Remove(s.ID)
+			s.ForwardToStream(slot.stream)
+			slot.mgr.Remove(s.ID)
 		}()
 	}, c.cfg.ProxyMaxConcurrency)
 
@@ -335,10 +394,14 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 		return
 	}
 
-	c.logger.Info("proxy session started", zap.String("listen", pl.Addr().String()))
+	c.logger.Info("proxy session started",
+		zap.String("listen", pl.Addr().String()),
+		zap.Int("slots", len(slots)),
+	)
 
 	eg, gctx := errgroup.WithContext(ctx)
 
+	// Accept loop
 	eg.Go(func() error {
 		if err := pl.AcceptLoop(); err != nil {
 			return err
@@ -346,54 +409,20 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 		return nil
 	})
 
-	eg.Go(func() error {
-		for {
-			select {
-			case <-gctx.Done():
-				return gctx.Err()
-			default:
-			}
-			if err := stream.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
-				return err
-			}
-			data, err := stream.ReadMessage()
-			if err != nil {
-				if errors.Is(err, os.ErrDeadlineExceeded) {
-					continue
-				}
-				c.logger.Warn("stream read error in proxy mode", zap.Error(err))
-				return err
-			}
-			var f framing.Frame
-			if err := f.Decode(data); err != nil {
-				c.logger.Warn("frame decode error", zap.Error(err))
-				continue
-			}
-			switch f.Type {
-			case framing.FrameTypeProxy:
-				c.logger.Debug("proxy frame received", zap.Int("payload_len", len(f.Payload)))
-				streamMgr.HandleIncomingFrame(&f)
-			case framing.FrameTypeDNS:
-				if c.dnsSrv != nil {
-					c.logger.Debug("dns frame received", zap.Int("payload_len", len(f.Payload)))
-					payload := f.Payload
-					if len(payload) >= 4 {
-						streamID := binary.BigEndian.Uint32(payload[0:4])
-						c.dnsSrv.HandleDNSResponse(streamID, payload[4:])
-					}
-				}
-			default:
-				c.logger.Debug("skipping non-proxy frame", zap.Int("type", int(f.Type)))
-			}
-			f.Release()
-		}
-	})
+	// Read-loops — one per slot
+	for _, slot := range slots {
+		slot := slot
+		eg.Go(func() error {
+			return proxyReadLoop(gctx, slot.stream, slot.mgr, c)
+		})
+	}
 
-	// @sk-task fix-ping-drops#T3.1: QUIC keepalive — send periodic proxy frames to prevent server stream read deadline expiry
+	// QUIC keepalive — one per session is enough, run on slot 0
 	if c.cfg.Transport == "quic" {
 		eg.Go(func() error {
 			pingTicker := time.NewTicker(25 * time.Second)
 			defer pingTicker.Stop()
+			stream := slots[0].stream
 			for {
 				select {
 				case <-gctx.Done():
@@ -426,9 +455,55 @@ func (c *Client) runProxySession(ctx context.Context, stream proxy.StreamConn, t
 	<-gctx.Done()
 	c.logger.Debug("proxy session stopping")
 	_ = pl.Close()
-	_ = stream.Close()
+	for _, slot := range slots {
+		_ = slot.stream.Close()
+	}
 
 	if err := eg.Wait(); err != nil {
 		c.logger.Debug("proxy session stopped", zap.Error(err))
+	}
+}
+
+// @sk-task win-proxy-multi-conn#T3.3: per-slot read-loop (AC-001)
+func proxyReadLoop(ctx context.Context, stream transport.StreamConn, mgr *proxy.Manager, c *Client) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if err := stream.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			return err
+		}
+		data, err := stream.ReadMessage()
+		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				continue
+			}
+			c.logger.Warn("stream read error in proxy mode", zap.Error(err))
+			return err
+		}
+		var f framing.Frame
+		if err := f.Decode(data); err != nil {
+			c.logger.Warn("frame decode error", zap.Error(err))
+			continue
+		}
+		switch f.Type {
+		case framing.FrameTypeProxy:
+			c.logger.Debug("proxy frame received", zap.Int("payload_len", len(f.Payload)))
+			mgr.HandleIncomingFrame(&f)
+		case framing.FrameTypeDNS:
+			if c.dnsSrv != nil {
+				c.logger.Debug("dns frame received", zap.Int("payload_len", len(f.Payload)))
+				payload := f.Payload
+				if len(payload) >= 4 {
+					streamID := binary.BigEndian.Uint32(payload[0:4])
+					c.dnsSrv.HandleDNSResponse(streamID, payload[4:])
+				}
+			}
+		default:
+			c.logger.Debug("skipping non-proxy frame", zap.Int("type", int(f.Type)))
+		}
+		f.Release()
 	}
 }

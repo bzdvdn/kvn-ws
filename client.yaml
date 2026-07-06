@@ -21,6 +21,7 @@ ipv6: false
 max_message_size: 10485760
 tunnel_timeout: 30
 proxy_max_concurrency: 1000
+proxy_connections: 10
 auto_reconnect: true
 log:
   level: debug

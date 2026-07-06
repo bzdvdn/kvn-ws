@@ -45,6 +45,7 @@ type ClientConfig struct {
 	MaxMessageSize      int             `json:"max_message_size" mapstructure:"max_message_size"`
 	TunnelTimeout       int             `json:"tunnel_timeout" mapstructure:"tunnel_timeout"`
 	ProxyMaxConcurrency int             `json:"proxy_max_concurrency" mapstructure:"proxy_max_concurrency"`
+	ProxyConnections    int             `json:"proxy_connections" mapstructure:"proxy_connections"`
 	SystemProxy         *bool           `json:"system_proxy" mapstructure:"system_proxy"`
 	Transparent         bool            `json:"transparent" mapstructure:"transparent"`
 	DNSProxy            DNSProxyCfg     `json:"dns_proxy" mapstructure:"dns_proxy"`
@@ -405,6 +406,9 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	}
 	if cfg.ProxyMaxConcurrency <= 0 {
 		cfg.ProxyMaxConcurrency = 1000
+	}
+	if cfg.ProxyConnections <= 0 {
+		cfg.ProxyConnections = 10
 	}
 
 	if cfg.DNSProxy.Listen == "" {

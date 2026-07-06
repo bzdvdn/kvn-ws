@@ -32,6 +32,9 @@ $ErrorActionPreference = "Stop"
 $Repo = "bzdvdn/kvn-ws"
 $BinaryName = if ($Desktop) { "kvn-desktop.exe" } else { "kvn-web.exe" }
 $BinDir = "$env:ProgramFiles\KVN"
+
+# kvn-desktop depends on kvn-web.exe as a child process (service_windows.go:17)
+$WebBinaryName = "kvn-web.exe"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
 function Write-Step { param([string]$Msg) Write-Host ">>> $Msg" -ForegroundColor Cyan }
@@ -106,6 +109,15 @@ New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 # --- Copy binary ---
 Copy-Item -Path $binaryPath -Destination "$BinDir\$BinaryName" -Force
 Write-Ok "Installed to $BinDir\$BinaryName"
+if ($Desktop) {
+    $webBinaryPath = Join-Path (Split-Path $binaryPath -Parent) $WebBinaryName
+    if (Test-Path $webBinaryPath) {
+        Copy-Item -Path $webBinaryPath -Destination "$BinDir\$WebBinaryName" -Force
+        Write-Ok "Also installed $WebBinaryName (required by kvn-desktop)"
+    } else {
+        Write-Warn "$WebBinaryName not found alongside $BinaryName in archive; kvn-desktop may not start the web service"
+    }
+}
 
 # --- Helper: create .lnk shortcut ---
 function New-Shortcut {
