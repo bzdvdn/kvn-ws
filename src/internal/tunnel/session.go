@@ -348,7 +348,7 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 		if !ok {
 			return
 		}
-		bw := sw.(*streamWriter)
+		bw, _ := sw.(*streamWriter)
 		tmp := make([]byte, len(data))
 		copy(tmp, data)
 		bw.ch <- tmp
@@ -489,7 +489,8 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 		<-s.proxySem
 		if sw, ok := s.streamWriters.Load(sid); ok {
 			s.streamWriters.Delete(sid)
-			close(sw.(*streamWriter).ch)
+			w, _ := sw.(*streamWriter)
+			close(w.ch)
 		}
 		_ = tcp.Close()
 		s.proxyStreams.Delete(sid)

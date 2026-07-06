@@ -143,7 +143,7 @@ jobs:
       - name: Embed UAC manifest (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          rsrc -manifest src/cmd/desktop/winres/kvn-desktop.exe.manifest -o src/cmd/desktop/winres/kvn-desktop.syso
+          rsrc -manifest src/cmd/desktop/winres/kvn-desktop.exe.manifest -ico src/cmd/desktop/winres/kvn.ico -o src/cmd/desktop/kvn-desktop.syso
       - name: Build kvn-desktop
         shell: bash
         env:
