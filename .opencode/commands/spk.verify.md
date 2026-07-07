@@ -1,11 +1,11 @@
 ---
-description: Update REPOSITORY_MAP.md navigation index
+description: Verify one implemented feature package
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/repo-map.md".
+Следуйте файлу ".speckeep/templates/prompts/verify.md".
 
-Команда: `/speckeep.repo-map [request]`
+Команда: `/spk.verify [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -17,4 +17,6 @@ argument-hint: [request]
 - используйте только минимально нужный контекст репозитория
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
-
+- Scripts для выполнения (запускать через shell):
+  - `./.speckeep/scripts/check-ready.sh verify`
+  - `./.speckeep/scripts/verify-task-state.sh <slug>`

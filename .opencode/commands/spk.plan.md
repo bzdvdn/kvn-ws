@@ -1,11 +1,11 @@
 ---
-description: Inspect one feature for consistency and quality
+description: Create or update plan artifacts for one feature
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/inspect.md".
+Следуйте файлу ".speckeep/templates/prompts/plan.md".
 
-Команда: `/speckeep.inspect [request]`
+Команда: `/spk.plan [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -18,5 +18,4 @@ argument-hint: [request]
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
 - Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/check-inspect-ready.sh <slug>`
-  - `./.speckeep/scripts/inspect-spec.sh`
+  - `./.speckeep/scripts/check-ready.sh plan`

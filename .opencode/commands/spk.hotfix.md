@@ -1,11 +1,11 @@
 ---
-description: Project-level overview of all active features and their current phase
+description: Create emergency fix outside the standard phase chain
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/recap.md".
+Следуйте файлу ".speckeep/templates/prompts/hotfix.md".
 
-Команда: `/speckeep.recap [request]`
+Команда: `/spk.hotfix [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -18,4 +18,4 @@ argument-hint: [request]
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
 - Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/list-specs.sh`
+  - `./.speckeep/scripts/check-hotfix-ready.sh`

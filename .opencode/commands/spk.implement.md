@@ -1,11 +1,11 @@
 ---
-description: Verify one implemented feature package
+description: Implement one feature from tasks
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/verify.md".
+Следуйте файлу ".speckeep/templates/prompts/implement.md".
 
-Команда: `/speckeep.verify [request]`
+Команда: `/spk.implement [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -18,5 +18,5 @@ argument-hint: [request]
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
 - Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/check-verify-ready.sh <slug>`
-  - `./.speckeep/scripts/verify-task-state.sh <slug>`
+  - `./.speckeep/scripts/check-ready.sh implement`
+  - `./.speckeep/scripts/list-open-tasks.sh <slug>`

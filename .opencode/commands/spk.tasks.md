@@ -1,11 +1,11 @@
 ---
-description: Create emergency fix outside the standard phase chain
+description: Create or update tasks for one feature
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/hotfix.md".
+Следуйте файлу ".speckeep/templates/prompts/tasks.md".
 
-Команда: `/speckeep.hotfix [request]`
+Команда: `/spk.tasks [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -18,4 +18,4 @@ argument-hint: [request]
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
 - Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/check-hotfix-ready.sh`
+  - `./.speckeep/scripts/check-ready.sh tasks`

@@ -1,11 +1,11 @@
 ---
-description: Create or update plan artifacts for one feature
+description: Adversarial review of a feature spec or plan
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/plan.md".
+Следуйте файлу ".speckeep/templates/prompts/challenge.md".
 
-Команда: `/speckeep.plan [request]`
+Команда: `/spk.challenge [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -17,5 +17,4 @@ argument-hint: [request]
 - используйте только минимально нужный контекст репозитория
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
-- Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/check-plan-ready.sh <slug>`
+

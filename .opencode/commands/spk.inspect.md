@@ -1,11 +1,11 @@
 ---
-description: Quick scope boundary check for a feature
+description: Inspect one feature for consistency and quality
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/scope.md".
+Следуйте файлу ".speckeep/templates/prompts/inspect.md".
 
-Команда: `/speckeep.scope [request]`
+Команда: `/spk.inspect [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -17,4 +17,6 @@ argument-hint: [request]
 - используйте только минимально нужный контекст репозитория
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
-
+- Scripts для выполнения (запускать через shell):
+  - `./.speckeep/scripts/check-ready.sh inspect`
+  - `./.speckeep/scripts/inspect-spec.sh`

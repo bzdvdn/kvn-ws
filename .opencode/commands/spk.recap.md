@@ -1,11 +1,11 @@
 ---
-description: Create or update tasks for one feature
+description: Project-level overview of all active features and their current phase
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/tasks.md".
+Следуйте файлу ".speckeep/templates/prompts/recap.md".
 
-Команда: `/speckeep.tasks [request]`
+Команда: `/spk.recap [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -18,4 +18,4 @@ argument-hint: [request]
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
 - Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/check-tasks-ready.sh <slug>`
+  - `./.speckeep/scripts/list-specs.sh`

@@ -5,7 +5,7 @@ argument-hint: [request]
 
 Следуйте файлу ".speckeep/templates/prompts/constitution.md".
 
-Команда: `/speckeep.constitution [request]`
+Команда: `/spk.constitution [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -18,4 +18,4 @@ argument-hint: [request]
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
 - Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/check-constitution.sh`
+  - `./.speckeep/scripts/check-ready.sh constitution`

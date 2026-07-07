@@ -39,15 +39,9 @@ templates:
     verify_prompt: prompts/verify.md
 scripts:
     run_speckeep: run-speckeep.sh
+    check_ready: check-ready.sh
     inspect_spec: inspect-spec.sh
     check_constitution: check-constitution.sh
-    check_spec_ready: check-spec-ready.sh
-    check_inspect_ready: check-inspect-ready.sh
-    check_plan_ready: check-plan-ready.sh
-    check_tasks_ready: check-tasks-ready.sh
-    check_implement_ready: check-implement-ready.sh
-    check_archive_ready: check-archive-ready.sh
-    check_verify_ready: check-verify-ready.sh
     verify_task_state: verify-task-state.sh
     list_open_tasks: list-open-tasks.sh
     link_agents: link-agents.sh

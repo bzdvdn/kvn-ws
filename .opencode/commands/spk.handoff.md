@@ -1,11 +1,11 @@
 ---
-description: Implement one feature from tasks
+description: Generate a session handoff document for one feature
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/implement.md".
+Следуйте файлу ".speckeep/templates/prompts/handoff.md".
 
-Команда: `/speckeep.implement [request]`
+Команда: `/spk.handoff [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -18,5 +18,4 @@ argument-hint: [request]
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
 - Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/check-implement-ready.sh <slug>`
   - `./.speckeep/scripts/list-open-tasks.sh <slug>`

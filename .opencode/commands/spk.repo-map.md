@@ -1,11 +1,11 @@
 ---
-description: Generate a session handoff document for one feature
+description: Update REPOSITORY_MAP.md navigation index
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/handoff.md".
+Следуйте файлу ".speckeep/templates/prompts/repo-map.md".
 
-Команда: `/speckeep.handoff [request]`
+Команда: `/spk.repo-map [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -17,5 +17,4 @@ argument-hint: [request]
 - используйте только минимально нужный контекст репозитория
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
-- Scripts для выполнения (запускать через shell):
-  - `./.speckeep/scripts/list-open-tasks.sh <slug>`
+

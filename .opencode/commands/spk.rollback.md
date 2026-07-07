@@ -1,11 +1,11 @@
 ---
-description: Adversarial review of a feature spec or plan
+description: Roll back completed tasks for a feature, returning them to unfinished state
 argument-hint: [request]
 ---
 
-Следуйте файлу ".speckeep/templates/prompts/challenge.md".
+Следуйте файлу ".speckeep/templates/prompts/rollback.md".
 
-Команда: `/speckeep.challenge [request]`
+Команда: `/spk.rollback [request]`
 
 Аргументы пользователя:
 {{arguments}}
@@ -17,4 +17,5 @@ argument-hint: [request]
 - используйте только минимально нужный контекст репозитория
 - Строго сохраните точную финальную строку из prompt-файла: `Готово к: ...` или `Вернуться к: ...` без перефразирования и без пропуска.
 
-
+- Scripts для выполнения (запускать через shell):
+  - `./.speckeep/scripts/list-open-tasks.sh <slug>`
