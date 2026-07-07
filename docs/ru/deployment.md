@@ -175,7 +175,7 @@ bash examples/run.sh
 ```yaml
 services:
   server:
-    image: ghcr.io/bzdvdn/kvn-ws:latest
+    image: bzdvdn/kvn:latest
     ports:
       - "443:443"
     cap_add:

@@ -173,6 +173,10 @@ proxy_max_concurrency: 1000
 
 When `mode: relay`, the client acts as an intermediary node that accepts WebSocket (TCP) and optionally QUIC (UDP) incoming connections and proxies them to the upstream server.
 
+### Bridge mode
+
+Simple transparent pipe — does not decrypt traffic, no routing, no TUN.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `relay.listen` | string | — | Address and port for incoming connections (required) |
@@ -183,7 +187,7 @@ When `mode: relay`, the client acts as an intermediary node that accepts WebSock
 | `relay.quic.keep_alive` | int | `7` | QUIC KeepAlive period in seconds |
 | `relay.quic.idle_timeout` | int | — | QUIC idle timeout in seconds (required, >0) |
 
-### Example
+### Example (bridge)
 
 ```yaml
 mode: relay
@@ -200,6 +204,56 @@ tls:
   verify_mode: insecure
 log:
   level: info
+```
+
+### Terminator mode
+
+Full VPN endpoint: decrypts traffic, manages TUN, routes packets, intercepts DNS. Set `relay.mode: terminator`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `relay.mode` | string | — | Must be `"terminator"` to enable terminator features |
+| `upstream_token` | string | — | Auth token for upstream server (or env `KVN_RELAY_AUTH_TOKEN`) |
+| `relay.routing.direct_ranges` | []string | `[]` | CIDR ranges routed directly (not through upstream) |
+| `relay.routing.direct_domains` | []string | `[]` | Domain suffixes routed directly (e.g. `.internal.example`) |
+| `relay.routing.direct_sources` | []object | `[]` | Dynamic sources: `geoip`, `geosite`, `cidr`, `url` |
+| `relay.routing.dns.upstreams` | []string | `["1.1.1.1:53"]` | Upstream DNS servers for direct domain resolution |
+| `relay.routing.dns.cache_ttl` | int | `60` | TTL for cached DNS responses (seconds) |
+| `relay.routing.dns.transparent` | bool | `false` | Transparent DNS proxy mode |
+| `relay.network.pool_ipv4.subnet` | string | — | IPv4 pool subnet for client IP allocation |
+| `relay.network.pool_ipv4.gateway` | string | — | IPv4 gateway address |
+| `relay.network.pool_ipv6.subnet` | string | — | IPv6 pool subnet (optional) |
+| `relay.network.pool_ipv6.gateway` | string | — | IPv6 gateway address (optional) |
+| `obfuscation` | object | — | Obfuscation config (uTLS, padding) for upstream connection |
+
+### Example (terminator)
+
+```yaml
+mode: relay
+server: wss://vpn.example.com/tunnel
+upstream_token: your-token
+relay:
+  mode: terminator
+  listen: 0.0.0.0:8443
+  max_connections: 200
+  routing:
+    direct_ranges:
+      - 10.0.0.0/8
+      - 192.168.0.0/16
+    direct_domains:
+      - .internal.example
+      - .local
+    dns:
+      upstreams:
+        - "1.1.1.1:53"
+      cache_ttl: 60
+      transparent: false
+  network:
+    pool_ipv4:
+      subnet: 172.16.0.0/24
+      gateway: 172.16.0.1
+tls:
+  verify_mode: insecure
 ```
 
 ### Client connecting through QUIC relay

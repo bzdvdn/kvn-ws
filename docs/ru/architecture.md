@@ -62,7 +62,7 @@ flowchart TB
 | Auth | `src/internal/protocol/auth/` | Аутентификация по токену, JWT и basic |
 | Control | `src/internal/protocol/control/` | PING/PONG keepalive, управляющие сообщения |
 | Admin API | `src/internal/admin/` | HTTP API для управления сессиями и pprof |
-| NAT | `src/internal/nat/` | nftables MASQUERADE для проброса трафика |
+| NAT | `src/internal/nat/` | nftables/iptables MASQUERADE (авто-определение) |
 | DNS | `src/internal/dns/` | DNS-резолвер с TTL-кэшем в памяти |
 | Metrics | `src/internal/metrics/` | Prometheus-метрики (active_sessions, throughput, errors) |
 | Rate Limiter | `src/internal/ratelimit/` | IP-ограничитель скорости (token bucket) |
@@ -160,7 +160,7 @@ src/
 │   ├── dnsproxy/            # Прокси-сервер DNS
 │   ├── logger/              # Структурированное логирование (zap)
 │   ├── metrics/             # Prometheus-метрики
-│   ├── nat/                 # nftables MASQUERADE
+│   ├── nat/                 # nftables/iptables MASQUERADE
 │   ├── protocol/
 │   │   ├── auth/            # Token/JWT/basic аутентификация
 │   │   ├── control/         # PING/PONG keepalive

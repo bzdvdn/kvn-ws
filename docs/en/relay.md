@@ -93,7 +93,7 @@ The terminator intercepts **all** DNS queries from clients (not just direct-doma
 
 1. Client sends a DNS query (UDP port 53) through the tunnel.
 2. Terminator parses the domain name via `routing.ParseDNSQuestion`.
-3. If the domain matches a direct rule → forwards to `dns.upstream` (default `1.1.1.1:53`), caches resolved IPs, returns response directly.
+3. If the domain matches a direct rule → forwards to `dns.upstreams` (default `["1.1.1.1:53"]`), caches resolved IPs, returns response directly.
 4. If the domain is NOT direct → resolved locally, response sent directly, **no caching** (so subsequent packets fall through to upstream routing).
 5. Cached IPs bypass upstream routing for the cache TTL.
 

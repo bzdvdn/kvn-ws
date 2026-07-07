@@ -1,0 +1,18 @@
+# @sk-task docker-ci#T1.1: exclude non-essential files from Docker context
+.git
+.gitignore
+.speckeep
+specs
+bin
+node_modules
+src/android
+src/internal/webui/frontend/node_modules
+src/internal/webui/frontend/.cache
+docs
+examples
+.DS_Store
+*.md
+client.yaml
+server.yaml
+*.test.yaml
+loadtest.yaml

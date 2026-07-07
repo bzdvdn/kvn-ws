@@ -27,7 +27,8 @@ relay:
     geosite_url: "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat"
     source_ttl_hours: 24
     dns:
-      upstream: "1.1.1.1:53"
+      upstreams:
+        - "1.1.1.1:53"
       cache_ttl: 60
       transparent: false
   network:

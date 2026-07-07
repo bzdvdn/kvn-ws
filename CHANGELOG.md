@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **Config: `dns_cache` → `dns_routing`** — Go struct `DNSCacheCfg` переименован в `DNSRoutingCfg`, поле `RoutingCfg.DNSCache` → `RoutingCfg.DNSRouting`, теги `dns_cache` → `dns_routing`. Backward compat: старый ключ `dns_cache` читается из YAML (Viper) и JSON (`RoutingCfg.UnmarshalJSON`). Frontend: секция "DNS Cache" → "DNS Routing" с hint о связи с exclude/include domains. Примеры конфигов обновлены.
+- **Examples: relay config** — deprecated `dns.upstream` заменён на `dns.upstreams` в `examples/relay-terminator/relay.yaml`.
+- **Docker: frontend + kvn-web в образе** — Dockerfile: добавлен frontend build stage (node:20-alpine), kvn-web в Go build и runtime stage. Создан `.dockerignore` (исключены .git, node_modules, specs, android).
+- **CI: автоматический Docker build/push на релизах** — новый job `docker` в `.github/workflows/ci.yml`: сборка мультиплатформенного образа (`linux/amd64`, `linux/arm64`), пуш в Docker Hub как `bzdvdn/kvn:<tag>` + `bzdvdn/kvn:latest`.
 
 ### Added
 

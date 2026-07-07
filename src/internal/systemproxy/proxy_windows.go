@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	winRegPath            = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
+	winRegPath             = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 	interopSettingsChanged = 39
 	interopRefresh         = 37
 )

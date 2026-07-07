@@ -12,12 +12,12 @@ import (
 )
 
 var (
-	modole32                = windows.NewLazySystemDLL("ole32.dll")
-	procCoCreateInstance    = modole32.NewProc("CoCreateInstance")
+	modole32             = windows.NewLazySystemDLL("ole32.dll")
+	procCoCreateInstance = modole32.NewProc("CoCreateInstance")
 )
 
 var (
-	iidShellLink  = &windows.GUID{Data1: 0x000214F9, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	iidShellLink   = &windows.GUID{Data1: 0x000214F9, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
 	clsidShellLink = &windows.GUID{Data1: 0x00021401, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
 	iidPersistFile = &windows.GUID{Data1: 0x0000010B, Data2: 0x0000, Data3: 0x0000, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
 )
@@ -96,25 +96,25 @@ type IShellLinkW struct {
 }
 
 type IShellLinkWVtbl struct {
-	QueryInterface       uintptr
-	AddRef               uintptr
-	Release              uintptr
-	GetPath              uintptr
-	SetPath              uintptr
-	GetIDList            uintptr
-	SetIDList            uintptr
-	GetDescription       uintptr
-	SetDescription       uintptr
-	GetWorkingDirectory  uintptr
-	SetWorkingDirectory  uintptr
-	GetArguments         uintptr
-	SetArguments         uintptr
-	GetHotkey            uintptr
-	SetHotkey            uintptr
-	GetShowCmd           uintptr
-	SetShowCmd           uintptr
-	GetIconLocation      uintptr
-	SetIconLocation      uintptr
+	QueryInterface      uintptr
+	AddRef              uintptr
+	Release             uintptr
+	GetPath             uintptr
+	SetPath             uintptr
+	GetIDList           uintptr
+	SetIDList           uintptr
+	GetDescription      uintptr
+	SetDescription      uintptr
+	GetWorkingDirectory uintptr
+	SetWorkingDirectory uintptr
+	GetArguments        uintptr
+	SetArguments        uintptr
+	GetHotkey           uintptr
+	SetHotkey           uintptr
+	GetShowCmd          uintptr
+	SetShowCmd          uintptr
+	GetIconLocation     uintptr
+	SetIconLocation     uintptr
 }
 
 func (s *IShellLinkW) SetPath(path string) error {

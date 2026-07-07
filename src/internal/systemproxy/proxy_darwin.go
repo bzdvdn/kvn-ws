@@ -14,10 +14,10 @@ import (
 
 // @sk-task system-proxy#T3.1: macos platform manager using networksetup (AC-004)
 type darwinManager struct {
-	iface           string
-	origWebEnabled  bool
-	origWebServer   string
-	origWebPort     string
+	iface                string
+	origWebEnabled       bool
+	origWebServer        string
+	origWebPort          string
 	origSecureWebEnabled bool
 	origSecureWebServer  string
 	origSecureWebPort    string

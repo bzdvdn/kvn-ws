@@ -14,7 +14,7 @@
 - TUN (VPN) и Proxy (SOCKS5/HTTP CONNECT) режимы
 - Transparent proxy (iptables REDIRECT) + DNS proxy (Linux)
 - System proxy — автоустановка/восстановление HTTP_PROXY (Linux, macOS, Windows)
-- Одноифскация трафика: uTLS (TLS fingerprint), WebSocket padding, QUIC XOR-obfuscation
+- Обфускация трафика: uTLS (TLS fingerprint), WebSocket padding, QUIC XOR-obfuscation
 - SNI rotation — случайный SNI из белого списка при каждом подключении
 - Маршрутизация: server/direct, CIDR, DNS-имена, отдельные IP с ordered rules
 - DNS-роутинг — маршрутизация DNS-запросов по суффиксу домена
@@ -237,7 +237,7 @@ tls:
 
 - `docker-compose.yml` — сервер + клиент (WS и QUIC)
 - `server.yaml` / `client.yaml` — конфиги
-- `relay/docker-compose.yml` — relay-пример (WS + QUIC клиенты)
+- `relay-terminator/docker-compose.yml` — relay-пример terminator (WS + QUIC клиенты)
 - `run.sh` — генерация TLS-сертификата и запуск
 
 ## Changelog

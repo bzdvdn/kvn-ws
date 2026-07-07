@@ -62,7 +62,7 @@ flowchart TB
 | Auth | `src/internal/protocol/auth/` | Token, JWT, and basic authentication |
 | Control | `src/internal/protocol/control/` | PING/PONG keepalive, session control messages |
 | Admin API | `src/internal/admin/` | Admin HTTP API for session management and pprof |
-| NAT | `src/internal/nat/` | nftables MASQUERADE for traffic forwarding |
+| NAT | `src/internal/nat/` | nftables/iptables MASQUERADE (auto-fallback) |
 | DNS | `src/internal/dns/` | DNS resolver with in-memory TTL cache |
 | Metrics | `src/internal/metrics/` | Prometheus metrics (active_sessions, throughput, errors) |
 | Rate Limiter | `src/internal/ratelimit/` | Per-IP rate limiter (token bucket) |
@@ -160,7 +160,7 @@ src/
 │   ├── dnsproxy/            # DNS forwarding proxy
 │   ├── logger/              # Structured logging (zap)
 │   ├── metrics/             # Prometheus metrics
-│   ├── nat/                 # nftables MASQUERADE
+│   ├── nat/                 # nftables/iptables MASQUERADE
 │   ├── protocol/
 │   │   ├── auth/            # Token/JWT/basic auth
 │   │   ├── control/         # PING/PONG keepalive

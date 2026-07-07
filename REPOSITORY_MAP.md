@@ -30,7 +30,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/internal/routing/` — packet routing engine (RuleSet, CIDR/IP/domain matchers, ordered rules)
 - `src/internal/dns/` — DNS resolver with in-memory TTL cache
 - `src/internal/dnsproxy/` — in-client DNS proxy server (domain routing, resolv.conf backup)
-- `src/internal/nat/` — nftables MASQUERADE (server-side NAT)
+- `src/internal/nat/` — nftables/iptables MASQUERADE (server-side NAT, auto-fallback)
 - `src/internal/session/` — session management, IP pool, expiry/reclaim, BoltDB persistence
 - `src/internal/crypto/` — app-layer encryption (AES-256-GCM, per-session key derivation)
 - `src/internal/metrics/` — Prometheus metrics (active_sessions, throughput, errors)
@@ -60,7 +60,8 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `configs/server.yaml` — server config template
 - `configs/server.test.yaml` — test server config
 - `configs/loadtest.yaml` — load test config
-- `Dockerfile` — multi-stage Docker build
+- `.dockerignore` — Docker build context exclusions
+- `Dockerfile` — multi-stage Docker build (frontend + Go binaries)
 - `Dockerfile.test` — gate test image (alpine + nftables)
 - `docker-compose.yml` — local dev orchestration
 - `docker-compose.test.yml` — gate test compose
@@ -109,7 +110,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Integration tests — `src/integration/`
 - Documentation — `docs/en/`, `docs/ru/`, `docs/openapi.yaml`
 - Examples — `examples/`
-- Build/CI/install — `scripts/`, `.github/workflows/`, `Dockerfile`, `Dockerfile.test`
+- Build/CI/install — `scripts/`, `.github/workflows/`, `Dockerfile`, `Dockerfile.test`, `.dockerignore`
 - Protocol changes — `protocol/*.yaml`, `protocol/codegen/` (edit YAML, not generated files)
 - Android UI/screens — `src/android/app/src/main/kotlin/com/kvn/client/ui/`
 - Android VPN service — `src/android/app/src/main/kotlin/com/kvn/client/vpn/`

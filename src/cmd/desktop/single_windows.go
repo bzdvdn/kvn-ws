@@ -9,10 +9,10 @@ import (
 )
 
 var (
-	modkernel32         = windows.NewLazySystemDLL("kernel32.dll")
-	procCreateMutexW    = modkernel32.NewProc("CreateMutexW")
-	procCloseHandle     = modkernel32.NewProc("CloseHandle")
-	procFindWindowW     = modkernel32.NewProc("FindWindowW")
+	modkernel32             = windows.NewLazySystemDLL("kernel32.dll")
+	procCreateMutexW        = modkernel32.NewProc("CreateMutexW")
+	procCloseHandle         = modkernel32.NewProc("CloseHandle")
+	procFindWindowW         = modkernel32.NewProc("FindWindowW")
 	procSetForegroundWindow = modkernel32.NewProc("SetForegroundWindow")
 )
 
@@ -57,5 +57,3 @@ func focusExistingWindow() {
 		procSetForegroundWindow.Call(r1)
 	}
 }
-
-
