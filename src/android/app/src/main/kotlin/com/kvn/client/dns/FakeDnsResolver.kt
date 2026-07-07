@@ -2,11 +2,13 @@ package com.kvn.client.dns
 
 import android.net.Network
 import com.kvn.client.config.ConnectionConfig
+import com.kvn.client.logger.AppLogger
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.util.LinkedHashSet
 
+// @sk-task android-log-tag#T2.3: migrated LogBuffer to AppLogger (AC-012)
 class FakeDnsResolver(
     private val config: ConnectionConfig,
     private val dnsCache: DnsCache,
@@ -31,7 +33,7 @@ class FakeDnsResolver(
 
         val qtype = DnsParser.extractQType(query)
         if (qtype == 28) {
-            LogBuffer.log("DNS", "AAAA query for $domain → empty response")
+            AppLogger.i("DNS", "AAAA query for $domain → empty response")
             return DnsParser.buildEmptyResponse(query)
         }
 
@@ -40,10 +42,10 @@ class FakeDnsResolver(
                 val ips = resolveDomain(domain)
                 if (ips.isNotEmpty()) {
                     synchronized(excludedIps) { excludedIps.addAll(ips) }
-                    LogBuffer.log("DNS", "exclude match $domain → ${ips[0].hostAddress}")
+                    AppLogger.i("DNS", "exclude match $domain → ${ips[0].hostAddress}")
                     return DnsParser.buildResponse(query, ips[0], 60)
                 } else {
-                    LogBuffer.log("DNS", "exclude match $domain but resolution failed → fwd")
+                    AppLogger.i("DNS", "exclude match $domain but resolution failed → fwd")
                 }
             }
         }
@@ -55,18 +57,18 @@ class FakeDnsResolver(
                 if (ips.isNotEmpty()) {
                     dnsCache.set(domain, ips, 60)
                     val fakeIp = pool.allocate(domain) ?: run {
-                        LogBuffer.log("DNS", "include match $domain but pool exhausted")
+                        AppLogger.i("DNS", "include match $domain but pool exhausted")
                         return null
                     }
-                    LogBuffer.log("DNS", "include match $domain → fake ${fakeIp.hostAddress}")
+                    AppLogger.i("DNS", "include match $domain → fake ${fakeIp.hostAddress}")
                     return DnsParser.buildResponse(query, fakeIp, 60)
                 } else {
-                    LogBuffer.log("DNS", "include match $domain but resolution failed → fwd")
+                    AppLogger.i("DNS", "include match $domain but resolution failed → fwd")
                 }
             }
         }
 
-        LogBuffer.log("DNS", "no match for $domain → forward")
+        AppLogger.i("DNS", "no match for $domain → forward")
         return null
     }
 
@@ -79,7 +81,7 @@ class FakeDnsResolver(
 
         val net = defaultNetwork
         if (net == null || dnsServers.isEmpty()) {
-            LogBuffer.log("DNS", "client-side resolution skipped for $domain (no network/bind)")
+            AppLogger.i("DNS", "client-side resolution skipped for $domain (no network/bind)")
             return emptyList()
         }
 
@@ -90,7 +92,7 @@ class FakeDnsResolver(
                 try {
                     net.bindSocket(socket)
                 } catch (_: Exception) {
-                    LogBuffer.log("DNS", "bindSocket failed for $dnsServer → skip")
+                    AppLogger.i("DNS", "bindSocket failed for $dnsServer → skip")
                     socket.close()
                     continue
                 }
@@ -104,12 +106,12 @@ class FakeDnsResolver(
                 val ips = DnsParser.parseResponse(raw.copyOf(pkt.length))
                 if (ips.isNotEmpty()) {
                     dnsCache.set(domain, ips, 60)
-                    LogBuffer.log("DNS", "resolved $domain → ${ips[0].hostAddress}")
+                    AppLogger.i("DNS", "resolved $domain → ${ips[0].hostAddress}")
                     return ips
                 }
             } catch (_: Exception) { }
         }
-        LogBuffer.log("DNS", "all DNS servers failed for $domain")
+        AppLogger.i("DNS", "all DNS servers failed for $domain")
         return emptyList()
     }
 }

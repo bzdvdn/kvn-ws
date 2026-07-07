@@ -13,6 +13,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `protocol/codegen/main.go` — protocol codegen: generates Go+Kotlin types from YAML
 - `src/android/app/src/main/kotlin/com/kvn/client/ui/MainActivity.kt` — Android app entrypoint (Jetpack Compose)
 - `src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt` — Android VpnService (TUN tunnel)
+- `src/android/app/src/main/kotlin/com/kvn/client/logger/` — Android logging system (AppLogger, LogEntry, LogViewerScreen)
 
 ## Top-Level Code
 - `src/internal/config/` — YAML config parsing (viper + env override)
@@ -87,6 +88,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `docs/en/` — English documentation
 - `docs/ru/` — Russian documentation (full translation)
 - `docs/openapi.yaml` — OpenAPI specification for admin API
+- `src/android/app/src/test/java/com/kvn/client/logger/` — Android logger unit tests
 
 ## Where To Edit
 - Core tunnel logic — `src/internal/tun/`, `src/internal/tunnel/`, `src/internal/transport/{websocket,quic,framing}/*`, `src/internal/protocol/*`
@@ -115,6 +117,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Android protocol/framing — `src/android/app/src/main/kotlin/com/kvn/client/protocol/`
 - Android crypto — `src/android/app/src/main/kotlin/com/kvn/client/crypto/`
 - Android config/QR — `src/android/app/src/main/kotlin/com/kvn/client/config/`
+- Android logging — `src/android/app/src/main/kotlin/com/kvn/client/logger/`
 - Load testing — `configs/loadtest.yaml`
 - Release — `CHANGELOG.md`, `README.md`
 

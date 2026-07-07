@@ -7,15 +7,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import com.kvn.client.logger.LogViewerScreen
 import com.kvn.client.ui.theme.DarkKvnWebColorScheme
 
 // @sk-task kvn-android#T1.3: Main activity entry point (AC-001)
 // @sk-task multi-server-android-client#T1.2: wrap in darkColorScheme (AC-005)
 // @sk-task android-per-server-override-ui#T2.5: Bottom Navigation with 3 tabs (AC-005)
+// @sk-task android-log-tag#T2.2: 4th tab Logs between Settings and Traffic (RQ-019)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,7 +31,8 @@ class MainActivity : ComponentActivity() {
                         when (selectedTab) {
                             0 -> ConnectScreen()
                             1 -> SettingsScreen()
-                            2 -> TrafficScreen()
+                            2 -> LogViewerScreen()
+                            3 -> TrafficScreen()
                         }
                     }
                     NavigationBar {
@@ -47,6 +51,12 @@ class MainActivity : ComponentActivity() {
                         NavigationBarItem(
                             selected = selectedTab == 2,
                             onClick = { selectedTab = 2 },
+                            icon = { Icon(Icons.Default.List, contentDescription = "Logs") },
+                            label = { Text("Logs") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
                             icon = { Icon(Icons.Default.ShowChart, contentDescription = "Traffic") },
                             label = { Text("Traffic") }
                         )

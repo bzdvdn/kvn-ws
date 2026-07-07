@@ -22,7 +22,7 @@ import com.kvn.client.dns.DnsCache
 import com.kvn.client.dns.DnsParser
 import com.kvn.client.dns.FakeDnsResolver
 import com.kvn.client.dns.FakeIpPool
-import com.kvn.client.dns.LogBuffer
+import com.kvn.client.logger.AppLogger
 import com.kvn.client.protocol.*
 import com.kvn.client.transport.ConnectionState
 import com.kvn.client.transport.OnStateChange
@@ -55,6 +55,7 @@ import java.security.cert.X509Certificate
 
     // @sk-task kvn-android#T2.1: VpnService + TUN read/write (AC-006)
     // @sk-task kvn-android#T5.16: kill switch blocks stop on disconnect (AC-010)
+// @sk-task android-log-tag#T3.1: migrated LogBuffer to AppLogger (AC-012)
 class KvnVpnService : VpnService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -708,9 +709,9 @@ class KvnVpnService : VpnService() {
                         fakeIpPool = FakeIpPool()
                         defaultNetwork = getPhysicalNetwork()
                         if (defaultNetwork != null) {
-                            LogBuffer.log("DNS", "using physical network for DNS resolution and direct delivery")
+                            AppLogger.i("DNS", "using physical network for DNS resolution and direct delivery")
                         } else {
-                            LogBuffer.log("DNS", "no physical network found — DNS forwarded through tunnel")
+                            AppLogger.i("DNS", "no physical network found — DNS forwarded through tunnel")
                         }
                         fakeDnsResolver = FakeDnsResolver(
                             config = config,
@@ -778,7 +779,7 @@ class KvnVpnService : VpnService() {
 
                     if (config.routingDomainsEnabled) {
                         val proto = when (data[9].toInt() and 0xFF) { 6 -> "TCP"; 17 -> "UDP"; else -> "?" }
-                        LogBuffer.log("TUN", "fwd $proto ${data.size}B")
+                        AppLogger.i("TUN", "fwd $proto ${data.size}B")
                     }
 
                     val payload = if (cryptoEnabled && cipher != null) {
@@ -955,7 +956,7 @@ class KvnVpnService : VpnService() {
             if (payload.size <= 512) {
                 val hex = payload.joinToString("") { "%02x".format(it) }
                 val asc = payload.take(80).map { if (it >= 32 && it < 127) it.toInt().toChar() else '.' }.joinToString("")
-                LogBuffer.log("TCP", "data ${payload.size}B hex=$hex asc=$asc")
+                AppLogger.i("TCP", "data ${payload.size}B hex=$hex asc=$asc")
             }
             try {
                 state.socket.getOutputStream().write(payload)
@@ -1138,11 +1139,11 @@ class KvnVpnService : VpnService() {
                     val flags = data[ihl + 13].toInt() and 0x3F
                     if (flags and 0x02 != 0 && flags and 0x10 == 0) {
                         if (del.handleTcpSyn(data, ihl, srcIp, dstIp)) {
-                            LogBuffer.log("ROUTE", "direct TCP SYN ${dstIp.hostAddress}")
+                            AppLogger.i("ROUTE", "direct TCP SYN ${dstIp.hostAddress}")
                             return true
                         }
                         // connect failed → fall through to tunnel
-                        LogBuffer.log("ROUTE", "direct fallback ${dstIp.hostAddress} → tunnel")
+                        AppLogger.i("ROUTE", "direct fallback ${dstIp.hostAddress} → tunnel")
                     } else {
                         del.handleTcpData(data, ihl, srcIp, dstIp)
                         return true
@@ -1150,7 +1151,7 @@ class KvnVpnService : VpnService() {
                 }
                 17 -> {
                     del.handleUdp(data, ihl, srcIp, dstIp)
-                    LogBuffer.log("ROUTE", "direct UDP ${dstIp.hostAddress}")
+                    AppLogger.i("ROUTE", "direct UDP ${dstIp.hostAddress}")
                     return true
                 }
             }
@@ -1162,7 +1163,7 @@ class KvnVpnService : VpnService() {
             val dPort = ((data[ihl + 2].toInt() and 0xFF) shl 8) or (data[ihl + 3].toInt() and 0xFF)
             val sPort = ((data[ihl].toInt() and 0xFF) shl 8) or (data[ihl + 1].toInt() and 0xFF)
             val excluded = resolver?.isExcluded(dstIp) == true
-            LogBuffer.log("ROUTE", "fwd TCP ${dstIp.hostAddress}:$dPort flags=$flags excl=$excluded")
+            AppLogger.i("ROUTE", "fwd TCP ${dstIp.hostAddress}:$dPort flags=$flags excl=$excluded")
         }
 
         // Handle DNS interception (UDP/53)
@@ -1174,7 +1175,7 @@ class KvnVpnService : VpnService() {
                 if (r != null) {
                     val response = r.resolve(data.copyOfRange(ihl + 8, data.size))
                     if (response != null) {
-                        LogBuffer.log("ROUTE", "UDP/53 intercept → DNS response ${response.size}B")
+                        AppLogger.i("ROUTE", "UDP/53 intercept → DNS response ${response.size}B")
                         val dnsResponse = buildDnsResponsePacket(srcIp, dstIp, srcPort, response)
                         if (dnsResponse != null) {
                             writeToTun(dnsResponse)
@@ -1193,7 +1194,7 @@ class KvnVpnService : VpnService() {
                 if (domain != null) {
                     val cachedIps = dnsCache.get(domain)
                     if (cachedIps != null && cachedIps.isNotEmpty()) {
-                        LogBuffer.log("ROUTE", "rewrite ${dstIp.hostAddress} → ${cachedIps[0].hostAddress}")
+                        AppLogger.i("ROUTE", "rewrite ${dstIp.hostAddress} → ${cachedIps[0].hostAddress}")
                         rewritePacket(data, ihl, protocol, cachedIps[0])
                     }
                 }

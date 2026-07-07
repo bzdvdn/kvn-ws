@@ -5,10 +5,10 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
-import android.util.Log
 import android.util.Size as AndroidSize
 import android.widget.Toast
 import androidx.camera.core.CameraSelector
+import com.kvn.client.logger.AppLogger
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -120,6 +120,7 @@ private data class WebConfig(
 )
 
 // @sk-task kvn-android#T5.2: QR code scanner screen with finder overlay (AC-007, RQ-011)
+// @sk-task android-log-tag#T3.2: migrated android.util.Log to AppLogger (AC-012)
 @Composable
 fun QrScannerScreen(
     onQrScanned: (ConnectionConfig) -> Unit,
@@ -129,7 +130,7 @@ fun QrScannerScreen(
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val analyzer = remember {
         QrCodeAnalyzer(
-            onReady = { Log.d("QrScannerScreen", "analyzer ready") },
+            onReady = { AppLogger.d("QrScannerScreen", "analyzer ready") },
             onResult = { raw ->
                 val config = parseQrConfig(raw)
                 if (config != null) {
@@ -183,7 +184,7 @@ fun QrScannerScreen(
                         imageAnalysis
                     )
                 } catch (e: Exception) {
-                    Log.e("QrScannerScreen", "Camera bind failed", e)
+                    AppLogger.e("QrScannerScreen", "Camera bind failed", e)
                 }
 
                 previewView
@@ -307,7 +308,7 @@ class QrCodeAnalyzer(
                         for (b in barcodes) b.rawValue?.let { onResult(it) }
                     }
                     .addOnFailureListener { e ->
-                        Log.e("QrCodeAnalyzer", "ML Kit failed", e)
+                        AppLogger.e("QrCodeAnalyzer", "ML Kit failed", e)
                     }
                     .addOnCompleteListener {
                         processing.set(false)
@@ -322,7 +323,7 @@ class QrCodeAnalyzer(
                             for (b in barcodes) b.rawValue?.let { onResult(it) }
                         }
                         .addOnFailureListener { e ->
-                            Log.e("QrCodeAnalyzer", "ML Kit bitmap fallback failed", e)
+                            AppLogger.e("QrCodeAnalyzer", "ML Kit bitmap fallback failed", e)
                         }
                         .addOnCompleteListener {
                             processing.set(false)
@@ -334,7 +335,7 @@ class QrCodeAnalyzer(
                 }
             }
         } catch (e: Exception) {
-            Log.e("QrCodeAnalyzer", "analyze error", e)
+            AppLogger.e("QrCodeAnalyzer", "analyze error", e)
             processing.set(false)
             imageProxy.close()
         }

@@ -18,12 +18,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kvn.client.config.ConnectionConfig
-import com.kvn.client.dns.LogBuffer
 import com.kvn.client.ui.theme.KvnPrimary
 import com.kvn.client.ui.theme.KvnSuccess
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+// @sk-task android-log-tag#T2.4: removed old AlertDialog log viewer (AC-012)
 fun SettingsScreen(vm: MainViewModel = viewModel()) {
     val context = LocalContext.current
     val activeCfg by vm.activeServerConfig.collectAsState()
@@ -520,43 +520,6 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                 contentColor = Color.White
             )
         ) { Text("Save Server Config") }
-
-        // Log viewer toggle
-        var showLogs by remember { mutableStateOf(false) }
-        OutlinedButton(
-            onClick = { showLogs = true },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Routing Logs") }
-
-        if (showLogs) {
-            AlertDialog(
-                onDismissRequest = { showLogs = false },
-                title = { Text("DNS Routing Logs") },
-                text = {
-                    Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
-                        val logs = remember { LogBuffer.dump() }
-                        if (logs.isEmpty()) {
-                            Text("No logs yet")
-                        } else {
-                            logs.forEach { line ->
-                                Text(line, fontSize = MaterialTheme.typography.bodySmall.fontSize,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { LogBuffer.clear(); showLogs = false }) {
-                            Text("Clear")
-                        }
-                        TextButton(onClick = { showLogs = false }) {
-                            Text("Close")
-                        }
-                    }
-                }
-            )
-        }
 
         Spacer(modifier = Modifier.height(32.dp))
     }
