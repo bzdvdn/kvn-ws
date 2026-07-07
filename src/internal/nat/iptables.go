@@ -19,11 +19,11 @@ func (m *IPTablesManager) Setup() error {
 	if err != nil {
 		return err
 	}
-	_ = exec.Command(bin, "-t", "nat", "-N", kvnNatChain).Run()
-	if err := exec.Command(bin, "-t", "nat", "-A", kvnNatChain, "-i", "kvn", "-j", "MASQUERADE").Run(); err != nil {
+	_ = exec.Command(bin, "-t", "nat", "-N", kvnNatChain).Run() // #nosec G204 — bin resolved by detectIptables, chain is const
+	if err := exec.Command(bin, "-t", "nat", "-A", kvnNatChain, "-i", "kvn", "-j", "MASQUERADE").Run(); err != nil { // #nosec G204 — bin resolved by detectIptables, chain is const
 		return fmt.Errorf("add MASQUERADE rule: %s: %w", strings.TrimSpace(err.Error()), err)
 	}
-	if err := exec.Command(bin, "-t", "nat", "-A", "POSTROUTING", "-j", kvnNatChain).Run(); err != nil {
+	if err := exec.Command(bin, "-t", "nat", "-A", "POSTROUTING", "-j", kvnNatChain).Run(); err != nil { // #nosec G204 — bin resolved by detectIptables, chain is const
 		return fmt.Errorf("add POSTROUTING jump: %s: %w", strings.TrimSpace(err.Error()), err)
 	}
 	return nil
@@ -34,9 +34,9 @@ func (m *IPTablesManager) Teardown() error {
 	if err != nil {
 		return err
 	}
-	_ = exec.Command(bin, "-t", "nat", "-D", "POSTROUTING", "-j", kvnNatChain).Run()
-	_ = exec.Command(bin, "-t", "nat", "-F", kvnNatChain).Run()
-	_ = exec.Command(bin, "-t", "nat", "-X", kvnNatChain).Run()
+	_ = exec.Command(bin, "-t", "nat", "-D", "POSTROUTING", "-j", kvnNatChain).Run() // #nosec G204 — bin resolved by detectIptables, chain is const
+	_ = exec.Command(bin, "-t", "nat", "-F", kvnNatChain).Run()                      // #nosec G204 — bin resolved by detectIptables, chain is const
+	_ = exec.Command(bin, "-t", "nat", "-X", kvnNatChain).Run()                      // #nosec G204 — bin resolved by detectIptables, chain is const
 	return nil
 }
 
@@ -45,11 +45,11 @@ func (m *IPTablesManager) Setup6() error {
 	if err != nil {
 		return err
 	}
-	_ = exec.Command(bin, "-t", "nat", "-N", kvnNatChain).Run()
-	if err := exec.Command(bin, "-t", "nat", "-A", kvnNatChain, "-i", "kvn", "-j", "MASQUERADE").Run(); err != nil {
+	_ = exec.Command(bin, "-t", "nat", "-N", kvnNatChain).Run() // #nosec G204 — bin resolved by detectIp6tables, chain is const
+	if err := exec.Command(bin, "-t", "nat", "-A", kvnNatChain, "-i", "kvn", "-j", "MASQUERADE").Run(); err != nil { // #nosec G204 — bin resolved by detectIp6tables, chain is const
 		return fmt.Errorf("add ipv6 MASQUERADE rule: %s: %w", strings.TrimSpace(err.Error()), err)
 	}
-	if err := exec.Command(bin, "-t", "nat", "-A", "POSTROUTING", "-j", kvnNatChain).Run(); err != nil {
+	if err := exec.Command(bin, "-t", "nat", "-A", "POSTROUTING", "-j", kvnNatChain).Run(); err != nil { // #nosec G204 — bin resolved by detectIp6tables, chain is const
 		return fmt.Errorf("add ipv6 POSTROUTING jump: %s: %w", strings.TrimSpace(err.Error()), err)
 	}
 	return nil
@@ -60,9 +60,9 @@ func (m *IPTablesManager) Teardown6() error {
 	if err != nil {
 		return err
 	}
-	_ = exec.Command(bin, "-t", "nat", "-D", "POSTROUTING", "-j", kvnNatChain).Run()
-	_ = exec.Command(bin, "-t", "nat", "-F", kvnNatChain).Run()
-	_ = exec.Command(bin, "-t", "nat", "-X", kvnNatChain).Run()
+	_ = exec.Command(bin, "-t", "nat", "-D", "POSTROUTING", "-j", kvnNatChain).Run() // #nosec G204 — bin resolved by detectIp6tables, chain is const
+	_ = exec.Command(bin, "-t", "nat", "-F", kvnNatChain).Run()                      // #nosec G204 — bin resolved by detectIp6tables, chain is const
+	_ = exec.Command(bin, "-t", "nat", "-X", kvnNatChain).Run()                      // #nosec G204 — bin resolved by detectIp6tables, chain is const
 	return nil
 }
 
