@@ -70,9 +70,9 @@ func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
 		cfg.DNSProxy.Upstreams = append([]string{}, config.DefaultDNSUpstreams...)
 	}
 
-	// @sk-task dns-response-tracker#T1.2: DNSCache defaults (AC-003)
-	if cfg.Routing != nil && cfg.Routing.DNSCache == nil {
-		cfg.Routing.DNSCache = &config.DNSCacheCfg{Enabled: false, TTL: 60}
+	// @sk-task dns-response-tracker#T1.2: DNSRouting defaults (AC-003)
+	if cfg.Routing != nil && cfg.Routing.DNSRouting == nil {
+		cfg.Routing.DNSRouting = &config.DNSRoutingCfg{Enabled: false, TTL: 60}
 	}
 
 	if cfg.Routing != nil && (len(cfg.Routing.IncludeSources) > 0 || len(cfg.Routing.ExcludeSources) > 0) {

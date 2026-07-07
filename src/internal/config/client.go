@@ -228,14 +228,14 @@ func (s SourceRule) Valid() bool {
 	return n == 1
 }
 
-// @sk-task dns-response-tracker#T1.2: DNSCacheCfg struct (AC-003)
-type DNSCacheCfg struct {
+// @sk-task dns-response-tracker#T1.2: DNSRoutingCfg struct (renamed from DNSCacheCfg)
+type DNSRoutingCfg struct {
 	Enabled bool `json:"enabled" yaml:"enabled" mapstructure:"enabled"`
 	TTL     int  `json:"ttl,omitempty" yaml:"ttl,omitempty" mapstructure:"ttl,omitempty"`
 }
 
 // UnmarshalJSON accepts both true (boolean) and {"enabled":true,"ttl":60}
-func (d *DNSCacheCfg) UnmarshalJSON(data []byte) error {
+func (d *DNSRoutingCfg) UnmarshalJSON(data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
@@ -250,7 +250,7 @@ func (d *DNSCacheCfg) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	// fallback to object
-	type alias DNSCacheCfg
+	type alias DNSRoutingCfg
 	var a alias
 	if err := json.Unmarshal(data, &a); err != nil {
 		return err
@@ -261,7 +261,7 @@ func (d *DNSCacheCfg) UnmarshalJSON(data []byte) error {
 }
 
 // UnmarshalYAML accepts both true and {"enabled":true,"ttl":60}
-func (d *DNSCacheCfg) UnmarshalYAML(value *yaml.Node) error {
+func (d *DNSRoutingCfg) UnmarshalYAML(value *yaml.Node) error {
 	// try bool first
 	var b bool
 	if err := value.Decode(&b); err == nil {
@@ -270,7 +270,7 @@ func (d *DNSCacheCfg) UnmarshalYAML(value *yaml.Node) error {
 		return nil
 	}
 	// fallback to struct
-	type alias DNSCacheCfg
+	type alias DNSRoutingCfg
 	var a alias
 	if err := value.Decode(&a); err != nil {
 		return err
@@ -291,14 +291,38 @@ type RoutingCfg struct {
 	IncludeDomains []string `json:"include_domains" mapstructure:"include_domains"`
 	ExcludeDomains []string `json:"exclude_domains" mapstructure:"exclude_domains"`
 
-	GeoIPPath      string       `json:"geoip_path,omitempty" yaml:"geoip_path,omitempty" mapstructure:"geoip_path,omitempty"`
-	GeoSitePath    string       `json:"geosite_path,omitempty" yaml:"geosite_path,omitempty" mapstructure:"geosite_path,omitempty"`
-	GeoIPURL       string       `json:"geoip_url,omitempty" yaml:"geoip_url,omitempty" mapstructure:"geoip_url,omitempty"`
-	GeoSiteURL     string       `json:"geosite_url,omitempty" yaml:"geosite_url,omitempty" mapstructure:"geosite_url,omitempty"`
-	SourceTTL      int          `json:"source_ttl_hours,omitempty" yaml:"source_ttl_hours,omitempty" mapstructure:"source_ttl_hours,omitempty"`
-	IncludeSources []SourceRule `json:"include_sources,omitempty" yaml:"include_sources,omitempty" mapstructure:"include_sources,omitempty"`
-	ExcludeSources []SourceRule `json:"exclude_sources,omitempty" yaml:"exclude_sources,omitempty" mapstructure:"exclude_sources,omitempty"`
-	DNSCache       *DNSCacheCfg `json:"dns_cache,omitempty" yaml:"dns_cache,omitempty" mapstructure:"dns_cache,omitempty"`
+	GeoIPPath      string         `json:"geoip_path,omitempty" yaml:"geoip_path,omitempty" mapstructure:"geoip_path,omitempty"`
+	GeoSitePath    string         `json:"geosite_path,omitempty" yaml:"geosite_path,omitempty" mapstructure:"geosite_path,omitempty"`
+	GeoIPURL       string         `json:"geoip_url,omitempty" yaml:"geoip_url,omitempty" mapstructure:"geoip_url,omitempty"`
+	GeoSiteURL     string         `json:"geosite_url,omitempty" yaml:"geosite_url,omitempty" mapstructure:"geosite_url,omitempty"`
+	SourceTTL      int            `json:"source_ttl_hours,omitempty" yaml:"source_ttl_hours,omitempty" mapstructure:"source_ttl_hours,omitempty"`
+	IncludeSources []SourceRule   `json:"include_sources,omitempty" yaml:"include_sources,omitempty" mapstructure:"include_sources,omitempty"`
+	ExcludeSources []SourceRule   `json:"exclude_sources,omitempty" yaml:"exclude_sources,omitempty" mapstructure:"exclude_sources,omitempty"`
+	DNSRouting     *DNSRoutingCfg `json:"dns_routing,omitempty" yaml:"dns_routing,omitempty" mapstructure:"dns_routing,omitempty"`
+}
+
+// UnmarshalJSON provides backward compat: accepts both dns_routing and old dns_cache
+func (r *RoutingCfg) UnmarshalJSON(data []byte) error {
+	type alias RoutingCfg
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*r = RoutingCfg(a)
+
+	// backward compat: if dns_routing was not set but dns_cache is present, migrate it
+	if r.DNSRouting == nil {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if old, ok := raw["dns_cache"]; ok {
+				var cfg DNSRoutingCfg
+				if err := json.Unmarshal(old, &cfg); err == nil {
+					r.DNSRouting = &cfg
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // @sk-task production-hardening#T1.1: kill switch config (AC-003)
@@ -344,6 +368,11 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		} else {
 			v.Set("dns_proxy.upstreams", []string{upstream})
 		}
+	}
+
+	// backward compat: routing.dns_cache (struct) → routing.dns_routing
+	if v.IsSet("routing.dns_cache") && !v.IsSet("routing.dns_routing") {
+		v.Set("routing.dns_routing", v.Get("routing.dns_cache"))
 	}
 
 	cfg := &ClientConfig{}
@@ -448,6 +477,9 @@ func SetClientDefaults(cfg *ClientConfig) {
 	}
 	if cfg.ProxyConnections <= 0 {
 		cfg.ProxyConnections = 10
+	}
+	if cfg.Routing != nil && cfg.Routing.DNSRouting != nil && cfg.Routing.DNSRouting.TTL <= 0 {
+		cfg.Routing.DNSRouting.TTL = 60
 	}
 	if cfg.DNSProxy.Listen == "" {
 		cfg.DNSProxy.Listen = "127.0.0.54:53"

@@ -315,7 +315,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 	var dnsCtx context.Context
 	var dnsCancel context.CancelFunc
 	var resolvBackup *dnsproxy.ResolvConfBackup
-	if c.cfg.Routing != nil && c.cfg.Routing.DNSCache != nil && c.cfg.Routing.DNSCache.Enabled && routeSet != nil {
+	if c.cfg.Routing != nil && c.cfg.Routing.DNSRouting != nil && c.cfg.Routing.DNSRouting.Enabled && routeSet != nil {
 		hasSuffix := false
 		for _, d := range c.cfg.Routing.ExcludeDomains {
 			if strings.HasPrefix(d, ".") {
@@ -332,7 +332,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 			}
 		}
 		if hasSuffix {
-			tracker := dns.NewTracker(time.Duration(c.cfg.Routing.DNSCache.TTL) * time.Second)
+			tracker := dns.NewTracker(time.Duration(c.cfg.Routing.DNSRouting.TTL) * time.Second)
 			routeSet.SetTracker(tracker)
 			resolvBackup, _ = dnsproxy.BackupResolvConf()
 			// @sk-task dns-upstreams-list#T3.1: pass Upstreams slice (AC-001)

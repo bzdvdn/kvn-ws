@@ -8,8 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Config: `dns_cache` → `dns_routing`** — Go struct `DNSCacheCfg` переименован в `DNSRoutingCfg`, поле `RoutingCfg.DNSCache` → `RoutingCfg.DNSRouting`, теги `dns_cache` → `dns_routing`. Backward compat: старый ключ `dns_cache` читается из YAML (Viper) и JSON (`RoutingCfg.UnmarshalJSON`). Frontend: секция "DNS Cache" → "DNS Routing" с hint о связи с exclude/include domains. Примеры конфигов обновлены.
+
 ### Added
 
+- **Android: in-app Log Viewer** — структурированный логгер `AppLogger` (уровни DEBUG/INFO/WARN/ERROR, кольцевой буфер 2000 записей, `SharedFlow` для live streaming). Полноэкранный `LogViewerScreen` как 4-й таб Bottom Navigation с живой лентой, auto-scroll, фильтрацией по уровню/тегу, текстовым поиском с highlight, pause/resume, copy, export и share. Старый AlertDialog "Routing Logs" удалён. Все потребители (FakeDnsResolver, KvnVpnService, QrScannerScreen) мигрированы на AppLogger.
 - **Android: fakeDNS domain-based routing** — `routingDomainsEnabled` flag (default `false`), `routingExcludeDomains`, `routingIncludeDomains` suffix lists. DNS (UDP/53) перехватывается в tunReader: exclude-домены резолвятся через физическую сеть (bindNetwork) и доставляются напрямую (DirectDeliverer); include-домены получают fake IP из 198.18.0.0/15 с реврайтом dst IP + checksum. Suffix matching через endsWith + dot-barrier. FakeIpPool — bitmap-аллокатор (32768 адресов). TCP direct delivery с 2s connect timeout, tunnel fallback при ошибке. AAAA → пустой ответ.
 - **Android: DNS Routing UI** — toggle switch, suffix fields, Routing Logs button в SettingsScreen.kt. LogBuffer — in-memory ring buffer (500 entries) для диагностики DNS/routing.
 - **Android: LogBuffer** — in-memory ring buffer для диагностических логов DNS/routing, доступен через Routing Logs в UI.

@@ -182,8 +182,8 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 		}
 	}
 	var dnsTracker *dns.Tracker
-	if routeSet != nil && c.cfg.Routing != nil && c.cfg.Routing.DNSCache != nil && c.cfg.Routing.DNSCache.Enabled {
-		dnsTracker = dns.NewTracker(time.Duration(c.cfg.Routing.DNSCache.TTL) * time.Second)
+	if routeSet != nil && c.cfg.Routing != nil && c.cfg.Routing.DNSRouting != nil && c.cfg.Routing.DNSRouting.Enabled {
+		dnsTracker = dns.NewTracker(time.Duration(c.cfg.Routing.DNSRouting.TTL) * time.Second)
 		routeSet.SetTracker(dnsTracker)
 	}
 

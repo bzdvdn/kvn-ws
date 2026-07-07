@@ -44,3 +44,6 @@ routing:
   exclude_ips: []
   include_domains: []
   exclude_domains: []
+  # dns_routing:
+  #   enabled: true
+  #   ttl: 60

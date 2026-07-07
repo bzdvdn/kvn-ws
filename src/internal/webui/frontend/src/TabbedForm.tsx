@@ -407,14 +407,18 @@ export default function TabbedForm(props: TabbedFormProps) {
       </div>
 
       <div style={subBlockStyle}>
-        <div style={subTitleStyle}>DNS Cache</div>
+        <div style={subTitleStyle}>DNS Routing</div>
+        <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 6 }}>
+          Tracks IP→domain mappings for exclude/include domain matching.
+          Required when using exclude_domains or include_domains with suffix rules.
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer", marginBottom: 4 }}>
-          <input type="checkbox" checked={serverConfig.routing?.dns_cache?.enabled ?? false} onChange={(e) => props.onNestServer2("routing", "dns_cache", "enabled", e.target.checked)} />
-          DNS Cache (IP→domain tracking)
+          <input type="checkbox" checked={serverConfig.routing?.dns_routing?.enabled ?? false} onChange={(e) => props.onNestServer2("routing", "dns_routing", "enabled", e.target.checked)} />
+          DNS Routing (IP→domain tracking)
         </label>
         <div style={fieldStyle()}>
           <span style={labelStyle()}>TTL (seconds)</span>
-          <input style={chipStyle} type="number" value={serverConfig.routing?.dns_cache?.ttl ?? 60} onChange={(e) => props.onNestServer2("routing", "dns_cache", "ttl", parseInt(e.target.value) || 60)} />
+          <input style={chipStyle} type="number" value={serverConfig.routing?.dns_routing?.ttl ?? 60} onChange={(e) => props.onNestServer2("routing", "dns_routing", "ttl", parseInt(e.target.value) || 60)} />
         </div>
       </div>
     </>

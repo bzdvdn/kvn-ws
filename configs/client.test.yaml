@@ -19,3 +19,6 @@ routing:
   include_domains:
     - corp.example.com
   exclude_domains: []
+  # dns_routing:
+  #   enabled: true
+  #   ttl: 60

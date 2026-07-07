@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -54,6 +55,9 @@ func LoadWebUIConfig(path string) (*WebUIConfig, error) {
 		cfg.ActiveServer = cfg.Servers[0].Name
 	}
 
+	// backward compat: routing.dns_cache → routing.dns_routing in YAML
+	migrateDNSCompatYAML(data, cfg)
+
 	return cfg, nil
 }
 
@@ -74,6 +78,60 @@ func SaveWebUIConfig(path string, cfg *WebUIConfig) error {
 	}
 
 	return nil
+}
+
+// migrateDNSCompatYAML migrates old routing.dns_cache to routing.dns_routing in YAML configs
+func migrateDNSCompatYAML(rawYAML []byte, cfg *WebUIConfig) {
+	// quick check: if global routing already has DNSRouting and all servers too, skip
+	if cfg.Routing != nil && cfg.Routing.DNSRouting != nil {
+		allSet := true
+		for i := range cfg.Servers {
+			if cfg.Servers[i].Routing != nil && cfg.Servers[i].Routing.DNSRouting == nil {
+				allSet = false
+				break
+			}
+		}
+		if allSet {
+			return
+		}
+	}
+
+	var rawMap map[string]interface{}
+	if err := yaml.Unmarshal(rawYAML, &rawMap); err != nil {
+		return
+	}
+
+	readOldDNS := func(raw map[string]interface{}, r *RoutingCfg) {
+		if r == nil || r.DNSRouting != nil {
+			return
+		}
+		if old, ok := raw["dns_cache"]; ok {
+			buf, err := json.Marshal(old)
+			if err != nil {
+				return
+			}
+			var dnsCfg DNSRoutingCfg
+			if json.Unmarshal(buf, &dnsCfg) == nil {
+				r.DNSRouting = &dnsCfg
+			}
+		}
+	}
+
+	if rRaw, ok := rawMap["routing"].(map[string]interface{}); ok {
+		readOldDNS(rRaw, cfg.Routing)
+	}
+	if serversRaw, ok := rawMap["servers"].([]interface{}); ok {
+		for i, sRaw := range serversRaw {
+			if i >= len(cfg.Servers) {
+				break
+			}
+			if sMap, ok := sRaw.(map[string]interface{}); ok {
+				if rRaw, ok := sMap["routing"].(map[string]interface{}); ok {
+					readOldDNS(rRaw, cfg.Servers[i].Routing)
+				}
+			}
+		}
+	}
 }
 
 func defaultWebUIConfig() *WebUIConfig {

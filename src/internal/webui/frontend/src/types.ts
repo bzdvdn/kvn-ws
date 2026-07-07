@@ -46,7 +46,7 @@ export interface ClientConfig {
     source_ttl_hours?: number;
     include_sources?: SourceRule[];
     exclude_sources?: SourceRule[];
-    dns_cache?: { enabled?: boolean; ttl?: number };
+    dns_routing?: { enabled?: boolean; ttl?: number };
   };
   reconnect?: { min_backoff_sec?: number; max_backoff_sec?: number };
   system_proxy?: boolean;
