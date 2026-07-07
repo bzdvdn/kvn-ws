@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.4] — 2026-07-07
+
+### Added
+
+- **Server: nftables → iptables fallback** — `IPTablesManager` в `nat/iptables.go`. `NewManager()` автоопределяет: если `nft` не найден, создаёт NAT через `iptables`/`iptables-legacy`. Поле `natMgr` в `Server` изменено с `*NFTManager` на `Manager` (interface). Исправляет запуск сервера на Ubuntu 22.04 без `nftables`.
+
 ## [0.5.3] — 2026-07-06
 
 ### Added

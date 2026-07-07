@@ -57,7 +57,7 @@ type Server struct {
 	collectors    *metrics.Collectors
 	tunDev        tun.TunDevice
 	tunDemux      *tunnel.TunDemux
-	natMgr        *nat.NFTManager
+	natMgr        nat.Manager
 	tlsCfg        *tls.Config
 	originChecker func(*http.Request) bool
 	bwMgr         *session.TokenBandwidthManager
@@ -192,7 +192,7 @@ func New(configPath string) (*Server, error) {
 
 	tunDemux := tunnel.NewTunDemux(tunDev, logger)
 
-	natMgr := nat.NewNFTManager()
+	natMgr := nat.NewManager()
 	if err := natMgr.Setup(); err != nil {
 		logger.Warn("nat setup", zap.Error(err))
 	}
