@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Android: fakeDNS domain-based routing** — `routingDomainsEnabled` flag (default `false`), `routingExcludeDomains`, `routingIncludeDomains` suffix lists. DNS (UDP/53) перехватывается в tunReader: exclude-домены резолвятся через физическую сеть (bindNetwork) и доставляются напрямую (DirectDeliverer); include-домены получают fake IP из 198.18.0.0/15 с реврайтом dst IP + checksum. Suffix matching через endsWith + dot-barrier. FakeIpPool — bitmap-аллокатор (32768 адресов). TCP direct delivery с 2s connect timeout, tunnel fallback при ошибке. AAAA → пустой ответ.
+- **Android: DNS Routing UI** — toggle switch, suffix fields, Routing Logs button в SettingsScreen.kt. LogBuffer — in-memory ring buffer (500 entries) для диагностики DNS/routing.
+- **Android: LogBuffer** — in-memory ring buffer для диагностических логов DNS/routing, доступен через Routing Logs в UI.
+
+### Fixed
+
+- **Android: TCP data offset** — неверная формула dataOffset (`/4` вместо `ushr 4`) вычисляла TCP-заголовок в 4× длиннее реального. handleTcpData копировал payload со смещением +60 байт, теряя начало HTTP/TLS данных → 400 Bad Request, ERR_SSL_PROTOCOL_ERROR.
+- **Android: TCP checksum range** — `tcpChecksum(..., 20, 20 + payload.size)` покрывал только payload без TCP-заголовка. SYN-ACK (payload=0) имел pseudo-header length=0, segment data не читался — все пакеты отбрасывались ядром. Исправлено: `end = 20 + tcpLen`.
+- **Android: TCP checksum pseudo-header** — `tcpChecksum()` смешивал байты src и dst IP в одном 16-битном слове. Исправлено на 4 отдельных слова.
+- **Android: TCP seq after SYN** — данные начинали seq с 10000 (как SYN-ACK), но SYN потребляет 1 байт seq space. Исправлен стартовый seq на 10001.
+- **Android: TCP ports in response** — `buildTcpResponse` не менял порты местами для ответного пакета (src=app, dst=server). Исправлено: src=server, dst=app.
+- **Android: bindSocket без protect fallback** — при `defaultNetwork != null` вызывался только `bindSocket`; если он бросал исключение, `protect()` не вызывался. Исправлено: оба всегда вызываются независимо.
+- **Android: oversized TCP response packets** — reader job читал весь ответ сокета (до 65535 байт) в один IP-пакет, превышающий MTU. Исправлено: данные режутся на chunk-и по `mtu-40`.
+
 ## [0.5.4] — 2026-07-07
 
 ### Added

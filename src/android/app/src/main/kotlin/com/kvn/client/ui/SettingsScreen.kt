@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kvn.client.config.ConnectionConfig
+import com.kvn.client.dns.LogBuffer
 import com.kvn.client.ui.theme.KvnPrimary
 import com.kvn.client.ui.theme.KvnSuccess
 
@@ -76,6 +77,11 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
     var obfuscationPaddingSize by remember(activeCfg) { mutableStateOf((activeCfg?.obfuscationPaddingSize ?: 0).toString()) }
     var dnsCacheEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.dnsCacheEnabled ?: false) }
 
+    // DNS routing state
+    var routingDomainsEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.routingDomainsEnabled ?: false) }
+    var routingExcludeDomains by remember(activeCfg) { mutableStateOf(activeCfg?.routingExcludeDomains?.joinToString(",") ?: "") }
+    var routingIncludeDomains by remember(activeCfg) { mutableStateOf(activeCfg?.routingIncludeDomains?.joinToString(",") ?: "") }
+
     fun buildServerConfig(): ConnectionConfig {
         val base = activeCfg ?: ConnectionConfig()
         return base.copy(
@@ -110,7 +116,10 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
             obfuscationUtls = obfuscationUtls,
             obfuscationPaddingEnabled = obfuscationPaddingEnabled,
             obfuscationPaddingSize = obfuscationPaddingSize.toIntOrNull() ?: 0,
-            dnsCacheEnabled = dnsCacheEnabled
+            dnsCacheEnabled = dnsCacheEnabled,
+            routingDomainsEnabled = routingDomainsEnabled,
+            routingExcludeDomains = routingExcludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() },
+            routingIncludeDomains = routingIncludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() }
         )
     }
 
@@ -154,6 +163,33 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                             Toast.makeText(context, "DNS imported from $sourceName: ${source.dnsServers.size} server(s)", Toast.LENGTH_SHORT).show()
                         }
                     }
+                )
+            }
+        }
+
+        // DNS Routing
+        SettingsSection(title = "DNS Routing") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Domain-based Routing", modifier = Modifier.weight(1f))
+                Switch(checked = routingDomainsEnabled, onCheckedChange = { routingDomainsEnabled = it })
+            }
+            if (routingDomainsEnabled) {
+                OutlinedTextField(
+                    value = routingExcludeDomains,
+                    onValueChange = { routingExcludeDomains = it },
+                    label = { Text("Exclude Domains (suffixes, comma-separated)") },
+                    placeholder = { Text(".ru,.org") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = routingIncludeDomains,
+                    onValueChange = { routingIncludeDomains = it },
+                    label = { Text("Include Domains (suffixes, comma-separated)") },
+                    placeholder = { Text(".corp,.internal") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
@@ -484,6 +520,43 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                 contentColor = Color.White
             )
         ) { Text("Save Server Config") }
+
+        // Log viewer toggle
+        var showLogs by remember { mutableStateOf(false) }
+        OutlinedButton(
+            onClick = { showLogs = true },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Routing Logs") }
+
+        if (showLogs) {
+            AlertDialog(
+                onDismissRequest = { showLogs = false },
+                title = { Text("DNS Routing Logs") },
+                text = {
+                    Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                        val logs = remember { LogBuffer.dump() }
+                        if (logs.isEmpty()) {
+                            Text("No logs yet")
+                        } else {
+                            logs.forEach { line ->
+                                Text(line, fontSize = MaterialTheme.typography.bodySmall.fontSize,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { LogBuffer.clear(); showLogs = false }) {
+                            Text("Clear")
+                        }
+                        TextButton(onClick = { showLogs = false }) {
+                            Text("Close")
+                        }
+                    }
+                }
+            )
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
     }

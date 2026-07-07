@@ -72,7 +72,11 @@ data class ConnectionConfig(
     // @sk-task kvn-android#T5.22: per-server DNS and app filter settings
     val dnsServers: List<String> = emptyList(),
     val appIncludeList: List<String> = emptyList(),
-    val appExcludeList: List<String> = emptyList()
+    val appExcludeList: List<String> = emptyList(),
+    // @sk-task android-fakedns-routing#T1.1: domain routing config fields (RQ-010, RQ-011)
+    val routingDomainsEnabled: Boolean = false,
+    val routingExcludeDomains: List<String> = emptyList(),
+    val routingIncludeDomains: List<String> = emptyList()
 )
 
 // @sk-task multi-server-android-client#T1.1: server entry with name + full config (AC-001)
