@@ -10,6 +10,7 @@
 - [Настройка клиента](#настройка-клиента)
   - [Linux — Режим TUN (VPN)](#linux--режим-tun-vpn)
   - [Linux — Режим прокси (SOCKS5/HTTP)](#linux--режим-прокси-socks5http)
+  - [Windows — Режим TUN (VPN)](#windows--режим-tun-vpn)
   - [Windows — Режим прокси](#windows--режим-прокси)
 - [TLS-сертификаты](#tls-сертификаты)
 - [Файрвол и NAT](#файрвол-и-nat)
@@ -484,6 +485,46 @@ systemctl --user daemon-reload
 systemctl --user enable --now kvn-client
 systemctl --user status kvn-client
 ```
+
+---
+
+### Windows — Режим TUN (VPN)
+
+Режим TUN на Windows использует [Wintun](https://www.wintun.net/) для создания виртуального сетевого адаптера.
+Весь трафик направляется через VPN-туннель; поддерживаются exclude-маршруты для split-tunnel.
+
+**Требования:**
+
+- Запускайте **от Администратора** (Wintun требует повышения привилегий)
+- `wintun.dll` должен находиться в той же директории, что и `kvn-client.exe`, или в `%PATH%`.
+  Скачайте с https://www.wintun.net/ (выберите архитектуру) и поместите DLL рядом с бинарником.
+
+#### Пример конфига
+
+`C:\ProgramData\kvn-ws\client.yaml`:
+
+```yaml
+mode: tun
+server: wss://vpn.example.com:443/tunnel
+auth:
+  token: ваш-токен
+mtu: 1400
+log:
+  level: info
+```
+
+#### Запуск вручную
+
+```powershell
+# Командная строка (от администратора)
+"C:\Program Files\kvn-ws\kvn-client.exe" --config "C:\ProgramData\kvn-ws\client.yaml"
+```
+
+#### Web UI
+
+Интерфейс `kvn-web` автоматически определяет Windows и показывает опцию **TUN** в выборе режима сервера.
+
+> **Важно:** Для работы TUN на Windows требуется `wintun.dll`. Без него создание адаптера завершится ошибкой. Убедитесь, что DLL присутствует перед запуском клиента.
 
 ---
 

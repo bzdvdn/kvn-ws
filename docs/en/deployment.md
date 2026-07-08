@@ -10,6 +10,7 @@ This guide covers production-ready deployment scenarios for kvn-ws.
 - [Client Setup](#client-setup)
   - [Linux — TUN mode (VPN)](#linux--tun-mode-vpn)
   - [Linux — Proxy mode (SOCKS5/HTTP)](#linux--proxy-mode-socks5http)
+  - [Windows — TUN mode (VPN)](#windows--tun-mode-vpn)
   - [Windows — Proxy mode](#windows--proxy-mode)
 - [TLS certificates](#tls-certificates)
 - [Firewall & NAT](#firewall--nat)
@@ -490,6 +491,46 @@ systemctl --user daemon-reload
 systemctl --user enable --now kvn-client
 systemctl --user status kvn-client
 ```
+
+---
+
+### Windows — TUN mode (VPN)
+
+TUN mode on Windows uses [Wintun](https://www.wintun.net/) to create a virtual network adapter.
+It routes all traffic through the VPN tunnel and supports exclude routes for split-tunnel setups.
+
+**Prerequisites:**
+
+- Run **as Administrator** (Wintun requires elevation)
+- The `wintun.dll` binary must be in the same directory as `kvn-client.exe` or in `%PATH%`.
+  Download from https://www.wintun.net/ (select your architecture) and place the DLL next to the binary.
+
+#### Config example
+
+`C:\ProgramData\kvn-ws\client.yaml`:
+
+```yaml
+mode: tun
+server: wss://vpn.example.com:443/tunnel
+auth:
+  token: your-auth-token
+mtu: 1400
+log:
+  level: info
+```
+
+#### Run manually
+
+```powershell
+# Command Prompt (as admin)
+"C:\Program Files\kvn-ws\kvn-client.exe" --config "C:\ProgramData\kvn-ws\client.yaml"
+```
+
+#### Web UI
+
+The `kvn-web` interface automatically detects Windows and shows the **TUN** mode option in the server settings dropdown.
+
+> **Note:** Windows TUN support requires the `wintun.dll` runtime; without it the adapter creation will fail. Always verify the DLL is present before starting the client.
 
 ---
 

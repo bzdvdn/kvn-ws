@@ -17,12 +17,6 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-type routeMeta struct {
-	cidr  string
-	gw    string
-	iface string
-}
-
 type tunDevice struct {
 	name   string
 	device tun.Device

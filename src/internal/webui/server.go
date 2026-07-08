@@ -108,11 +108,14 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 }
 
+// @sk-task win-tun#T5.1: backend tun_supported flag (AC-011)
 // @sk-task kvn-web#T2.5: platform info endpoint (AC-009)
 func (s *Server) handlePlatform(w http.ResponseWriter, r *http.Request) {
 	transparentSupported := runtime.GOOS == "linux"
+	tunSupported := runtime.GOOS == "linux" || runtime.GOOS == "windows"
 	writeJSON(w, http.StatusOK, map[string]any{
 		"os":                    runtime.GOOS,
 		"transparent_supported": transparentSupported,
+		"tun_supported":         tunSupported,
 	})
 }

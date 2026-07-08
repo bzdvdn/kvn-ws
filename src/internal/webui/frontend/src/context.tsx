@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
-import type { Status, ServerEntry, ClientConfig, LogEntry, MetricSnapshot, ServersResponse } from "./types";
+import type { Status, ServerEntry, ClientConfig, LogEntry, MetricSnapshot, ServersResponse, PlatformResponse } from "./types";
 
 export interface AppState {
   servers: ServerEntry[];
@@ -8,6 +8,7 @@ export interface AppState {
   globalConfig: ClientConfig;
   status: Status;
   platform: string;
+  tunSupported: boolean;
   logs: LogEntry[];
   metrics: MetricSnapshot[];
   latestMetric: MetricSnapshot | null;
@@ -55,6 +56,7 @@ export function useApp(): AppState {
   return ctx;
 }
 
+// @sk-task win-tun#T5.2: tun_supported state in AppState (AC-011)
 // @sk-task kvn-web-redesign#T2.5: global state via React Context (AC-005)
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [servers, setServers] = useState<ServerEntry[]>([]);
@@ -63,6 +65,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [globalConfig, setGlobalConfig] = useState<ClientConfig>({});
   const [status, setStatus] = useState<Status>("disconnected");
   const [platform, setPlatform] = useState("");
+  const [tunSupported, setTunSupported] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logPaused, setLogPaused] = useState(false);
   const logPausedRef = useRef(false);
@@ -116,7 +119,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     loadServers();
     loadGlobalConfig();
-    fetch("/api/platform").then(r => r.json()).then(d => setPlatform(d.os || "")).catch(() => {});
+    fetch("/api/platform").then(r => r.json()).then((d: PlatformResponse) => { setPlatform(d.os || ""); setTunSupported(d.tun_supported ?? true); }).catch(() => {});
   }, [loadServers, loadGlobalConfig]);
 
   useEffect(() => {
@@ -344,7 +347,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [showToast]);
 
   const ctx: AppState = {
-    servers, activeServer, serverConfig, globalConfig, status, platform, logs, metrics, latestMetric, dirty, saving, toast,
+    servers, activeServer, serverConfig, globalConfig, status, platform, tunSupported, logs, metrics, latestMetric, dirty, saving, toast,
     connect, disconnect, saveAll, addServer, deleteServer, selectServer, exportConfig, doImport, showToast,
     updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
     addSourceRule, removeSourceRule, updateSourceRule, refreshSources,

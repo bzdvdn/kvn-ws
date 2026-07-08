@@ -62,11 +62,12 @@ const sectionLabel: React.CSSProperties = {
   marginBottom: 6,
 };
 
+// @sk-task win-tun#T5.2: wire tunSupported from context to TabbedForm (AC-011)
 function AppInner() {
   const {
     servers, activeServer, serverConfig, globalConfig, status, logs, metrics, latestMetric,
     dirty, saving, toast, connect, disconnect, saveAll, addServer, deleteServer, selectServer,
-    exportConfig, doImport, showToast, setFormValid, serverName, setServerName,
+    exportConfig, doImport, showToast, setFormValid, serverName, setServerName, tunSupported,
     updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
     addSourceRule, removeSourceRule, updateSourceRule, refreshSources,
     addRoutingString, removeRoutingString,
@@ -194,6 +195,7 @@ function AppInner() {
             serverConfig={serverConfig}
             globalConfig={globalConfig}
             serverName={serverName}
+            tunSupported={tunSupported}
             onServerNameChange={setServerName}
             onUpdateServer={updateServer}
             onNestServer={nestServer}

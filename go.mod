@@ -54,4 +54,5 @@ require (
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools v0.44.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
+	golang.zx2c4.com/wireguard/windows v1.0.1 // indirect
 )

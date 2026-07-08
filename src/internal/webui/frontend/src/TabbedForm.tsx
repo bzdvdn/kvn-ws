@@ -7,6 +7,7 @@ interface TabbedFormProps {
   serverConfig: ClientConfig;
   globalConfig: ClientConfig;
   serverName: string;
+  tunSupported: boolean;
   onServerNameChange: (name: string) => void;
   onUpdateServer: (key: string, val: any) => void;
   onNestServer: (parent: string, key: string, val: any) => void;
@@ -243,8 +244,9 @@ export default function TabbedForm(props: TabbedFormProps) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <div style={fieldStyle()}>
           <span style={labelStyle()}>Mode</span>
+          {/* @sk-task win-tun#T5.2: conditional TUN selector (AC-011) */}
           <select style={selectStyle} value={serverConfig.mode || "tun"} onChange={(e) => props.onUpdateServer("mode", e.target.value)}>
-            <option value="tun">TUN</option>
+            <option value="tun" disabled={!props.tunSupported}>TUN{!props.tunSupported ? " (unsupported)" : ""}</option>
             <option value="proxy">Proxy</option>
           </select>
         </div>

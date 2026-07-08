@@ -42,11 +42,23 @@ build_relay() {
   go build -ldflags="-s -w" -o bin/relay ./src/cmd/relay
 }
 
+# @sk-task win-tun#T1.2: add windows cross-compile target (AC-008)
+build_windows() {
+  generate_protocol
+  echo "Building Windows client..."
+  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/client.exe ./src/cmd/client
+  echo "Building Windows server..."
+  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/server.exe ./src/cmd/server
+  echo "Building Windows relay..."
+  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/relay.exe ./src/cmd/relay
+}
+
 case "$TARGET" in
   client) build_client ;;
   server) build_server ;;
   web) build_web ;;
   relay) build_relay ;;
+  windows) build_windows ;;
   both)
     build_client
     build_server
@@ -54,7 +66,7 @@ case "$TARGET" in
     build_relay
     ;;
   *)
-    echo "Usage: $0 [client|server|web|relay|both]" >&2
+    echo "Usage: $0 [client|server|web|relay|windows|both]" >&2
     exit 1
     ;;
 esac

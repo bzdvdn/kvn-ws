@@ -67,6 +67,13 @@ export interface ServersResponse {
   servers: ServerEntry[];
 }
 
+// @sk-task win-tun#T5.2: PlatformResponse type with tun_supported (AC-011)
+export interface PlatformResponse {
+  os: string;
+  transparent_supported: boolean;
+  tun_supported?: boolean;
+}
+
 export interface LogEntry {
   line: string;
   level: string;

@@ -2,6 +2,12 @@ package tun
 
 import "net"
 
+type routeMeta struct {
+	cidr  string
+	gw    string
+	iface string
+}
+
 // @sk-task foundation#T1.3: internal stubs (AC-002)
 // @sk-task core-tunnel-mvp#T1.2: TunDevice interface (AC-001)
 type TunDevice interface {
