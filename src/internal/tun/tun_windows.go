@@ -75,6 +75,7 @@ func (t *tunDevice) Open() error {
 func (t *tunDevice) Close() error {
 	var err error
 	t.closeOnce.Do(func() {
+		t.CleanupExcludeRoutes()
 		if t.device == nil {
 			return
 		}

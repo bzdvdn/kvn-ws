@@ -31,6 +31,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Repo = "bzdvdn/kvn-ws"
+$WintunVersion = "0.14.1"
 $BinaryName = if ($Desktop) { "kvn-desktop.exe" } else { "kvn-web.exe" }
 $BinDir = "$env:ProgramFiles\KVN"
 
@@ -110,6 +111,26 @@ New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 # --- Copy binary ---
 Copy-Item -Path $binaryPath -Destination "$BinDir\$BinaryName" -Force
 Write-Ok "Installed to $BinDir\$BinaryName"
+
+# --- Download wintun.dll (required for TUN mode) ---
+Write-Step "Downloading wintun.dll..."
+$wintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
+$wintunZip = "$tmpDir\wintun.zip"
+try {
+    $wc = New-Object System.Net.WebClient
+    $wc.DownloadFile($wintunUrl, $wintunZip)
+    Expand-Archive -Path $wintunZip -DestinationPath "$tmpDir\wintun" -Force
+    $archDir = if ($arch -eq "amd64") { "amd64" } else { "arm64" }
+    $wintunDll = "$tmpDir\wintun\wintun\bin\$archDir\wintun.dll"
+    if (Test-Path $wintunDll) {
+        Copy-Item -Path $wintunDll -Destination "$BinDir\wintun.dll" -Force
+        Write-Ok "wintun.dll installed to $BinDir\wintun.dll"
+    } else {
+        Write-Warn "wintun.dll not found for architecture $arch; TUN mode will not work"
+    }
+} catch {
+    Write-Warn "Could not download wintun.dll: $_; TUN mode will not work without it"
+}
 if ($Desktop) {
     $webBinaryPath = Join-Path (Split-Path $binaryPath -Parent) $WebBinaryName
     if (Test-Path $webBinaryPath) {

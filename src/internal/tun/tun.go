@@ -43,10 +43,12 @@ func (t *tunDevice) Open() error {
 	return nil
 }
 
+// @sk-task dns-response-tracker#T3.5: CleanupExcludeRoutes on Close (was missing on disconnect)
 func (t *tunDevice) Close() error {
 	if t.device == nil {
 		return nil
 	}
+	t.CleanupExcludeRoutes()
 	return t.device.Close()
 }
 

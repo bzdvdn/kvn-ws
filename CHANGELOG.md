@@ -8,19 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
-
-- **Config: `dns_cache` → `dns_routing`** — Go struct `DNSCacheCfg` переименован в `DNSRoutingCfg`, поле `RoutingCfg.DNSCache` → `RoutingCfg.DNSRouting`, теги `dns_cache` → `dns_routing`. Backward compat: старый ключ `dns_cache` читается из YAML (Viper) и JSON (`RoutingCfg.UnmarshalJSON`). Frontend: секция "DNS Cache" → "DNS Routing" с hint о связи с exclude/include domains. Примеры конфигов обновлены.
-- **Examples: relay config** — deprecated `dns.upstream` заменён на `dns.upstreams` в `examples/relay-terminator/relay.yaml`.
-- **Docker: frontend + kvn-web в образе** — Dockerfile: добавлен frontend build stage (node:20-alpine), kvn-web в Go build и runtime stage. Создан `.dockerignore` (исключены .git, node_modules, specs, android).
-- **CI: автоматический Docker build/push на релизах** — новый job `docker` в `.github/workflows/ci.yml`: сборка мультиплатформенного образа (`linux/amd64`, `linux/arm64`), пуш в Docker Hub как `bzdvdn/kvn:<tag>` + `bzdvdn/kvn:latest`.
-
 ### Added
 
+- **Windows: TUN mode (Wintun + winipcfg)** — полноценная поддержка TUN-режима на Windows через Wintun.
+  - `tun_windows.go`: создание Wintun адаптера, read/write data path, SetIP/SetMTU через winipcfg LUID API.
+  - Маршрутизация: SetGateway/RemoveGateway, AddExcludeRoute/RemoveExcludeRoute, SaveDefaultRoute.
+  - Детерминированный GUID адаптера (UUIDv5, SHA-1, DNS namespace).
+  - Graceful shutdown: `Close()` idempotent через `sync.Once` + `CleanupExcludeRoutes()`.
+  - Cross-compile: `GOOS=windows GOARCH=amd64` для client, web, server, relay.
+  - **Web UI:** `/api/platform` возвращает `tun_supported`, фронтенд показывает TUN-опцию на Windows.
+  - **install-client.ps1 / install-web.ps1:** автоматическая загрузка `wintun.dll` с wintun.net наряду с бинарником.
 - **Android: in-app Log Viewer** — структурированный логгер `AppLogger` (уровни DEBUG/INFO/WARN/ERROR, кольцевой буфер 2000 записей, `SharedFlow` для live streaming). Полноэкранный `LogViewerScreen` как 4-й таб Bottom Navigation с живой лентой, auto-scroll, фильтрацией по уровню/тегу, текстовым поиском с highlight, pause/resume, copy, export и share. Старый AlertDialog "Routing Logs" удалён. Все потребители (FakeDnsResolver, KvnVpnService, QrScannerScreen) мигрированы на AppLogger.
 - **Android: fakeDNS domain-based routing** — `routingDomainsEnabled` flag (default `false`), `routingExcludeDomains`, `routingIncludeDomains` suffix lists. DNS (UDP/53) перехватывается в tunReader: exclude-домены резолвятся через физическую сеть (bindNetwork) и доставляются напрямую (DirectDeliverer); include-домены получают fake IP из 198.18.0.0/15 с реврайтом dst IP + checksum. Suffix matching через endsWith + dot-barrier. FakeIpPool — bitmap-аллокатор (32768 адресов). TCP direct delivery с 2s connect timeout, tunnel fallback при ошибке. AAAA → пустой ответ.
 - **Android: DNS Routing UI** — toggle switch, suffix fields, Routing Logs button в SettingsScreen.kt. LogBuffer — in-memory ring buffer (500 entries) для диагностики DNS/routing.
 - **Android: LogBuffer** — in-memory ring buffer для диагностических логов DNS/routing, доступен через Routing Logs в UI.
+
+### Changed
+
+- **TUN CleanupExcludeRoutes теперь в Close()** — `tunDevice.Close()` на обеих платформах (Linux + Windows) вызывает `CleanupExcludeRoutes()` перед уничтожением адаптера. Ранее exclude-маршруты не чистились при disconnect, что ломало сеть после остановки клиента.
+- **Config: `dns_cache` → `dns_routing`** — Go struct `DNSCacheCfg` переименован в `DNSRoutingCfg`, поле `RoutingCfg.DNSCache` → `RoutingCfg.DNSRouting`, теги `dns_cache` → `dns_routing`. Backward compat: старый ключ `dns_cache` читается из YAML (Viper) и JSON (`RoutingCfg.UnmarshalJSON`). Frontend: секция "DNS Cache" → "DNS Routing" с hint о связи с exclude/include domains. Примеры конфигов обновлены.
+- **Examples: relay config** — deprecated `dns.upstream` заменён на `dns.upstreams` в `examples/relay-terminator/relay.yaml`.
+- **Docker: frontend + kvn-web в образе** — Dockerfile: добавлен frontend build stage (node:20-alpine), kvn-web в Go build и runtime stage. Создан `.dockerignore` (исключены .git, node_modules, specs, android).
+- **CI: автоматический Docker build/push на релизах** — новый job `docker` в `.github/workflows/ci.yml`: сборка мультиплатформенного образа (`linux/amd64`, `linux/arm64`), пуш в Docker Hub как `bzdvdn/kvn:<tag>` + `bzdvdn/kvn:latest`.
 
 ### Fixed
 

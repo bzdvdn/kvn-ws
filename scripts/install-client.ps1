@@ -45,6 +45,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$WintunVersion = "0.14.1"
+
 function Write-Step { param([string]$Msg) Write-Host ">>> $Msg" -ForegroundColor Cyan }
 function Write-Ok   { param([string]$Msg) Write-Host "  OK $Msg" -ForegroundColor Green }
 function Write-Warn { param([string]$Msg) Write-Host "  WARN $Msg" -ForegroundColor Yellow }
@@ -64,6 +66,11 @@ if ($Uninstall) {
         Start-Sleep -Seconds 1
         Remove-Item -Recurse -Force "$InstallDir" -ErrorAction SilentlyContinue
         Write-Ok "Removed $InstallDir"
+    }
+    $wintunDll = "$InstallDir\wintun.dll"
+    if (Test-Path $wintunDll) {
+        Remove-Item -Force $wintunDll -ErrorAction SilentlyContinue
+        Write-Ok "Removed wintun.dll"
     }
 
     if (Test-Path "$ConfigDir\client.yaml") {
@@ -138,6 +145,26 @@ Write-Step "Installing binary..."
 $null = New-Item -ItemType Directory -Force -Path $InstallDir
 Move-Item -Force -Path $exePath -Destination "$InstallDir\kvn-client.exe"
 Write-Ok "Installed to $InstallDir\kvn-client.exe"
+
+# --- Download wintun.dll (required for TUN mode) ---
+Write-Step "Downloading wintun.dll..."
+$wintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
+$wintunZip = "$tmpDir\wintun.zip"
+try {
+    $wc = New-Object System.Net.WebClient
+    $wc.DownloadFile($wintunUrl, $wintunZip)
+    Expand-Archive -Path $wintunZip -DestinationPath "$tmpDir\wintun" -Force
+    $archDir = if ($arch -eq "amd64") { "amd64" } else { "arm64" }
+    $wintunDll = "$tmpDir\wintun\wintun\bin\$archDir\wintun.dll"
+    if (Test-Path $wintunDll) {
+        Copy-Item -Path $wintunDll -Destination "$InstallDir\wintun.dll" -Force
+        Write-Ok "wintun.dll installed to $InstallDir\wintun.dll"
+    } else {
+        Write-Warn "wintun.dll not found for architecture $arch; TUN mode will not work"
+    }
+} catch {
+    Write-Warn "Could not download wintun.dll: $_; TUN mode will not work without it"
+}
 
 # --- Add to PATH ---
 $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
