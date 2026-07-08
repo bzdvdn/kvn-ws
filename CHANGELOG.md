@@ -6,11 +6,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.6.0] 2026-07-08
 
 ### Added
 
 - **Android: WebSocket Ping каждые 15с** — `OkHttpClient.Builder.pingInterval(15s)` держит NAT mapping на мобильном операторе живым, предотвращая EOFException при выходе из AFK/Doze mode. OkHttp автоматически отправляет Ping-фреймы, сервер отвечает Pong через штатный `SetPingHandler`. Без конфликтов с серверным Ping (25s) — WebSocket протокол полнодуплексный.
+- **Android: запрос отключения battery optimization** — `requestBatteryExemptionIfNeeded()` вызывает `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` при старте VPN. Если пользователь соглашается, Doze mode не блокирует сеть → VPN остаётся активным в AFK, push-уведомления проходят. Permission `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` в манифесте.
 - `tun_windows.go`: создание Wintun адаптера, read/write data path, SetIP/SetMTU через winipcfg LUID API.
 - Маршрутизация: SetGateway/RemoveGateway, AddExcludeRoute/RemoveExcludeRoute, SaveDefaultRoute.
 - Детерминированный GUID адаптера (UUIDv5, SHA-1, DNS namespace).

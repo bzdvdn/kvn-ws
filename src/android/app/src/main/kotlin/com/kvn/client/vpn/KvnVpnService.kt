@@ -5,6 +5,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.LinkProperties
+import android.net.Uri
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -16,6 +17,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
+import android.graphics.drawable.Icon
+import android.provider.Settings
 import com.kvn.client.config.ConnectionConfig
 import com.kvn.client.crypto.AesGcmCipher
 import com.kvn.client.dns.DnsCache
@@ -270,7 +274,7 @@ class KvnVpnService : VpnService() {
             else -> {
                 // verify — default OkHttp behavior
                 if (config.tlsServerName.isNotBlank()) {
-                    builder.hostnameVerifier(HostnameVerifier { hostname, session ->
+                    builder.hostnameVerifier(HostnameVerifier { hostname, _ ->
                         hostname == config.tlsServerName
                     })
                 }
@@ -492,7 +496,21 @@ class KvnVpnService : VpnService() {
         } catch (_: Exception) { null }
     }
 
+    private fun requestBatteryExemptionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(intent)
+            }
+        }
+    }
+
     private fun doStart(): Int {
+        requestBatteryExemptionIfNeeded()
         try {
             startForeground(NOTIFICATION_ID, createNotification(ConnectionState.CONNECTING))
         } catch (_: Exception) {
@@ -850,7 +868,11 @@ class KvnVpnService : VpnService() {
             .setContentTitle("KVN Client")
             .setContentText(text)
             .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Disconnect", stopPendingIntent)
+            .addAction(Notification.Action.Builder(
+                Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                "Disconnect",
+                stopPendingIntent
+            ).build())
             .setOngoing(true)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .build()
@@ -1162,7 +1184,6 @@ class KvnVpnService : VpnService() {
         if (protocol == 6 && config.routingDomainsEnabled) {
             val flags = data[ihl + 13].toInt() and 0x3F
             val dPort = ((data[ihl + 2].toInt() and 0xFF) shl 8) or (data[ihl + 3].toInt() and 0xFF)
-            val sPort = ((data[ihl].toInt() and 0xFF) shl 8) or (data[ihl + 1].toInt() and 0xFF)
             val excluded = resolver?.isExcluded(dstIp) == true
             AppLogger.i("ROUTE", "fwd TCP ${dstIp.hostAddress}:$dPort flags=$flags excl=$excluded")
         }
