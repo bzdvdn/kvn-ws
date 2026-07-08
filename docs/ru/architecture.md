@@ -9,8 +9,10 @@ kvn-ws — VPN-туннель поверх HTTPS/WebSocket и QUIC, написа
 ```mermaid
 flowchart TB
     subgraph Client["Хост клиента"]
-        TUN["TUN IFace"]
+        TUN["TUN IFace<br/>(Linux/macOS/Windows)"]
         PROXY["Proxy / Routing"]
+        DNS_PROXY["DNS Proxy"]
+        DNS_TRACKER["DNS Tracker<br/>(IP→domain mapping)"]
         WS_CLIENT["WebSocket Transport"]
         QUIC_CLIENT["QUIC Transport"]
         OBF["QUIC Obfuscation"]
@@ -18,6 +20,8 @@ flowchart TB
         PROXY <--> WS_CLIENT
         PROXY <--> QUIC_CLIENT
         QUIC_CLIENT <--> OBF
+        DNS_PROXY --> DNS_TRACKER
+        DNS_TRACKER --> PROXY
     end
 
     subgraph Internet["Интернет"]
@@ -72,20 +76,21 @@ flowchart TB
 
 | Компонент | Пакет | Роль |
 |-----------|-------|------|
-| TUN Interface | `src/internal/tun/` | Абстракция виртуального сетевого интерфейса |
-| Routing Engine | `src/internal/routing/` | RuleSet: server/direct, CIDR, домены, IP с ordered rules |
+| TUN Interface | `src/internal/tun/` | Абстракция виртуального сетевого интерфейса. Платформы: Linux (tun), Windows (Wintun), macOS (utun), stub |
+| Routing Engine | `src/internal/routing/` | RuleSet: server/direct, CIDR, IP, домены (suffix + exact). DNS tracker для IP→domain маппинга |
 | Tunnel Session | `src/internal/tunnel/` | Туннельная сессия: связывает TUN, crypto, proxy, transport |
-| Bootstrap | `src/internal/bootstrap/` | Оркестрация клиента: TUN, DNS, proxy, transport |
+| Bootstrap | `src/internal/bootstrap/` | Оркестрация клиента: TUN, DNS, proxy, transport. Платформенный DNS: setupDNS/applyDNS/restoreDNS |
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT прокси для локального трафика |
 | Transparent Proxy | `src/internal/transparent/` | Прозрачный прокси через iptables REDIRECT (Linux) |
 | System Proxy | `src/internal/systemproxy/` | Управление системными прокси (Linux/macOS/Windows) |
-| DNS Proxy | `src/internal/dnsproxy/` | Прокси-сервер DNS для трафика VPN |
+| DNS Proxy | `src/internal/dnsproxy/` | Прокси-сервер DNS: перехват и маршрутизация DNS-запросов. Трекинг IP→domain для domain-based routing |
+| DNS Tracker | `src/internal/dns/` | DNS tracker: хранит маппинг IP→domain с TTL. Используется Routing Engine для принятия решения direct/tunnel |
 | WebSocket Dialer | `src/internal/transport/websocket/` | Клиентское WebSocket-подключение с опциональным padding |
 | uTLS Dialer | `src/internal/transport/tls/` | Браузерный TLS (uTLS, Chrome JA3), кастомный выбор SNI |
 | QUIC Dialer | `src/internal/transport/quic/` | QUIC (UDP) dial + ObfuscatedQUICConn |
 | DNS Resolver | `src/internal/dns/` | DNS-резолвер с TTL-кэшем |
 | Crypto | `src/internal/crypto/` | Шифрование на уровне приложения (AES-256-GCM, per-session key) |
-| Web UI | `src/internal/webui/` | Локальный веб-интерфейс (React + REST API для конфига/подключения) |
+| Web UI | `src/internal/webui/` | Локальный веб-интерфейс (React + REST API для конфига/подключения/мониторинга) |
 
 ### Общие
 
@@ -134,6 +139,19 @@ flowchart TB
 6. Сервер применяет NAT (MASQUERADE) и пересылает пакет получателю
 7. Ответ следует обратным путём: сервер получает → инкапсулирует → отправляет (с XOR всего payload если включена обфускация) → клиент извлекает → инжектирует в TUN
 
+### Маршрутизация на основе DNS (domain-based routing)
+
+1. Приложение отправляет DNS-запрос (A/AAAA для `example.com`)
+2. DNS-прокси перехватывает запрос на локальном UDP/TCP порту
+3. Домен проверяется по спискам `exclude_domains` и `include_domains`:
+   - Если совпадает с exclude — запрос резолвится напрямую через физический интерфейс (`resolveDirect`)
+   - Если совпадает с include — запрос резолвится через VPN-туннель
+4. После получения ответа DNS tracker сохраняет маппинг `IP → domain` с TTL из DNS-ответа
+5. Когда приложение отправляет пакет на этот IP, Routing Engine проверяет трекер:
+   - Если IP найден — применяется domain-based правило (exact или suffix match)
+   - RouteAction (direct/tunnel) выбирается по наиболее специфичному совпадению
+6. Если IP не найден в трекере — применяются обычные CIDR/IP-правила
+
 ### Keepalive
 
 - Клиент периодически отправляет PING-фреймы
@@ -156,7 +174,7 @@ src/
 │   ├── bootstrap/           # Оркестрация клиента/сервера
 │   ├── config/              # YAML конфиг (viper)
 │   ├── crypto/              # Шифрование приложения
-│   ├── dns/                 # DNS-резолвер + кэш
+│   ├── dns/                 # DNS-резолвер + кэш + трекер IP→domain
 │   ├── dnsproxy/            # Прокси-сервер DNS
 │   ├── logger/              # Структурированное логирование (zap)
 │   ├── metrics/             # Prometheus-метрики

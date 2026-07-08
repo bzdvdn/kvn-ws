@@ -9,8 +9,10 @@ kvn-ws is a VPN tunnel over HTTPS/WebSocket and QUIC written in Go. This documen
 ```mermaid
 flowchart TB
     subgraph Client["Client Host"]
-        TUN["TUN IFace"]
+        TUN["TUN IFace<br/>(Linux/macOS/Windows)"]
         PROXY["Proxy / Routing"]
+        DNS_PROXY["DNS Proxy"]
+        DNS_TRACKER["DNS Tracker<br/>(IP→domain mapping)"]
         WS_CLIENT["WebSocket Transport"]
         QUIC_CLIENT["QUIC Transport"]
         OBF["QUIC Obfuscation"]
@@ -18,6 +20,8 @@ flowchart TB
         PROXY <--> WS_CLIENT
         PROXY <--> QUIC_CLIENT
         QUIC_CLIENT <--> OBF
+        DNS_PROXY --> DNS_TRACKER
+        DNS_TRACKER --> PROXY
     end
 
     subgraph Internet["Internet"]
@@ -72,20 +76,21 @@ flowchart TB
 
 | Component | Package | Role |
 |-----------|---------|------|
-| TUN Interface | `src/internal/tun/` | Virtual network interface abstraction |
-| Routing Engine | `src/internal/routing/` | RuleSet engine: server/direct, CIDR, domain, IP matching |
+| TUN Interface | `src/internal/tun/` | Virtual network interface abstraction. Platforms: Linux (tun), Windows (Wintun), macOS (utun), stub |
+| Routing Engine | `src/internal/routing/` | RuleSet engine: server/direct, CIDR, domain (suffix + exact), IP matching. DNS tracker lookup for domain-based routing |
 | Tunnel Session | `src/internal/tunnel/` | VPN tunnel session: links TUN, crypto, proxy, transport |
-| Bootstrap | `src/internal/bootstrap/` | Client orchestration: TUN, DNS, proxy, transport setup |
+| Bootstrap | `src/internal/bootstrap/` | Client orchestration: TUN, DNS, proxy, transport. Platform DNS: setupDNS/applyDNS/restoreDNS |
 | Proxy Listener | `src/internal/proxy/` | SOCKS5 + HTTP CONNECT proxy for local traffic |
 | Transparent Proxy | `src/internal/transparent/` | Transparent proxy via iptables REDIRECT (Linux) |
 | System Proxy | `src/internal/systemproxy/` | OS-level proxy settings management (Linux/macOS/Windows) |
-| DNS Proxy | `src/internal/dnsproxy/` | DNS forwarding proxy for VPN traffic |
+| DNS Proxy | `src/internal/dnsproxy/` | DNS forwarding proxy: intercepts and routes DNS queries. IP→domain tracking for domain-based routing |
+| DNS Tracker | `src/internal/dns/` | DNS tracker: stores IP→domain mapping with TTL. Used by Routing Engine for direct/tunnel decisions |
 | WebSocket Dialer | `src/internal/transport/websocket/` | WebSocket client connection with optional padding |
 | uTLS Dialer | `src/internal/transport/tls/` | Browser-like TLS (uTLS, Chrome JA3), custom SNI selection |
 | QUIC Dialer | `src/internal/transport/quic/` | QUIC (UDP) dial + ObfuscatedQUICConn |
 | DNS Resolver | `src/internal/dns/` | DNS resolution with TTL caching |
 | Crypto | `src/internal/crypto/` | App-layer encryption (AES-256-GCM, per-session key) |
-| Web UI | `src/internal/webui/` | Local web interface (React + REST API for config/connect) |
+| Web UI | `src/internal/webui/` | Local web interface (React + REST API for config/connect/monitoring) |
 
 ### Shared
 
@@ -134,6 +139,19 @@ Transport is selected by the `transport` config field:
 6. Server applies NAT (MASQUERADE) and forwards to target
 7. Response follows reverse path: server receives → encapsulates → sends (with full XOR-obfuscation if enabled) → client extracts → injects to TUN
 
+### Domain-based routing (DNS)
+
+1. Application sends a DNS query (A/AAAA for `example.com`)
+2. DNS proxy intercepts the query on the local UDP/TCP port
+3. Domain is checked against `exclude_domains` and `include_domains`:
+   - If matched in exclude — resolved directly via physical interface (`resolveDirect`)
+   - If matched in include — resolved through the VPN tunnel
+4. After receiving the answer, DNS tracker stores the `IP → domain` mapping with the TTL from the DNS response
+5. When the application sends a packet to that IP, Routing Engine checks the tracker:
+   - If IP is found — domain-based rule applies (exact or suffix match)
+   - RouteAction (direct/tunnel) is selected by the most specific match
+6. If IP is not found in the tracker — falls back to CIDR/IP matching rules
+
 ### Keepalive
 
 - Client sends PING frames periodically
@@ -156,7 +174,7 @@ src/
 │   ├── bootstrap/           # Client/server orchestration
 │   ├── config/              # YAML config (viper)
 │   ├── crypto/              # App-layer encryption
-│   ├── dns/                 # DNS resolver + cache
+│       ├── dns/                 # DNS resolution, TTL cache, IP→domain tracker
 │   ├── dnsproxy/            # DNS forwarding proxy
 │   ├── logger/              # Structured logging (zap)
 │   ├── metrics/             # Prometheus metrics
