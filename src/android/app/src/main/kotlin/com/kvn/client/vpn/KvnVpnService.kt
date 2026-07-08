@@ -242,6 +242,7 @@ class KvnVpnService : VpnService() {
             .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .pingInterval(15, java.util.concurrent.TimeUnit.SECONDS)
             .dns(object : okhttp3.Dns {
                 override fun lookup(hostname: String): List<InetAddress> {
                     if (hostname == config.serverAddress && preResolvedServerIps != null) {
