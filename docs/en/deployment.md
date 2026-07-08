@@ -12,6 +12,7 @@ This guide covers production-ready deployment scenarios for kvn-ws.
   - [Linux — Proxy mode (SOCKS5/HTTP)](#linux--proxy-mode-socks5http)
   - [Windows — TUN mode (VPN)](#windows--tun-mode-vpn)
   - [Windows — Proxy mode](#windows--proxy-mode)
+  - [macOS — TUN mode (VPN)](#macos--tun-mode-vpn)
 - [TLS certificates](#tls-certificates)
 - [Firewall & NAT](#firewall--nat)
 - [Monitoring](#monitoring)
@@ -530,7 +531,72 @@ log:
 
 The `kvn-web` interface automatically detects Windows and shows the **TUN** mode option in the server settings dropdown.
 
+#### DNS
+
+TUN mode automatically configures DNS on the virtual adapter via `luid.SetDNS()`:
+- DNS servers are set to `127.0.0.54` (local DNS proxy)
+- Original DNS settings are not saved (restored automatically when the TUN adapter is closed)
+- `CleanupStaleDNS` removes stale DNS entries on the adapter after an abnormal session termination
+
 > **Note:** Windows TUN support requires the `wintun.dll` runtime; without it the adapter creation will fail. Always verify the DLL is present before starting the client.
+
+---
+
+### macOS — TUN mode (VPN)
+
+TUN mode on macOS uses a utun interface to create a virtual network adapter.
+It routes all traffic through the VPN tunnel and supports exclude routes for split-tunnel setups.
+
+**Prerequisites:**
+
+- Run **as root** using `sudo` (utun + route require root privileges)
+- Alternatively, install `com.kvn.tun.plist` as a LaunchDaemon for automatic startup:
+  ```bash
+  sudo cp scripts/com.kvn.tun.plist /Library/LaunchDaemons/
+  sudo launchctl load /Library/LaunchDaemons/com.kvn.tun.plist
+  ```
+
+#### Config example
+
+`/etc/kvn/client.yaml`:
+
+```yaml
+mode: tun
+server: wss://vpn.example.com:443/tunnel
+auth:
+  token: your-auth-token
+mtu: 1400
+log:
+  level: info
+```
+
+#### Run manually
+
+```bash
+sudo ./kvn-client --config /etc/kvn/client.yaml
+```
+
+#### Web UI
+
+The `kvn-web` interface automatically detects macOS and shows the **TUN** mode option in the server settings dropdown.
+
+#### LaunchAgent for kvn-web (autostart at user logon)
+
+```bash
+cp scripts/com.kvn.web.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.kvn.web.plist
+```
+
+#### DNS
+
+TUN mode automatically configures DNS via `networksetup -setdnsservers`:
+- DNS servers are set to `127.0.0.54` (local DNS proxy)
+- Network service is detected via `-listallhardwareports` (primary) with fallback to direct `utunX`
+- Original DNS servers are saved and restored when the connection closes
+- `CleanupStaleDNS` removes stale DNS entries on utun interfaces
+- **macOS Ventura+**: fully supported; older versions may have limitations
+
+> **Note:** macOS TUN mode requires root. Use `sudo` or the LaunchDaemon (`com.kvn.tun.plist`) for automatic startup at boot.
 
 ---
 

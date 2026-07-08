@@ -6,7 +6,6 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -314,126 +313,77 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 	var dnsSrv *dnsproxy.Server
 	var dnsCtx context.Context
 	var dnsCancel context.CancelFunc
-	var resolvBackup *dnsproxy.ResolvConfBackup
-	if c.cfg.Routing != nil && c.cfg.Routing.DNSRouting != nil && c.cfg.Routing.DNSRouting.Enabled && routeSet != nil {
-		hasSuffix := false
-		for _, d := range c.cfg.Routing.ExcludeDomains {
-			if strings.HasPrefix(d, ".") {
-				hasSuffix = true
-				break
+	if c.cfg.Routing != nil && c.cfg.Routing.DNSRouting != nil && c.cfg.Routing.DNSRouting.Enabled && routeSet != nil && (len(c.cfg.Routing.ExcludeDomains) > 0 || len(c.cfg.Routing.IncludeDomains) > 0) {
+		dnsBackup, dnsResolvers := setupDNS()
+
+		tracker := dns.NewTracker(time.Duration(c.cfg.Routing.DNSRouting.TTL) * time.Second)
+		routeSet.SetTracker(tracker)
+		// @sk-task dns-upstreams-list#T3.1: pass Upstreams slice (AC-001)
+		dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstreams...)
+		dnsSrv.SetTracker(tracker)
+		// @sk-task dns-response-tracker#T3.5: SetRouteFunc for TUN mode (was missing — all DNS went TCP upstream)
+		dnsSrv.SetRouteFunc(func(domain string) bool {
+			return routeSet.MatchDomain(domain) == routing.RouteDirect
+		})
+		// @sk-task dns-response-tracker#T3.5: loopback filter + upstream fallback (systemd-resolved DNS loop fix)
+		// @sk-task dns-setup: set origResolvers on all platforms (not just when dnsBackup != nil)
+		if dnsBackup != nil {
+			if len(dnsResolvers) == 0 && len(c.cfg.DNSProxy.Upstreams) > 0 {
+				dnsSrv.SetOrigResolvers([]string{c.cfg.DNSProxy.Upstreams[0]})
+			} else {
+				dnsSrv.SetOrigResolvers(dnsResolvers)
 			}
+		} else if len(c.cfg.DNSProxy.Upstreams) > 0 {
+			dnsSrv.SetOrigResolvers([]string{c.cfg.DNSProxy.Upstreams[0]})
 		}
-		if !hasSuffix {
-			for _, d := range c.cfg.Routing.IncludeDomains {
-				if strings.HasPrefix(d, ".") {
-					hasSuffix = true
-					break
-				}
-			}
-		}
-		if hasSuffix {
-			tracker := dns.NewTracker(time.Duration(c.cfg.Routing.DNSRouting.TTL) * time.Second)
-			routeSet.SetTracker(tracker)
-			resolvBackup, _ = dnsproxy.BackupResolvConf()
-			// @sk-task dns-upstreams-list#T3.1: pass Upstreams slice (AC-001)
-			dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstreams...)
-			dnsSrv.SetTracker(tracker)
-			// @sk-task dns-response-tracker#T3.5: SetRouteFunc for TUN mode (was missing — all DNS went TCP upstream)
-			dnsSrv.SetRouteFunc(func(domain string) bool {
-				return routeSet.MatchDomain(domain) == routing.RouteDirect
-			})
-			// @sk-task dns-response-tracker#T3.5: loopback filter + upstream fallback (systemd-resolved DNS loop fix)
-			if resolvBackup != nil {
-				// Filter out loopback resolvers (systemd-resolved) to avoid DNS loop
-				allNss := resolvBackup.Nameservers()
-				var resolvers []string
-				for _, ns := range allNss {
-					host, _, err := net.SplitHostPort(ns)
-					if err != nil {
-						host = ns
-					}
-					ip := net.ParseIP(host)
-					if ip != nil && ip.IsLoopback() {
+		// @sk-task dns-response-tracker#T3.5: SetDirectRouteFunc + private/loopback skip (corporate IPs behind ppp0)
+		if havePhyRoute {
+			dnsSrv.SetDirectRouteFunc(func(ips []netip.Addr) {
+				for _, ip := range ips {
+					if ip.IsPrivate() || ip.IsLoopback() {
 						continue
 					}
-					resolvers = append(resolvers, ns)
-				}
-				// If all resolvers were loopback, use the first upstream DNS instead
-				if len(resolvers) == 0 && len(c.cfg.DNSProxy.Upstreams) > 0 {
-					resolvers = append(resolvers, c.cfg.DNSProxy.Upstreams[0])
-				}
-				dnsSrv.SetOrigResolvers(resolvers)
-				// Add exclude routes for public resolvers so DNS proxy bypasses TUN.
-				// Private resolvers (corporate DNS behind openfortivpn) route through ppp0 naturally.
-				if havePhyRoute {
-					for _, ns := range resolvers {
-						host, _, err := net.SplitHostPort(ns)
-						if err != nil {
-							host = ns
-						}
-						ip := net.ParseIP(host)
-						if ip == nil || ip.IsPrivate() || ip.IsLoopback() {
-							continue
-						}
-						bits := 32
-						if ip.To4() == nil {
-							bits = 128
-						}
-						cidr := host + "/" + strconv.Itoa(bits)
-						if err := tunDev.AddExcludeRoute(cidr, phyGateway, phyIface); err != nil {
-							c.logger.Warn("add dns resolver exclude route", zap.String("cidr", cidr), zap.Error(err))
-						}
+					cidr := ip.String() + "/32"
+					if err := tunDev.AddExcludeRoute(cidr, phyGateway, phyIface); err != nil {
+						c.logger.Warn("add dns direct route", zap.String("cidr", cidr), zap.Error(err))
 					}
 				}
-			}
-			// @sk-task dns-response-tracker#T3.5: SetDirectRouteFunc + private/loopback skip (corporate IPs behind ppp0)
-			if havePhyRoute {
-				dnsSrv.SetDirectRouteFunc(func(ips []netip.Addr) {
-					for _, ip := range ips {
-						if ip.IsPrivate() || ip.IsLoopback() {
-							continue
-						}
-						cidr := ip.String() + "/32"
-						if err := tunDev.AddExcludeRoute(cidr, phyGateway, phyIface); err != nil {
-							c.logger.Warn("add dns direct route", zap.String("cidr", cidr), zap.Error(err))
-						}
-					}
-				})
-			}
-			dnsCtx, dnsCancel = context.WithCancel(ctx)
-			dnsReady := make(chan error, 1)
-			go func() {
-				dnsReady <- dnsSrv.Run(dnsCtx)
-			}()
-			select {
-			case err := <-dnsReady:
-				c.logger.Warn("dns cache: proxy failed to start, restoring resolv.conf", zap.Error(err))
-				dnsCancel()
-				dnsSrv = nil
-				if resolvBackup != nil {
-					_ = resolvBackup.Restore()
-					resolvBackup = nil
-				}
-			case <-time.After(100 * time.Millisecond):
-				if resolvBackup != nil {
-					_ = dnsproxy.OverrideResolvConf(c.cfg.DNSProxy.Listen)
-				}
-			}
-			defer func() {
-				if dnsCancel != nil {
-					dnsCancel()
-				}
-				if dnsSrv != nil {
-					_ = dnsSrv.Shutdown()
-					dnsSrv = nil
-				}
-				if resolvBackup != nil {
-					if err := resolvBackup.Restore(); err != nil {
-						c.logger.Warn("dns cache: failed to restore resolv.conf", zap.Error(err))
-					}
-				}
-			}()
+			})
 		}
+		dnsCtx, dnsCancel = context.WithCancel(ctx)
+		dnsReady := make(chan error, 1)
+		go func() {
+			dnsReady <- dnsSrv.Run(dnsCtx)
+		}()
+		select {
+		case err := <-dnsReady:
+			c.logger.Warn("dns cache: proxy failed to start, restoring dns", zap.Error(err))
+			dnsCancel()
+			dnsSrv = nil
+			if dnsBackup != nil {
+				restoreDNS(dnsBackup)
+				dnsBackup = nil
+			}
+		case <-time.After(100 * time.Millisecond):
+			// @sk-task dns-setup: pass upstreams as resolvers on platforms without dnsBackup (e.g. Windows)
+			dnsUpstreams := dnsResolvers
+			if dnsBackup == nil && len(c.cfg.DNSProxy.Upstreams) > 0 {
+				dnsUpstreams = c.cfg.DNSProxy.Upstreams
+			}
+			applyDNS(dnsBackup, tunDev, c.cfg.DNSProxy.Listen, phyGateway, phyIface, dnsUpstreams)
+		}
+		defer func() {
+			if dnsCancel != nil {
+				dnsCancel()
+			}
+			if dnsSrv != nil {
+				_ = dnsSrv.Shutdown()
+				dnsSrv = nil
+			}
+			if dnsBackup != nil {
+				restoreDNS(dnsBackup)
+			}
+		}()
 	}
 
 	tunSess := tunnel.NewSession(tunDev, stream, nil, sessionID, "", nil, nil, nil, c.logger, sessionCipher, nil,

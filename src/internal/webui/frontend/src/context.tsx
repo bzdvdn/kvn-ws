@@ -312,6 +312,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // @sk-task kvn-web-config-update#T2.1: add/remove routing string items (AC-001, AC-002, AC-003)
+  // @sk-task dns-setup: auto-enable dns_routing when adding exclude/include domains
   const addRoutingString = useCallback((list: string, val: string) => {
     if (!val.trim()) return;
     setServerConfig((prev) => {
@@ -320,6 +321,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (items.includes(val.trim())) return prev;
       items.push(val.trim());
       (routing as any)[list] = items;
+      // auto-enable DNS routing when adding domain rules
+      if ((list === "exclude_domains" || list === "include_domains") && items.length === 1) {
+        routing.dns_routing = { ...(routing.dns_routing || {}), enabled: true };
+      }
       return { ...prev, routing };
     });
     setDirty(true);

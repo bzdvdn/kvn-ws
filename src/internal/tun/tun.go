@@ -43,6 +43,11 @@ func (t *tunDevice) Open() error {
 	return nil
 }
 
+// @sk-task dns-setup#T1.3: linux SetDNS no-op (resolv.conf managed by dnsproxy) (AC-001)
+func (t *tunDevice) SetDNS(dnsServers []string) error {
+	return nil
+}
+
 // @sk-task dns-response-tracker#T3.5: CleanupExcludeRoutes on Close (was missing on disconnect)
 func (t *tunDevice) Close() error {
 	if t.device == nil {

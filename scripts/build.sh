@@ -53,12 +53,24 @@ build_windows() {
   GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/relay.exe ./src/cmd/relay
 }
 
+# @sk-task mac-tun#T1.2: add darwin cross-compile target (AC-008)
+build_darwin() {
+  generate_protocol
+  echo "Building Darwin client (amd64)..."
+  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/client-darwin-amd64 ./src/cmd/client
+  echo "Building Darwin server (amd64)..."
+  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/server-darwin-amd64 ./src/cmd/server
+  echo "Building Darwin relay (amd64)..."
+  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/relay-darwin-amd64 ./src/cmd/relay
+}
+
 case "$TARGET" in
   client) build_client ;;
   server) build_server ;;
   web) build_web ;;
   relay) build_relay ;;
   windows) build_windows ;;
+  darwin) build_darwin ;;
   both)
     build_client
     build_server
@@ -66,7 +78,7 @@ case "$TARGET" in
     build_relay
     ;;
   *)
-    echo "Usage: $0 [client|server|web|relay|windows|both]" >&2
+    echo "Usage: $0 [client|server|web|relay|windows|darwin|both]" >&2
     exit 1
     ;;
 esac

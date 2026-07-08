@@ -12,6 +12,7 @@
   - [Linux — Режим прокси (SOCKS5/HTTP)](#linux--режим-прокси-socks5http)
   - [Windows — Режим TUN (VPN)](#windows--режим-tun-vpn)
   - [Windows — Режим прокси](#windows--режим-прокси)
+  - [macOS — Режим TUN (VPN)](#macos--режим-tun-vpn)
 - [TLS-сертификаты](#tls-сертификаты)
 - [Файрвол и NAT](#файрвол-и-nat)
 - [Мониторинг](#мониторинг)
@@ -524,7 +525,72 @@ log:
 
 Интерфейс `kvn-web` автоматически определяет Windows и показывает опцию **TUN** в выборе режима сервера.
 
+#### DNS
+
+Режим TUN автоматически настраивает DNS на виртуальном адаптере через `luid.SetDNS()`:
+- DNS-серверы устанавливаются в `127.0.0.54` (локальный DNS-прокси)
+- Исходные DNS-серверы не сохраняются (восстановление происходит при закрытии TUN-адаптера)
+- `CleanupStaleDNS` очищает устаревшие DNS-записи на адаптере после аварийного завершения предыдущей сессии
+
 > **Важно:** Для работы TUN на Windows требуется `wintun.dll`. Без него создание адаптера завершится ошибкой. Убедитесь, что DLL присутствует перед запуском клиента.
+
+---
+
+### macOS — Режим TUN (VPN)
+
+Режим TUN на macOS использует utun-интерфейс для создания виртуального сетевого адаптера.
+Весь трафик направляется через VPN-туннель; поддерживаются exclude-маршруты для split-tunnel.
+
+**Требования:**
+
+- Запускайте **от root** через `sudo` (utun + route требуют root-привилегий)
+- Либо установите `com.kvn.tun.plist` как LaunchDaemon для автозапуска:
+  ```bash
+  sudo cp scripts/com.kvn.tun.plist /Library/LaunchDaemons/
+  sudo launchctl load /Library/LaunchDaemons/com.kvn.tun.plist
+  ```
+
+#### Пример конфига
+
+`/etc/kvn/client.yaml`:
+
+```yaml
+mode: tun
+server: wss://vpn.example.com:443/tunnel
+auth:
+  token: ваш-токен
+mtu: 1400
+log:
+  level: info
+```
+
+#### Запуск вручную
+
+```bash
+sudo ./kvn-client --config /etc/kvn/client.yaml
+```
+
+#### Web UI
+
+Интерфейс `kvn-web` автоматически определяет macOS и показывает опцию **TUN** в выборе режима сервера.
+
+#### LaunchAgent для kvn-web (автозапуск при входе)
+
+```bash
+cp scripts/com.kvn.web.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.kvn.web.plist
+```
+
+#### DNS
+
+Режим TUN автоматически настраивает DNS через `networksetup -setdnsservers`:
+- DNS-серверы устанавливаются в `127.0.0.54` (локальный DNS-прокси)
+- Сервис сети определяется через `-listallhardwareports` (основной метод) с fallback на прямой `utunX`
+- Исходные DNS-серверы сохраняются и восстанавливаются при закрытии соединения
+- `CleanupStaleDNS` удаляет устаревшие DNS-записи на utun-интерфейсах
+- **macOS Ventura+**: полная поддержка; более старые версии могут иметь ограничения
+
+> **Важно:** Режим TUN на macOS требует root. Используйте `sudo` или LaunchDaemon (`com.kvn.tun.plist`) для автозапуска при загрузке.
 
 ---
 

@@ -10,6 +10,7 @@ type routeMeta struct {
 
 // @sk-task foundation#T1.3: internal stubs (AC-002)
 // @sk-task core-tunnel-mvp#T1.2: TunDevice interface (AC-001)
+// @sk-task dns-setup#T1.3: add SetDNS to TunDevice interface (AC-001, AC-003)
 type TunDevice interface {
 	Open() error
 	Close() error
@@ -21,6 +22,7 @@ type TunDevice interface {
 	RemoveGateway(gateway net.IP) error
 	AddExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error
 	RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface string) error
+	SetDNS(dnsServers []string) error
 	CleanupExcludeRoutes()
 	DisableGSO() error
 }

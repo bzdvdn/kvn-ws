@@ -243,6 +243,23 @@ func (t *tunDevice) CleanupExcludeRoutes() {
 	}
 }
 
+// @sk-task dns-setup#T2.1: implement SetDNS via luid.SetDNS (AC-001)
+func (t *tunDevice) SetDNS(dnsServers []string) error {
+	luid, err := t.luid()
+	if err != nil {
+		return err
+	}
+	var addrs []netip.Addr
+	for _, s := range dnsServers {
+		addr, err := netip.ParseAddr(s)
+		if err != nil {
+			return fmt.Errorf("parse dns server %s: %w", s, err)
+		}
+		addrs = append(addrs, addr)
+	}
+	return luid.SetDNS(windows.AF_INET, addrs, nil)
+}
+
 func (t *tunDevice) DisableGSO() error {
 	return nil
 }

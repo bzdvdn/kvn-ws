@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- @sk-task mac-tun#T5.1: LaunchDaemon for root TUN client (AC-007) -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.kvn.tun</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/kvn-client</string>
+		<string>--config</string>
+		<string>/etc/kvn/client.yaml</string>
+	</array>
+	<key>KeepAlive</key>
+	<true/>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>UserName</key>
+	<string>root</string>
+	<key>StandardOutPath</key>
+	<string>/var/log/kvn-tun.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/kvn-tun.log</string>
+</dict>
+</plist>

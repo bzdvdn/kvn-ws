@@ -96,6 +96,9 @@ func (m *MockTunDevice) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIf
 
 func (m *MockTunDevice) CleanupExcludeRoutes() {}
 
+// @sk-task dns-setup#T1.3: mock SetDNS no-op (AC-001)
+func (m *MockTunDevice) SetDNS(dnsServers []string) error { return nil }
+
 func (m *MockTunDevice) DisableGSO() error {
 	return nil
 }

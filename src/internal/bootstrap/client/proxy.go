@@ -189,16 +189,20 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 
 	var dnsCtx context.Context
 	var dnsCancel context.CancelFunc
-	var resolvBackup *dnsproxy.ResolvConfBackup
+	var dnsBackup interface{}
 	if transparent {
-		resolvBackup, _ = dnsproxy.BackupResolvConf()
+		dnsBackup, _ = setupDNS()
 
 		c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstreams...)
 		if dnsTracker != nil {
 			c.dnsSrv.SetTracker(dnsTracker)
 		}
-		if resolvBackup != nil {
-			c.dnsSrv.SetOrigResolvers(resolvBackup.Nameservers())
+		if dnsBackup != nil {
+			if bp, ok := dnsBackup.(interface{ Nameservers() []string }); ok {
+				c.dnsSrv.SetOrigResolvers(bp.Nameservers())
+			}
+		} else if len(c.cfg.DNSProxy.Upstreams) > 0 {
+			c.dnsSrv.SetOrigResolvers([]string{c.cfg.DNSProxy.Upstreams[0]})
 		}
 		if routeSet != nil {
 			c.dnsSrv.SetRouteFunc(func(domain string) bool {
@@ -213,17 +217,15 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 		}()
 		select {
 		case err := <-dnsReady:
-			c.logger.Warn("dns proxy failed to start, restoring resolv.conf", zap.Error(err))
+			c.logger.Warn("dns proxy failed to start, restoring dns", zap.Error(err))
 			dnsCancel()
 			c.dnsSrv = nil
-			if resolvBackup != nil {
-				_ = resolvBackup.Restore()
-				resolvBackup = nil
+			if dnsBackup != nil {
+				restoreDNS(dnsBackup)
+				dnsBackup = nil
 			}
 		case <-time.After(100 * time.Millisecond):
-			if resolvBackup != nil {
-				_ = dnsproxy.OverrideResolvConf(c.cfg.DNSProxy.Listen)
-			}
+			applyDNS(dnsBackup, nil, c.cfg.DNSProxy.Listen, nil, "", nil)
 			// Use the first slot's stream for DNS responses
 			c.dnsSrv.SetStream(slots[0].stream)
 		}
@@ -238,10 +240,8 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 				_ = c.dnsSrv.Shutdown()
 				c.dnsSrv = nil
 			}
-			if resolvBackup != nil {
-				if err := resolvBackup.Restore(); err != nil {
-					c.logger.Warn("dns proxy: failed to restore resolv.conf", zap.Error(err))
-				}
+			if dnsBackup != nil {
+				restoreDNS(dnsBackup)
 			}
 		}()
 	}

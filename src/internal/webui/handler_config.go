@@ -45,6 +45,8 @@ func (s *Server) handleSaveGlobalConfig(w http.ResponseWriter, r *http.Request) 
 	}
 	cfg.ClientConfig = body.ClientConfig
 	dedupRoutingStrings(cfg.Routing)
+	// @sk-task dns-setup: ensure DNSRouting defaults (TTL=60) before save
+	config.SetClientDefaults(&cfg.ClientConfig)
 
 	if err := s.saveWebUIConfig(cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -108,6 +110,9 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 			entry.Routing.ExcludeRanges = config.DefaultExcludeRanges
 		}
 	}
+
+	// @sk-task dns-setup: ensure DNSRouting defaults (TTL=60) before save
+	config.SetClientDefaults(&entry.ClientConfig)
 
 	cfg.Servers = append(cfg.Servers, entry)
 	if err := s.saveWebUIConfig(cfg); err != nil {
@@ -181,6 +186,9 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 			sv.Routing.ExcludeRanges = config.DefaultExcludeRanges
 		}
 	}
+
+	// @sk-task dns-setup: ensure DNSRouting defaults (TTL=60) before save
+	config.SetClientDefaults(&cfg.Servers[idx].ClientConfig)
 
 	// Update active_server if the renamed server was active
 	if cfg.ActiveServer == name {

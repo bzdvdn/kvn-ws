@@ -79,3 +79,42 @@ func TestDeterministicGUIDRandom(t *testing.T) {
 		}
 	}
 }
+
+// @sk-test dns-setup#T5.1: TestSetDNSWithoutDevice (AC-001)
+func TestSetDNSWithoutDevice(t *testing.T) {
+	d := &tunDevice{}
+	err := d.SetDNS([]string{"127.0.0.1"})
+	if err == nil {
+		t.Error("expected error when device is not opened")
+	}
+}
+
+// @sk-test dns-setup#T5.1: TestSetDNSInvalidIP (AC-001)
+func TestSetDNSInvalidIP(t *testing.T) {
+	d := &tunDevice{}
+	err := d.SetDNS([]string{"not-an-ip"})
+	if err == nil {
+		t.Error("expected error for invalid IP")
+	}
+}
+
+// @sk-test dns-setup#T5.1: TestSetDNSEmptyList (AC-001)
+func TestSetDNSEmptyList(t *testing.T) {
+	d := &tunDevice{}
+	err := d.SetDNS([]string{})
+	if err == nil {
+		t.Error("expected error when device is not opened")
+	}
+}
+
+// @sk-test dns-setup#T5.1: TestParseLUIDBoundary (AC-004)
+func TestParseLUIDBoundary(t *testing.T) {
+	_, err := parseLUID("0")
+	if err != nil {
+		t.Errorf("parseLUID(0): unexpected error: %v", err)
+	}
+	_, err = parseLUID("18446744073709551615")
+	if err != nil {
+		t.Errorf("parseLUID(max uint64): unexpected error: %v", err)
+	}
+}

@@ -71,8 +71,17 @@ func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
 	}
 
 	// @sk-task dns-response-tracker#T1.2: DNSRouting defaults (AC-003)
-	if cfg.Routing != nil && cfg.Routing.DNSRouting == nil {
-		cfg.Routing.DNSRouting = &config.DNSRoutingCfg{Enabled: false, TTL: 60}
+	// @sk-task dns-setup: auto-enable if domain rules present (AC-001)
+	if cfg.Routing != nil {
+		if cfg.Routing.DNSRouting == nil {
+			if len(cfg.Routing.ExcludeDomains) > 0 || len(cfg.Routing.IncludeDomains) > 0 {
+				cfg.Routing.DNSRouting = &config.DNSRoutingCfg{Enabled: true, TTL: 60}
+			} else {
+				cfg.Routing.DNSRouting = &config.DNSRoutingCfg{Enabled: false, TTL: 60}
+			}
+		} else if !cfg.Routing.DNSRouting.Enabled && (len(cfg.Routing.ExcludeDomains) > 0 || len(cfg.Routing.IncludeDomains) > 0) {
+			cfg.Routing.DNSRouting.Enabled = true
+		}
 	}
 
 	if cfg.Routing != nil && (len(cfg.Routing.IncludeSources) > 0 || len(cfg.Routing.ExcludeSources) > 0) {

@@ -198,7 +198,13 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 			merged.Routing.ExcludeRanges = config.DefaultExcludeRanges
 		}
 		if merged.Routing.DNSRouting == nil {
-			merged.Routing.DNSRouting = &config.DNSRoutingCfg{Enabled: false, TTL: 60}
+			if len(merged.Routing.ExcludeDomains) > 0 || len(merged.Routing.IncludeDomains) > 0 {
+				merged.Routing.DNSRouting = &config.DNSRoutingCfg{Enabled: true, TTL: 60}
+			} else {
+				merged.Routing.DNSRouting = &config.DNSRoutingCfg{Enabled: false, TTL: 60}
+			}
+		} else if !merged.Routing.DNSRouting.Enabled && (len(merged.Routing.ExcludeDomains) > 0 || len(merged.Routing.IncludeDomains) > 0) {
+			merged.Routing.DNSRouting.Enabled = true
 		}
 	} else {
 		merged.Routing = &config.RoutingCfg{

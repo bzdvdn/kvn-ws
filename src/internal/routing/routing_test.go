@@ -257,6 +257,79 @@ func TestRuleSetMatchDomainEmpty(t *testing.T) {
 	}
 }
 
+// @sk-test dns-setup: RuleSet MatchDomain exact exclude domain (AC-001)
+func TestRuleSetMatchDomainExactExclude(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:   "server",
+		ExcludeDomains: []string{"example.com", "test.org"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if action := rs.MatchDomain("example.com"); action != RouteDirect {
+		t.Errorf("expected RouteDirect for exact example.com, got %d", action)
+	}
+	if action := rs.MatchDomain("test.org"); action != RouteDirect {
+		t.Errorf("expected RouteDirect for exact test.org, got %d", action)
+	}
+	if action := rs.MatchDomain("sub.example.com"); action != RouteNone {
+		t.Errorf("expected RouteNone for sub.example.com (not suffix), got %d", action)
+	}
+	if action := rs.MatchDomain("notexample.com"); action != RouteNone {
+		t.Errorf("expected RouteNone for notexample.com, got %d", action)
+	}
+}
+
+// @sk-test dns-setup: RuleSet MatchDomain exact include domain (AC-002)
+func TestRuleSetMatchDomainExactInclude(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:   "direct",
+		IncludeDomains: []string{"internal.corp"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if action := rs.MatchDomain("internal.corp"); action != RouteServer {
+		t.Errorf("expected RouteServer for exact internal.corp, got %d", action)
+	}
+	if action := rs.MatchDomain("sub.internal.corp"); action != RouteNone {
+		t.Errorf("expected RouteNone for sub.internal.corp, got %d", action)
+	}
+}
+
+// @sk-test dns-setup: RuleSet MatchDomain mixed exact + suffix domains (AC-001, AC-002)
+func TestRuleSetMatchDomainMixed(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:   "server",
+		ExcludeDomains: []string{".ru", "example.com"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// suffix match
+	if action := rs.MatchDomain("hh.ru"); action != RouteDirect {
+		t.Errorf("expected RouteDirect for hh.ru, got %d", action)
+	}
+	// exact match
+	if action := rs.MatchDomain("example.com"); action != RouteDirect {
+		t.Errorf("expected RouteDirect for example.com, got %d", action)
+	}
+	// no match
+	if action := rs.MatchDomain("google.com"); action != RouteNone {
+		t.Errorf("expected RouteNone for google.com, got %d", action)
+	}
+	// subdomain of exact — should NOT match exact
+	if action := rs.MatchDomain("sub.example.com"); action != RouteNone {
+		t.Errorf("expected RouteNone for sub.example.com, got %d", action)
+	}
+}
+
 // @sk-test routing-split-tunnel#T4.2: TestIsDNSQuery (AC-008)
 func TestIsDNSQuery(t *testing.T) {
 	// Build a minimal IPv4 UDP packet to port 53

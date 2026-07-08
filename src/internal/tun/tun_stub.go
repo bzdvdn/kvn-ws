@@ -1,4 +1,4 @@
-//go:build !linux && !windows
+//go:build !linux && !windows && !darwin
 
 package tun
 
@@ -55,6 +55,11 @@ func (t *tunStub) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface st
 }
 
 func (t *tunStub) CleanupExcludeRoutes() {}
+
+// @sk-task dns-setup#T1.3: stub SetDNS returns error (AC-001)
+func (t *tunStub) SetDNS(dnsServers []string) error {
+	return errors.New("TUN is not supported on this platform")
+}
 
 func (t *tunStub) DisableGSO() error {
 	return nil

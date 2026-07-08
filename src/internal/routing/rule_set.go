@@ -21,6 +21,7 @@ type RuleSet struct {
 	domainResolver dns.Resolver
 	logger         *zap.Logger
 	suffixDomains  map[RouteAction][]string
+	exactDomains   map[RouteAction]map[string]struct{}
 	tracker        *dns.Tracker
 }
 
@@ -41,6 +42,7 @@ func NewRuleSetWithResolver(cfg *config.RoutingCfg, resolver dns.Resolver, logge
 		domainResolver: resolver,
 		logger:         logger,
 		suffixDomains:  make(map[RouteAction][]string),
+		exactDomains:   make(map[RouteAction]map[string]struct{}),
 	}
 
 	// exclude rules (checked first)
@@ -78,12 +80,17 @@ func (rs *RuleSet) addRules(cidrs, ips, domains []string, action RouteAction) er
 		}
 		rs.rules = append(rs.rules, Rule{Matcher: m, Action: action})
 	}
-	// @sk-task dns-routing#T3.1: suffix domain matching (AC-001, AC-002)
+	// @sk-task dns-routing#T3.1: suffix + exact domain matching (AC-001, AC-002)
 	if len(domains) > 0 {
 		var suffixes []string
 		for _, d := range domains {
 			if strings.HasPrefix(d, ".") {
 				suffixes = append(suffixes, d)
+			} else {
+				if rs.exactDomains[action] == nil {
+					rs.exactDomains[action] = make(map[string]struct{})
+				}
+				rs.exactDomains[action][d] = struct{}{}
 			}
 		}
 		if len(suffixes) > 0 {
@@ -103,8 +110,14 @@ func (rs *RuleSet) SetTracker(t *dns.Tracker) {
 	rs.tracker = t
 }
 
-// @sk-task dns-routing#T3.1: domain match for suffix rules (AC-001, AC-002)
+// @sk-task dns-routing#T3.1: domain match for suffix + exact rules (AC-001, AC-002)
 func (rs *RuleSet) MatchDomain(domain string) RouteAction {
+	for action, exact := range rs.exactDomains {
+		if _, ok := exact[domain]; ok {
+			rs.logger.Debug("domain matched", zap.String("domain", domain), zap.String("type", "exact"), zap.Int("action", int(action)))
+			return action
+		}
+	}
 	for action, suffixes := range rs.suffixDomains {
 		for _, suffix := range suffixes {
 			if strings.HasSuffix(domain, suffix) {

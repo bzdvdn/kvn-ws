@@ -31,7 +31,10 @@ func (m *mockTun) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface st
 	return nil
 }
 func (m *mockTun) CleanupExcludeRoutes() {}
-func (m *mockTun) DisableGSO() error     { return nil }
+
+func (m *mockTun) SetDNS(dnsServers []string) error { return nil }
+
+func (m *mockTun) DisableGSO() error { return nil }
 
 // mockStreamConn implements StreamConn with queued messages for testing.
 type mockStreamConn struct {
@@ -87,7 +90,10 @@ func (m *mockTunWrite) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIfa
 	return nil
 }
 func (m *mockTunWrite) CleanupExcludeRoutes() {}
-func (m *mockTunWrite) DisableGSO() error     { return nil }
+
+func (m *mockTunWrite) SetDNS(dnsServers []string) error { return nil }
+
+func (m *mockTunWrite) DisableGSO() error { return nil }
 
 func encodeFrame(t *testing.T, f *framing.Frame) []byte {
 	t.Helper()

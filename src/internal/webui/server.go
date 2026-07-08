@@ -112,7 +112,8 @@ func (s *Server) Serve(ctx context.Context) error {
 // @sk-task kvn-web#T2.5: platform info endpoint (AC-009)
 func (s *Server) handlePlatform(w http.ResponseWriter, r *http.Request) {
 	transparentSupported := runtime.GOOS == "linux"
-	tunSupported := runtime.GOOS == "linux" || runtime.GOOS == "windows"
+	// @sk-task mac-tun#T4.1: add darwin to tun_supported (AC-011)
+	tunSupported := runtime.GOOS == "linux" || runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 	writeJSON(w, http.StatusOK, map[string]any{
 		"os":                    runtime.GOOS,
 		"transparent_supported": transparentSupported,

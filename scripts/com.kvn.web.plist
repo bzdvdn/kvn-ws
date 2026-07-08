@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- @sk-task mac-tun#T5.1: LaunchAgent for user kvn-web (AC-007) -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.kvn.web</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/kvn-web</string>
+		<string>--port</string>
+		<string>2311</string>
+	</array>
+	<key>KeepAlive</key>
+	<false/>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/tmp/kvn-web.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/kvn-web.log</string>
+</dict>
+</plist>
