@@ -296,18 +296,21 @@ func isWebSocketRequest(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
+// @sk-task transport-factory#T2.4: dialRelayUpstream uses WSFactory (AC-004)
 func (r *Relay) dialRelayUpstream(ctx context.Context) (transport.StreamConn, error) {
 	tlsCfg, err := relayTLSConfig(r.cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	conn, err := websocket.Dial(r.cfg.Server, tlsCfg, r.logger)
-	if err != nil {
-		return nil, err
+	factoryCfg := &transport.FactoryConfig{
+		TLS:               tlsCfg,
+		Logger:            r.logger,
+		KeepaliveInterval: control.DefaultPingInterval,
+		KeepaliveTimeout:  control.DefaultPongTimeout,
 	}
-	conn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
-	return conn, nil
+	factory := transport.NewFactory("ws", factoryCfg)
+	return factory.Dial(ctx, r.cfg.Server)
 }
 
 func relayTLSConfig(cfg *config.RelayConfig) (*tls.Config, error) {

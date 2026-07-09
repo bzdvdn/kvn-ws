@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **TransportFactory interface** — единый `TransportFactory`/`TransportListener` interface в `transport/transport.go` с методами `Dial(ctx, endpoint)` и `Listen(ctx, addr)`. `NewFactory(type)` возвращает WSFactory для `""`/`"ws"`, QUICFactory для `"quic"`. `Register()` позволяет добавлять кастомные фабрики.
+- **WSFactory** — реализация `TransportFactory` для WebSocket в `transport/websocket/wsfactory.go`. Конструктор принимает `FactoryConfig` с keepalive interval/timeout. `Dial` оборачивает `websocket.Dial` + `SetKeepalive`.
+- **QUICFactory** — реализация `TransportFactory` для QUIC в `transport/quic/quicfactory.go`. `Dial` оборачивает `quictp.Dial` + опционально `NewObfuscatedQUICConn`.
+- **FallbackFactory** — wrapper в `transport/transport.go`, оборачивает primary + secondary фабрики. При ошибке primary.Dial логирует и вызывает secondary.Dial.
 - **Doze-устойчивость VPN (Android)** — WakeLock + WifiLock (`WIFI_MODE_FULL_HIGH_PERF`) для предотвращения засыпания CPU и WiFi при выключенном экране. Toggle "Keep awake on screen off" в настройках (default off). `keepAwakeEnabled` в `ConnectionConfig`.
 - **TCP keepalive** — `Socket.setKeepAlive(true)` на raw socket внутри `SmartSocketFactory.createSocket()`, включается только при активном toggle.
 - **Screen-on + unlock listener** — BroadcastReceiver на `ACTION_SCREEN_ON` + `ACTION_USER_PRESENT`. При детекте — остановка ReconnectManager и принудительный reconnect через `createTransport().connect()` (без backoff).
@@ -24,6 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Bootstrap client: dialStream через фабрику** — `bootstrap/client/dial.go` использует `NewFactory(cfg.Transport, factoryCfg).Dial(...)` вместо прямых вызовов `websocket.Dial`/`quictp.Dial`. Убраны прямые импорты транспортов.
+- **Bootstrap relay: upstream через фабрику** — `bootstrap/relay/upstream.go`: `dialAndHandshake`/`dialAndHandshakeWS` используют WSFactory/QUICFactory. Удалён `dialQUICUpstream`.
+- **Bootstrap relay: bridge через фабрику** — `bootstrap/relay/bridge.go`: `dialRelayUpstream` использует WSFactory вместо прямого `websocket.Dial`.
 - **Android: lock lifecycle** — WakeLock/WifiLock acquire в `doStart()`, release в `onDestroy()`. При reconnect locks не отпускаются.
 - **Server config docs** — `pong_timeout` добавлен в `docs/ru/config.md` и `docs/en/config.md`.
 - **Example server config** — `configs/server.yaml` обновлён c `pong_timeout: 120s`.

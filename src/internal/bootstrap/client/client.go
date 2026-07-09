@@ -23,6 +23,9 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/systemproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/transparent"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
+
+	_ "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
+	_ "github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 )
 
 type Client struct {
@@ -175,14 +178,6 @@ func (c *Client) resolveRoutingSources(cfgPath string) {
 		zap.Int("include_ranges", len(resolved.IncludeRanges)),
 		zap.Int("exclude_ranges", len(resolved.ExcludeRanges)),
 	)
-}
-
-// @sk-task whitelist-obfuscation#T3.2: padding size default helper (AC-005)
-func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
-	if oc != nil && oc.Padding != nil && oc.Padding.Size > 0 {
-		return oc.Padding.Size
-	}
-	return 512
 }
 
 // @sk-task system-proxy#T2.1: integrate system proxy with client lifecycle (AC-001, AC-002, AC-003, AC-007)

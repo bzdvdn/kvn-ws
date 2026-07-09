@@ -7,12 +7,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/quic-go/quic-go"
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
@@ -20,8 +18,6 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
-	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
@@ -89,25 +85,17 @@ func dialUpstream(ctx, sessionCtx context.Context, cfg *config.RelayConfig, tunD
 	return us, nil
 }
 
-// @sk-task relay-terminator#T8.7: dial upstream with QUIC obfuscation support (AC-004)
+// @sk-task transport-factory#T2.3: dialAndHandshake uses QUICFactory (AC-004)
 func dialAndHandshake(ctx context.Context, cfg *config.RelayConfig, tlsCfg *tls.Config, logger *zap.Logger) (transport.StreamConn, net.IP, error) {
-	conn, err := dialQUICUpstream(ctx, cfg.Server, tlsCfg, logger)
+	quicCfg := &transport.FactoryConfig{
+		TLS:         tlsCfg,
+		Logger:      logger,
+		Obfuscation: cfg.Obfuscation != nil && cfg.Obfuscation.Enabled,
+	}
+	factory := transport.NewFactory("quic", quicCfg)
+	conn, err := factory.Dial(ctx, cfg.Server)
 	if err != nil {
 		return nil, nil, err
-	}
-	if cfg.Obfuscation != nil && cfg.Obfuscation.Enabled {
-		qConn, ok := conn.(*quictp.QUICConn)
-		if !ok {
-			_ = conn.Close()
-			return nil, nil, fmt.Errorf("upstream conn is not QUIC")
-		}
-		obfConn, obfErr := quictp.NewObfuscatedQUICConn(qConn)
-		if obfErr != nil {
-			_ = conn.Close()
-			return nil, nil, fmt.Errorf("upstream quic obfuscation: %w", obfErr)
-		}
-		conn = obfConn
-		logger.Debug("upstream QUIC obfuscation enabled")
 	}
 	assignedIP, hErr := doHandshake(conn, cfg, logger)
 	if hErr != nil {
@@ -117,21 +105,29 @@ func dialAndHandshake(ctx context.Context, cfg *config.RelayConfig, tlsCfg *tls.
 	return conn, assignedIP, nil
 }
 
-// @sk-task relay-terminator#T5.1: WS upstream dial (QUIC fallback path) (AC-004)
+// @sk-task transport-factory#T2.3: dialAndHandshakeWS uses WSFactory (AC-004)
 func dialAndHandshakeWS(ctx context.Context, cfg *config.RelayConfig, tlsCfg *tls.Config, logger *zap.Logger) (transport.StreamConn, net.IP, error) {
 	paddingEnabled := cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil && cfg.Obfuscation.Padding.Enabled
 	if !paddingEnabled && cfg.Obfuscation != nil && cfg.Obfuscation.Enabled {
 		paddingEnabled = true
 	}
-	wsCfg := websocket.WSConfig{
-		PaddingEnabled: paddingEnabled,
-		PaddingSize:    paddingSizeOrDefault(cfg.Obfuscation),
+	paddingSize := 512
+	if cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil && cfg.Obfuscation.Padding.Size > 0 {
+		paddingSize = cfg.Obfuscation.Padding.Size
 	}
-	conn, err := websocket.Dial(cfg.Server, tlsCfg, logger, wsCfg)
+	wsCfg := &transport.FactoryConfig{
+		TLS:               tlsCfg,
+		Logger:            logger,
+		KeepaliveInterval: control.DefaultPingInterval,
+		KeepaliveTimeout:  control.DefaultPongTimeout,
+		PaddingEnabled:    paddingEnabled,
+		PaddingSize:       paddingSize,
+	}
+	factory := transport.NewFactory("ws", wsCfg)
+	conn, err := factory.Dial(ctx, cfg.Server)
 	if err != nil {
 		return nil, nil, err
 	}
-	conn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
 	assignedIP, hErr := doHandshake(conn, cfg, logger)
 	if hErr != nil {
 		_ = conn.Close()
@@ -227,23 +223,6 @@ func (us *upstreamSession) Send(packet []byte) error {
 	}
 	defer framing.ReturnBuffer(data)
 	return us.stream.WriteMessage(data)
-}
-
-// @sk-task relay-terminator#T5.1: QUIC upstream dial helper (AC-004)
-func dialQUICUpstream(ctx context.Context, serverURL string, tlsCfg *tls.Config, logger *zap.Logger) (transport.StreamConn, error) {
-	quicAddr := serverURL
-	if u, parseErr := url.Parse(quicAddr); parseErr == nil && u.Host != "" {
-		quicAddr = u.Host
-	}
-	quicCfg := &quic.Config{
-		KeepAlivePeriod: 7 * time.Second,
-	}
-	quicConn, err := quictp.Dial(ctx, quicAddr, tlsCfg, quicCfg)
-	if err != nil {
-		return nil, fmt.Errorf("quic dial: %w", err)
-	}
-	logger.Info("upstream QUIC dial successful", zap.String("addr", quicAddr))
-	return quicConn, nil
 }
 
 // @sk-task relay-terminator#T3.2: receive responses from upstream (AC-004)
