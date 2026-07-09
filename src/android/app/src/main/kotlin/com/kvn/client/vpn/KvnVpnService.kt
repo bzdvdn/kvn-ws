@@ -829,12 +829,6 @@ class KvnVpnService : VpnService() {
                         directDeliverer = DirectDeliverer()
                     }
                     serviceScope.launch { tunReader() }
-                    notificationUpdateJob = serviceScope.launch {
-                        while (isActive) {
-                            delay(2000)
-                            updateNotification(ConnectionState.CONNECTED)
-                        }
-                    }
                 }
             }
             FrameTypes.FRAME_TYPE_AUTH -> {
@@ -922,7 +916,7 @@ class KvnVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID, "KVN VPN",
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_LOW
             )
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
