@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] 2026-07-10
+
+### Fixed
+
+- **kvn-web: Export/QR кнопки экспортировали весь список серверов** — `exportConfig()` копировал `{servers, active_server, ...globalConfig}`, что не парсилось Android `parseQrConfig()`. Исправлено: обе кнопки (Export + QR) генерируют компактный JSON только активного сервера `{...serverConfig, name: activeServer}`.
+- **kvn-web: QR-код не сканировался Android камерой** — pretty-printed JSON (`JSON.stringify(..., null, 2)`) увеличивал объём данных, делая QR слишком плотным. Canvas 200×200px давал мелкие модули. Исправлено: компактный JSON (`JSON.stringify(...)`), canvas увеличен до 320×320px.
+
 ## [1.0.0] 2026-07-09
 
 ### Added

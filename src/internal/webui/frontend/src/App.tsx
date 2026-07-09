@@ -80,7 +80,7 @@ function AppInner() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleQr = async () => {
-    const data = JSON.stringify({ ...serverConfig, name: activeServer }, null, 2);
+    const data = JSON.stringify({ ...serverConfig, name: activeServer });
     setQrData(data);
     setQrOpen(true);
   };
@@ -280,9 +280,9 @@ function AppInner() {
 function QRCodeSVG({ data }: { data: string }) {
   const ref = React.useRef<HTMLCanvasElement>(null);
   React.useEffect(() => {
-    if (ref.current) QRCode.toCanvas(ref.current, data, { width: 200 });
+    if (ref.current) QRCode.toCanvas(ref.current, data, { width: 320 });
   }, [data]);
-  return <canvas ref={ref} width={200} height={200} />;
+  return <canvas ref={ref} width={320} height={320} />;
 }
 
 // @sk-task kvn-web-redesign#T2.5: app shell with component composition and context (AC-005)

@@ -214,9 +214,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [servers]);
 
   const exportConfig = useCallback(() => {
-    const data = JSON.stringify({ servers, active_server: activeServer, ...globalConfig }, null, 2);
+    const data = JSON.stringify({ ...serverConfig, name: activeServer });
     navigator.clipboard.writeText(data).then(() => showToast("Config copied")).catch(() => showToast("Copy failed"));
-  }, [servers, activeServer, globalConfig, showToast]);
+  }, [serverConfig, activeServer, showToast]);
 
   const doImport = useCallback(async (json: string) => {
     try {
