@@ -6,11 +6,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.6.1] 2026-07-09
+## [1.0.0] 2026-07-09
 
 ### Added
 
 - **TransportFactory interface** — единый `TransportFactory`/`TransportListener` interface в `transport/transport.go` с методами `Dial(ctx, endpoint)` и `Listen(ctx, addr)`. `NewFactory(type)` возвращает WSFactory для `""`/`"ws"`, QUICFactory для `"quic"`. `Register()` позволяет добавлять кастомные фабрики.
+- **QUIC AcceptWithBackoff** — `AcceptWithBackoff` в `transport/quic/listen.go` с exponential backoff (10ms–5s) для transient QUIC Accept errors в relay terminator. Предотвращает spin-loop при временных сбоях.
+- **DNS upstream connection pool** — `sync.Pool` для переиспользования UDP DNS-соединений в relay terminator. Устранён dial per DNS query.
+- **DNS cache size limit** — `insertDNSCache` с двухфазной eviction: сначала expired entries, затем oldest. Лимит 10000 записей, защита от memory leak.
 - **WSFactory** — реализация `TransportFactory` для WebSocket в `transport/websocket/wsfactory.go`. Конструктор принимает `FactoryConfig` с keepalive interval/timeout. `Dial` оборачивает `websocket.Dial` + `SetKeepalive`.
 - **QUICFactory** — реализация `TransportFactory` для QUIC в `transport/quic/quicfactory.go`. `Dial` оборачивает `quictp.Dial` + опционально `NewObfuscatedQUICConn`.
 - **FallbackFactory** — wrapper в `transport/transport.go`, оборачивает primary + secondary фабрики. При ошибке primary.Dial логирует и вызывает secondary.Dial.
@@ -21,6 +24,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Relay: session lifecycle — ручное IP allocation без SessionManager** — `handleTerminatorStream` выделял IP через `pool.Allocate()` напрямую, не используя `SessionManager`. При отключении не вызывался `sm.Remove()`, сессия оставалась в BoltDB. Исправлено: `handleTerminatorStream` использует `sm.Create()` с корректным lifecycle (cancel func, `sm.Remove()` при завершении).
+- **Relay: QUIC terminator не переживал transient Accept errors** — единичная ошибка `quicListener.Accept()` (напр. при перезагрузке сетевого стека) завершала весь terminator. Исправлено: `AcceptWithBackoff` с exponential backoff, остановка только по `context.Canceled`.
+- **Relay: DNS query parsing без boundary guards** — `isDNSQuery` / `extractDestIP` не проверяли nil/empty/короткие пакеты. `buildDNSRespPacket` не защищал от oversized payload (panic при len > 65535). Исправлено: валидация минимальной длины IHL, nil-guard, overflow check.
 - **Android: сервис самоуничтожался при reconnect** — `tunReader` и `writeToTun` вызывали `safeStop()` после `closeTun()` при DISCONNECTED. Исправлено: ошибки TUN больше не останавливают сервис, reconnect loop продолжается.
 - **Android: reconnect loop одноразовый** — флаг `reconnectStarted` блокировал повторные попытки после первого DISCONNECTED. Удалён: `reconnectManager?.start()` теперь вызывается на каждый DISCONNECTED, ReconnectManager сам контролирует backoff.
 - **Server: DefaultPongTimeout mismatch** — в `websocket.go` оставалось 45s (в `control.go` уже было 120s). Приведено к 120s.
