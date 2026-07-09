@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"net"
 	"net/http"
 	"net/netip"
 	"time"
@@ -46,6 +45,7 @@ func (r *Relay) handleTerminatorWS(w http.ResponseWriter, req *http.Request) {
 // @sk-task relay-terminator#T2.1: terminator stream handler — handshake + session (AC-001, AC-004)
 // @sk-task relay-terminator#T2.3: cleanup at disconnect (AC-006)
 // @sk-task relay-terminator#T5.2: transport auto-select from client (AC-004)
+// @sk-task arch-fix-critical-paths#T4.1: session via SessionManager.Create (AC-004)
 func (r *Relay) handleTerminatorStream(ctx context.Context, stream tunnel.StreamConn, remoteAddr, transportHint string) {
 	defer func() { _ = stream.Close() }()
 
@@ -89,77 +89,69 @@ func (r *Relay) handleTerminatorStream(ctx context.Context, stream tunnel.Stream
 		return
 	}
 
-	var sidBuf [16]byte
-	if _, rerr := rand.Read(sidBuf[:]); rerr != nil {
-		copy(sidBuf[:], clientHello.Token)
-	}
-	sessionID := hex.EncodeToString(sidBuf[:])
-
-	allocatedIP, err := r.pool.Allocate(sessionID)
+	// @sk-task arch-fix-critical-paths#T4.1: create session via SessionManager (AC-004)
+	sessionID := relaySessionID(clientHello.Token)
+	sess, allocatedIP, allocatedIPv6, err := r.sm.Create(sessionID, tokenCfg.Name, remoteAddr, tokenCfg.MaxSessions, clientHello.Ipv6)
 	if err != nil {
-		r.logger.Error("allocate ip", zap.Error(err))
+		r.logger.Error("session create", zap.Error(err))
 		return
 	}
 
-	var allocatedIPv6 net.IP
-	if clientHello.Ipv6 && r.pool6 != nil {
-		allocatedIPv6, err = r.pool6.Allocate(sessionID)
-		if err != nil {
-			r.logger.Warn("allocate ipv6, running ipv4-only", zap.Error(err))
-		}
-	}
+	sessionCtx, sessionCancel := context.WithCancel(ctx)
+	r.sm.SetCancel(sess.ID, sessionCancel)
 
 	serverHello, err := handshake.EncodeServerHello(&handshake.ServerHello{
-		SessionId:    sessionID,
+		SessionId:    sess.ID,
 		AssignedIp:   allocatedIP,
 		AssignedIpv6: allocatedIPv6,
 		Mtu:          handshake.DefaultMTU,
 	})
 	if err != nil {
 		r.logger.Error("encode server hello", zap.Error(err))
-		r.pool.Release(sessionID)
+		sessionCancel()
+		r.sm.Remove(sess.ID)
 		return
 	}
 	helloData, err := serverHello.Encode()
 	if err != nil {
 		r.logger.Error("encode hello frame", zap.Error(err))
-		r.pool.Release(sessionID)
+		sessionCancel()
+		r.sm.Remove(sess.ID)
 		return
 	}
 	if err := stream.WriteMessage(helloData); err != nil {
 		framing.ReturnBuffer(helloData)
 		r.logger.Error("send server hello", zap.Error(err))
-		r.pool.Release(sessionID)
+		sessionCancel()
+		r.sm.Remove(sess.ID)
 		return
 	}
 	framing.ReturnBuffer(helloData)
 
 	r.logger.Info("terminator session created",
-		zap.String("session", sessionID),
+		zap.String("session", sess.ID),
 		zap.String("ip", allocatedIP.String()),
+		zap.String("token", tokenCfg.Name),
 		zap.String("remote", remoteAddr),
 	)
 
-	tunSess := tunnel.NewSession(r.tunDev, stream, r.sm, sessionID, "terminator",
+	tunSess := tunnel.NewSession(r.tunDev, stream, r.sm, sess.ID, "terminator",
 		nil, nil, nil, r.logger, nil, nil,
 		30*time.Second, 1000, allocatedIP, allocatedIPv6, nil)
 	tunSess.SetDemux(r.tunDemux)
 	if r.ruleSet != nil {
 		tunSess.SetOutgoingInterceptor(r.routeOutgoing)
 	}
-	if err := tunSess.Run(ctx); err != nil {
+	if err := tunSess.Run(sessionCtx); err != nil {
 		r.logger.Info("terminator session ended",
-			zap.String("session", sessionID),
+			zap.String("session", sess.ID),
 			zap.String("ip", allocatedIP.String()),
 			zap.Error(err),
 		)
 	}
 
-	r.pool.Release(sessionID)
-	if allocatedIPv6 != nil {
-		r.pool6.Release(sessionID)
-	}
-	r.sm.Remove(sessionID)
+	sessionCancel()
+	r.sm.Remove(sess.ID)
 }
 
 // @sk-task relay-terminator#T8.8: routeOutgoing — DNS interception with shouldCache (AC-008)
@@ -231,4 +223,13 @@ func (r *Relay) routeOutgoing(payload []byte) (bool, error) {
 	default:
 		return false, nil
 	}
+}
+
+// @sk-task arch-fix-critical-paths#T4.1: generate session ID for relay (AC-004)
+func relaySessionID(token string) string {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		copy(buf[:], token)
+	}
+	return hex.EncodeToString(buf[:])
 }

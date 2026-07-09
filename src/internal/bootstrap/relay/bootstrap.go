@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -119,6 +120,15 @@ func (r *Relay) initTerminator() error {
 			}
 			r.cacheTTL = time.Duration(ttl) * time.Second
 			r.dnsCache = make(map[netip.Addr]time.Time)
+			r.dnsConnPool = &sync.Pool{
+				New: func() interface{} {
+					conn, err := net.DialTimeout("udp", r.dnsUpstream, 5*time.Second)
+					if err != nil {
+						return nil
+					}
+					return conn
+				},
+			}
 		}
 	}
 
@@ -233,9 +243,10 @@ func (r *Relay) runTerminator(ctx context.Context) error {
 		defer func() { _ = quicListener.Close() }()
 
 		r.logger.Info("terminator quic listening", zap.String("addr", quicListener.Addr()))
+		// @sk-task arch-fix-critical-paths#T2.3: backoff on transient Accept errors (AC-001)
 		eg.Go(func() error {
 			for {
-				quicConn, err := quicListener.Accept(egCtx)
+				quicConn, err := quictp.AcceptWithBackoff(egCtx, quicListener.Accept, r.logger)
 				if err != nil {
 					return fmt.Errorf("quic accept: %w", err)
 				}

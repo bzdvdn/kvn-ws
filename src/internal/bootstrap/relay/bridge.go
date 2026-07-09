@@ -70,6 +70,7 @@ type Relay struct {
 	dnsCacheMu  sync.RWMutex
 	cacheTTL    time.Duration
 	dnsEnabled  bool
+	dnsConnPool *sync.Pool
 }
 
 // @sk-task relay-terminator#T1.3: New creates Relay with CLI flags (AC-001)

@@ -14,6 +14,8 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 )
 
+const defaultMaxDNSCacheSize = 10000
+
 // @sk-task relay-terminator#T3.1: build RuleSet from RelayRoutingCfg (AC-002)
 func newDirectRuleSet(cfg *config.RelayRoutingCfg, logger *zap.Logger) (*routing.RuleSet, error) {
 	if cfg == nil {
@@ -29,6 +31,7 @@ func newDirectRuleSet(cfg *config.RelayRoutingCfg, logger *zap.Logger) (*routing
 
 // @sk-task relay-terminator#T6.2: forward DNS query to upstream resolver (RQ-008, AC-003)
 // @sk-task relay-terminator#T8.8: forward DNS with shouldCache param for non-direct domains (AC-008)
+// @sk-task arch-fix-critical-paths#T3.1: DNS upstream connection pool (AC-002)
 func (r *Relay) forwardDNSQuery(packet []byte, shouldCache bool) error {
 	verIHL := packet[0]
 	ihl := int(verIHL&0x0f) * 4
@@ -38,11 +41,11 @@ func (r *Relay) forwardDNSQuery(packet []byte, shouldCache bool) error {
 
 	dnsPayload := packet[ihl+8:]
 
-	conn, err := net.DialTimeout("udp", r.dnsUpstream, 5*time.Second)
-	if err != nil {
-		return err
+	conn := r.getDNSConn()
+	if conn == nil {
+		return fmt.Errorf("dns upstream dial failed")
 	}
-	defer conn.Close()
+	defer r.putDNSConn(conn)
 
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
@@ -70,7 +73,37 @@ func (r *Relay) forwardDNSQuery(packet []byte, shouldCache bool) error {
 	return err
 }
 
+// @sk-task arch-fix-critical-paths#T3.1: getDNSConn from pool or dial (AC-002)
+func (r *Relay) getDNSConn() net.Conn {
+	if r.dnsConnPool == nil {
+		conn, err := net.DialTimeout("udp", r.dnsUpstream, 5*time.Second)
+		if err != nil {
+			return nil
+		}
+		return conn
+	}
+	v := r.dnsConnPool.Get()
+	if v == nil {
+		return nil
+	}
+	conn, ok := v.(net.Conn)
+	if !ok {
+		return nil
+	}
+	return conn
+}
+
+// @sk-task arch-fix-critical-paths#T3.1: putDNSConn returns conn to pool (AC-002)
+func (r *Relay) putDNSConn(conn net.Conn) {
+	if r.dnsConnPool != nil {
+		r.dnsConnPool.Put(conn)
+	} else {
+		_ = conn.Close()
+	}
+}
+
 // @sk-task relay-terminator#T6.2: cache resolved IPs from DNS response (RQ-008, AC-003)
+// @sk-task arch-fix-critical-paths#T1.2: boundary guards cacheDNSResponse (AC-006)
 func (r *Relay) cacheDNSResponse(resp []byte) {
 	if len(resp) < 12 {
 		return
@@ -137,22 +170,50 @@ func (r *Relay) cacheDNSResponse(resp []byte) {
 		}
 		if rtype == 1 && rdlen == 4 {
 			ip := netip.AddrFrom4([4]byte(resp[pos : pos+4]))
-			r.dnsCacheMu.Lock()
-			r.dnsCache[ip] = now.Add(r.cacheTTL)
-			r.dnsCacheMu.Unlock()
+			r.insertDNSCache(ip, now.Add(r.cacheTTL))
 			r.logger.Debug("dns cached direct ip", zap.String("ip", ip.String()))
 		}
 		if rtype == 28 && rdlen == 16 {
 			ip := netip.AddrFrom16([16]byte(resp[pos : pos+16]))
-			r.dnsCacheMu.Lock()
-			r.dnsCache[ip] = now.Add(r.cacheTTL)
-			r.dnsCacheMu.Unlock()
+			r.insertDNSCache(ip, now.Add(r.cacheTTL))
 			r.logger.Debug("dns cached direct ipv6", zap.String("ip", ip.String()))
 		}
 		pos += rdlen
 	}
 }
 
+// @sk-task arch-fix-critical-paths#T3.2: insertDNSCache with size limit eviction (AC-003)
+func (r *Relay) insertDNSCache(ip netip.Addr, expiry time.Time) {
+	r.dnsCacheMu.Lock()
+	defer r.dnsCacheMu.Unlock()
+
+	if len(r.dnsCache) >= defaultMaxDNSCacheSize {
+		now := time.Now()
+		for cachedIP, exp := range r.dnsCache {
+			if now.After(exp) {
+				delete(r.dnsCache, cachedIP)
+			}
+		}
+		if len(r.dnsCache) >= defaultMaxDNSCacheSize {
+			var oldestIP netip.Addr
+			var oldestExp time.Time
+			first := true
+			for cachedIP, exp := range r.dnsCache {
+				if first || exp.Before(oldestExp) {
+					oldestIP = cachedIP
+					oldestExp = exp
+					first = false
+				}
+			}
+			if !first {
+				delete(r.dnsCache, oldestIP)
+			}
+		}
+	}
+	r.dnsCache[ip] = expiry
+}
+
+// @sk-task arch-fix-critical-paths#T1.2: boundary guards raw packet parsing (AC-006)
 func isDNSQuery(packet []byte) bool {
 	if len(packet) < 20 {
 		return false
@@ -162,6 +223,9 @@ func isDNSQuery(packet []byte) bool {
 	}
 	verIHL := packet[0]
 	ihl := int(verIHL&0x0f) * 4
+	if ihl < 20 {
+		return false
+	}
 	if len(packet) < ihl+4 {
 		return false
 	}
@@ -169,6 +233,7 @@ func isDNSQuery(packet []byte) bool {
 	return dstPort == 53
 }
 
+// @sk-task arch-fix-critical-paths#T1.1: overflow guard buildDNSRespPacket (AC-005)
 func buildDNSRespPacket(origQuery, dnsResp []byte) []byte {
 	verIHL := origQuery[0]
 	ihl := int(verIHL&0x0f) * 4
@@ -272,6 +337,7 @@ func (r *Relay) resolveDirectSources(rc *config.RelayRoutingCfg) {
 }
 
 // @sk-task relay-terminator#T3.1: parse dest IP from raw packet (AC-002)
+// @sk-task arch-fix-critical-paths#T1.2: boundary guards extractDestIP (AC-006)
 func extractDestIP(packet []byte) (netip.Addr, bool) {
 	if len(packet) < 1 {
 		return netip.Addr{}, false

@@ -440,9 +440,10 @@ func (s *Server) Run(ctx context.Context) error {
 		defer func() { _ = quicListener.Close() }()
 
 		s.logger.Info("quic listening", zap.String("addr", quicListener.Addr()))
+		// @sk-task arch-fix-critical-paths#T2.2: backoff on transient Accept errors (AC-001)
 		eg.Go(func() error {
 			for {
-				quicConn, err := quicListener.Accept(ctx)
+				quicConn, err := quictp.AcceptWithBackoff(ctx, quicListener.Accept, s.logger)
 				if err != nil {
 					return fmt.Errorf("quic accept: %w", err)
 				}
