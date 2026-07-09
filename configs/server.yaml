@@ -1,4 +1,5 @@
 listen: :443
+pong_timeout: 120s
 ws_paths:
   - /tunnel
   - /api/v1/events

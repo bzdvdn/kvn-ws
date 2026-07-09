@@ -48,6 +48,23 @@ class AppConfigTest {
         assertEquals("w.com", appCfg.servers[0].config.serverAddress)
     }
 
+    // @sk-test doze-resilience#T4.2: keepAwakeEnabled defaults to false (AC-007)
+    @Test
+    fun testKeepAwakeDefaultFalse() {
+        val config = ConnectionConfig(serverAddress = "s.com", token = "t")
+        assertFalse(config.keepAwakeEnabled)
+    }
+
+    // @sk-test doze-resilience#T4.2: keepAwakeEnabled can be set to true (AC-007)
+    @Test
+    fun testKeepAwakeCanBeTrue() {
+        val config = ConnectionConfig(
+            serverAddress = "s.com", token = "t",
+            keepAwakeEnabled = true
+        )
+        assertTrue(config.keepAwakeEnabled)
+    }
+
     // @sk-test kvn-android#T5.22: import copies DNS/app from source to target server
     @Test
     fun testImportCopiesDnsApp() {

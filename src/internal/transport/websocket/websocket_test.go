@@ -976,3 +976,39 @@ func newTestWSPair(t *testing.T) (*httptest.Server, *WSConn) {
 	}
 	return server, conn
 }
+
+// @sk-test doze-resilience#T4.1: TestDefaultPongTimeout constant (AC-005)
+func TestDefaultPongTimeout(t *testing.T) {
+	if DefaultPongTimeout != 120*time.Second {
+		t.Errorf("DefaultPongTimeout = %v, want 120s", DefaultPongTimeout)
+	}
+}
+
+// @sk-test doze-resilience#T4.1: TestSetKeepaliveWithCustomTimeout (AC-005)
+func TestSetKeepaliveWithCustomTimeout(t *testing.T) {
+	server, conn := newTestWSPair(t)
+	defer server.Close()
+	defer conn.Close()
+
+	// SetKeepalive with custom timeout — verify it doesn't panic and the goroutine runs
+	done := make(chan struct{})
+	go func() {
+		conn.SetKeepalive(50*time.Millisecond, 120*time.Second)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// goroutine started and returned SetKeepalive setup
+	case <-time.After(2 * time.Second):
+		t.Fatal("SetKeepalive did not complete within 2s")
+	}
+
+	// Send a PONG to verify the pong handler was set
+	// The gorilla/websocket internal PongHandler is not directly inspectable,
+	// but we can verify that sending a PONG doesn't crash the connection
+	serverConn := conn.Underlying()
+	if err := serverConn.WriteMessage(websocket.PongMessage, nil); err != nil {
+		t.Fatalf("Write PongMessage: %v", err)
+	}
+}

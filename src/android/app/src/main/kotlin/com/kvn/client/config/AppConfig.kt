@@ -76,7 +76,9 @@ data class ConnectionConfig(
     // @sk-task android-fakedns-routing#T1.1: domain routing config fields (RQ-010, RQ-011)
     val routingDomainsEnabled: Boolean = false,
     val routingExcludeDomains: List<String> = emptyList(),
-    val routingIncludeDomains: List<String> = emptyList()
+    val routingIncludeDomains: List<String> = emptyList(),
+    // @sk-task doze-resilience#T3.1: keep-awake toggle for screen-off stability (AC-007)
+    val keepAwakeEnabled: Boolean = false
 )
 
 // @sk-task multi-server-android-client#T1.1: server entry with name + full config (AC-001)

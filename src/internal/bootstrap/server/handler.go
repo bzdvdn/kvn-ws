@@ -34,7 +34,12 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 		return
 	}
 	// @sk-task relay-terminator#T9.1: WS keepalive on accepted server connections (AC-004)
-	wsConn.SetKeepalive(control.DefaultPingInterval, control.DefaultPongTimeout)
+	// @sk-task doze-resilience#T1.2: parametrize SetKeepalive with pong_timeout from config (AC-005)
+	pongTimeout := s.cfg.PongTimeout
+	if pongTimeout <= 0 {
+		pongTimeout = control.DefaultPongTimeout
+	}
+	wsConn.SetKeepalive(control.DefaultPingInterval, pongTimeout)
 	s.handleStream(r.Context(), wsConn, wsCfg.MTU, r.RemoteAddr)
 }
 

@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.LinkProperties
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -60,6 +61,7 @@ import java.security.cert.X509Certificate
     // @sk-task kvn-android#T2.1: VpnService + TUN read/write (AC-006)
     // @sk-task kvn-android#T5.16: kill switch blocks stop on disconnect (AC-010)
 // @sk-task android-log-tag#T3.1: migrated LogBuffer to AppLogger (AC-012)
+// @sk-task doze-resilience#T3.3: SCREEN_ON listener for fast reconnect (AC-003)
 class KvnVpnService : VpnService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -72,6 +74,13 @@ class KvnVpnService : VpnService() {
     private var cipher: AesGcmCipher? = null
     private var cryptoEnabled = false
     private var serverSessionId: String = ""
+
+    // @sk-task doze-resilience#T2.1: WakeLock + WifiLock for screen-off connection stability (AC-001)
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+
+    // @sk-task doze-resilience#T3.3: SCREEN_ON broadcast receiver for fast reconnect (AC-003)
+    private var screenOnReceiver: android.content.BroadcastReceiver? = null
 
     // @sk-task kvn-android#T3.2: traffic counters (AC-002)
     private val rxBytes = AtomicLong(0)
@@ -152,6 +161,11 @@ class KvnVpnService : VpnService() {
             val raw = delegate.createSocket()
             // Always protect — safe when VPN is down, critical during reconnect races
             this@KvnVpnService.protect(raw)
+            // @sk-task doze-resilience#T2.2: TCP keepalive on transport socket (AC-002)
+            // @sk-task doze-resilience#T3.1: respect keepAwakeEnabled toggle (AC-007)
+            if (config.keepAwakeEnabled) {
+                raw.setKeepAlive(true)
+            }
             return object : Socket() {
                 override fun connect(endpoint: SocketAddress, timeout: Int) {
                     raw.connect(endpoint, timeout)
@@ -229,7 +243,6 @@ class KvnVpnService : VpnService() {
     private var vpnEstablished = false
 
     private var preResolvedServerIps: List<InetAddress>? = null
-    private var reconnectStarted = false
     private var tunReaderStarted = false
 
     private fun resolveServerIpsBeforeVpn() {
@@ -509,6 +522,80 @@ class KvnVpnService : VpnService() {
         }
     }
 
+    // @sk-task doze-resilience#T2.1: acquire WakeLock + WifiLock (AC-001)
+    // @sk-task doze-resilience#T3.1: check keepAwakeEnabled before acquire (AC-007)
+    private fun acquireWakeLock() {
+        if (!config.keepAwakeEnabled) return
+        if (wakeLock?.isHeld != true) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "kvn:keep_awake"
+            ).apply {
+                acquire()
+                AppLogger.i("WakeLock", "acquired")
+            }
+        }
+        if (wifiLock?.isHeld != true) {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wm.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "kvn:keep_awake"
+            ).apply {
+                acquire()
+                AppLogger.i("WifiLock", "acquired")
+            }
+        }
+    }
+
+    // @sk-task doze-resilience#T2.1: release WakeLock + WifiLock (AC-001)
+    private fun releaseWakeLock() {
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+            wakeLock = null
+            AppLogger.i("WakeLock", "released")
+        }
+        if (wifiLock?.isHeld == true) {
+            wifiLock?.release()
+            wifiLock = null
+            AppLogger.i("WifiLock", "released")
+        }
+    }
+
+    // @sk-task doze-resilience#T3.3: register SCREEN_ON + USER_PRESENT receiver for fast reconnect (AC-003)
+    private fun registerScreenOnReceiver() {
+        if (screenOnReceiver != null) return
+        val filter = android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_ON).apply {
+            addAction(android.content.Intent.ACTION_USER_PRESENT)
+        }
+        screenOnReceiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(ctx: android.content.Context?, intent: android.content.Intent?) {
+                val action = intent?.action ?: return
+                if (action != android.content.Intent.ACTION_SCREEN_ON &&
+                    action != android.content.Intent.ACTION_USER_PRESENT) return
+                AppLogger.i("ScreenOn", "$action detected")
+                if (transportClient?.isConnected() == true) return
+                AppLogger.i("ScreenOn", "connection dead, reconnecting")
+                reconnectManager?.stop()
+                transportClient = null
+                transportClient = createTransport()
+                transportClient?.connect()
+            }
+        }
+        registerReceiver(screenOnReceiver, filter)
+    }
+
+    // @sk-task doze-resilience#T3.3: unregister SCREEN_ON receiver (AC-003)
+    private fun unregisterScreenOnReceiver() {
+        try {
+            screenOnReceiver?.let { unregisterReceiver(it) }
+        } catch (_: Exception) {}
+        screenOnReceiver = null
+    }
+
+    // @sk-task kvn-android#T2.1: service lifecycle start (AC-006)
+    // @sk-task doze-resilience#T2.1: acquire WakeLock on start (AC-001)
+    // @sk-task doze-resilience#T3.3: register SCREEN_ON receiver (AC-003)
     private fun doStart(): Int {
         requestBatteryExemptionIfNeeded()
         try {
@@ -520,13 +607,15 @@ class KvnVpnService : VpnService() {
 
         resolveServerIpsBeforeVpn()
 
+        // @sk-task doze-resilience#T2.1: acquire WakeLock (AC-001)
+        acquireWakeLock()
+
+        // @sk-task doze-resilience#T3.3: register SCREEN_ON receiver for fast reconnect (AC-003)
+        registerScreenOnReceiver()
+
         // Wire traffic callback from companion
         onTrafficUpdate = trafficCallback
 
-        // @sk-task kvn-android#T2.4: start transport connection (AC-001)
-        // @sk-task kvn-android#T3.1: wire reconnect manager (AC-005)
-        // @sk-task kvn-android#BUGFIX: dont disconnect old transport in onReconnect — already dead,
-        //   and disconnect() triggers DISCONNECTED -> safeStop loop
         reconnectManager = ReconnectManager(
             scope = serviceScope,
             config = config,
@@ -537,7 +626,6 @@ class KvnVpnService : VpnService() {
             },
             onStateChange = onConnectionStateChange,
             onRetriesExhausted = {
-                reconnectStarted = false
                 safeStop()
             }
         )
@@ -599,8 +687,11 @@ class KvnVpnService : VpnService() {
     }
 
     // @sk-task kvn-android#T2.1: service lifecycle stop (AC-006)
+    // @sk-task doze-resilience#T2.1: release WakeLock on destroy (AC-001)
     override fun onDestroy() {
         super.onDestroy()
+        releaseWakeLock()
+        unregisterScreenOnReceiver()
         unregisterNetworkCallback()
         reconnectManager?.stop()
         transportClient?.disconnect()
@@ -617,7 +708,6 @@ class KvnVpnService : VpnService() {
         updateNotification(state)
         when (state) {
             ConnectionState.CONNECTED -> {
-                reconnectStarted = false
                 performHandshake()
             }
             ConnectionState.DISCONNECTED -> {
@@ -625,10 +715,7 @@ class KvnVpnService : VpnService() {
                 tunReaderStarted = false
 
                 if (config.autoReconnect && !killed) {
-                    if (!reconnectStarted) {
-                        reconnectStarted = true
-                        reconnectManager?.start()
-                    }
+                    reconnectManager?.start()
                 } else {
                     safeStop()
                 }
@@ -809,8 +896,7 @@ class KvnVpnService : VpnService() {
                     val frame = Frame(FrameTypes.FRAME_TYPE_DATA, FrameFlags.FRAME_FLAG_NONE, payload)
                     transportClient?.send(frame)
                 }
-            } catch (e: Exception) {
-                if (isActive) safeStop()
+            } catch (_: Exception) {
                 break
             }
         }
@@ -826,7 +912,7 @@ class KvnVpnService : VpnService() {
                 tunOutput?.write(data)
                 tunOutput?.flush()
             } catch (_: Exception) {
-                safeStop()
+                // swallow — TUN may be closed during reconnect
             }
         }
     }

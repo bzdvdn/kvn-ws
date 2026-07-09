@@ -6,6 +6,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.1] 2026-07-09
+
+### Added
+
+- **Doze-устойчивость VPN (Android)** — WakeLock + WifiLock (`WIFI_MODE_FULL_HIGH_PERF`) для предотвращения засыпания CPU и WiFi при выключенном экране. Toggle "Keep awake on screen off" в настройках (default off). `keepAwakeEnabled` в `ConnectionConfig`.
+- **TCP keepalive** — `Socket.setKeepAlive(true)` на raw socket внутри `SmartSocketFactory.createSocket()`, включается только при активном toggle.
+- **Screen-on + unlock listener** — BroadcastReceiver на `ACTION_SCREEN_ON` + `ACTION_USER_PRESENT`. При детекте — остановка ReconnectManager и принудительный reconnect через `createTransport().connect()` (без backoff).
+- **Server: configurable PongTimeout** — `pong_timeout` в `server.yaml` (default `120s`). Параметризован `WSConn.SetKeepalive(timeout)`. Глобальный `DefaultPongTimeout` изменён с 45s на 120s.
+
+### Fixed
+
+- **Android: сервис самоуничтожался при reconnect** — `tunReader` и `writeToTun` вызывали `safeStop()` после `closeTun()` при DISCONNECTED. Исправлено: ошибки TUN больше не останавливают сервис, reconnect loop продолжается.
+- **Android: reconnect loop одноразовый** — флаг `reconnectStarted` блокировал повторные попытки после первого DISCONNECTED. Удалён: `reconnectManager?.start()` теперь вызывается на каждый DISCONNECTED, ReconnectManager сам контролирует backoff.
+- **Server: DefaultPongTimeout mismatch** — в `websocket.go` оставалось 45s (в `control.go` уже было 120s). Приведено к 120s.
+- **Android: WifiLock не использовался** — при Doze WiFi-радио засыпало даже с WakeLock. Добавлен `WifiLock WIFI_MODE_FULL_HIGH_PERF`.
+
+### Changed
+
+- **Android: lock lifecycle** — WakeLock/WifiLock acquire в `doStart()`, release в `onDestroy()`. При reconnect locks не отпускаются.
+- **Server config docs** — `pong_timeout` добавлен в `docs/ru/config.md` и `docs/en/config.md`.
+- **Example server config** — `configs/server.yaml` обновлён c `pong_timeout: 120s`.
+
 ## [0.6.0] 2026-07-08
 
 ### Added

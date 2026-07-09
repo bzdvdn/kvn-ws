@@ -9,6 +9,7 @@ kvn-ws uses YAML configuration files for both server and client.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `listen` | string | `:443` | Server listen address and port |
+| `pong_timeout` | duration | `120s` | PONG response timeout from client (0 = default 120s). Protects against Doze-induced disconnects |
 | `tls.cert` | string | `cert.pem` | Path to TLS certificate file |
 | `tls.key` | string | `key.pem` | Path to TLS private key file |
 | `tls.client_ca_file` | string | `""` | Path to CA cert for mTLS client verification |

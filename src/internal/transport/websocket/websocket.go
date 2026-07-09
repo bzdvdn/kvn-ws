@@ -22,7 +22,7 @@ import (
 )
 
 const MultiplexSubprotocol = "kvn-ws-mux"
-const DefaultPongTimeout = 45 * time.Second
+const DefaultPongTimeout = 120 * time.Second
 const wsReadLimit = 1 << 20 // 1MB
 
 // @sk-task foundation#T1.3: internal stubs (AC-002)

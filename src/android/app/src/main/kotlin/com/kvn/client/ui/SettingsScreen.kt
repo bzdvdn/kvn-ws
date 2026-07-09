@@ -77,6 +77,9 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
     var obfuscationPaddingSize by remember(activeCfg) { mutableStateOf((activeCfg?.obfuscationPaddingSize ?: 0).toString()) }
     var dnsCacheEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.dnsCacheEnabled ?: false) }
 
+    // @sk-task doze-resilience#T3.2: keep-awake toggle for screen-off stability (AC-007)
+    var keepAwakeEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.keepAwakeEnabled ?: false) }
+
     // DNS routing state
     var routingDomainsEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.routingDomainsEnabled ?: false) }
     var routingExcludeDomains by remember(activeCfg) { mutableStateOf(activeCfg?.routingExcludeDomains?.joinToString(",") ?: "") }
@@ -119,7 +122,8 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
             dnsCacheEnabled = dnsCacheEnabled,
             routingDomainsEnabled = routingDomainsEnabled,
             routingExcludeDomains = routingExcludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            routingIncludeDomains = routingIncludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            routingIncludeDomains = routingIncludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() },
+            keepAwakeEnabled = keepAwakeEnabled
         )
     }
 
@@ -301,6 +305,11 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Multiplex", modifier = Modifier.weight(1f))
                 Switch(checked = multiplex, onCheckedChange = { multiplex = it })
+            }
+            // @sk-task doze-resilience#T3.2: keep-awake toggle (AC-007)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Keep awake on screen off", modifier = Modifier.weight(1f))
+                Switch(checked = keepAwakeEnabled, onCheckedChange = { keepAwakeEnabled = it })
             }
         }
 

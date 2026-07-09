@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -15,9 +16,11 @@ import (
 // @sk-task quic-transport#T1.2: add Transport field (AC-001, AC-004)
 // @sk-task quic-obfuscation#T2.1: add Obfuscation field (AC-001)
 // @sk-task whitelist-obfuscation#T1.3: add WSPaths field (AC-003)
+// @sk-task doze-resilience#T1.1: add pong_timeout config (AC-005)
 type ServerConfig struct {
 	Listen       string          `mapstructure:"listen"`
 	Transport    string          `mapstructure:"transport"`
+	PongTimeout  time.Duration   `mapstructure:"pong_timeout"`
 	Obfuscation  *ObfuscationCfg `mapstructure:"obfuscation"`
 	WSPaths      []string        `mapstructure:"ws_paths"`
 	TLS          TLSCfg          `mapstructure:"tls"`
@@ -229,6 +232,10 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	// @sk-task dns-upstreams-list#T1.2: ServerConfig DNSUpstreams defaults (AC-004)
 	if len(cfg.DNSUpstreams) == 0 {
 		cfg.DNSUpstreams = append([]string{}, DefaultDNSUpstreams...)
+	}
+	// @sk-task doze-resilience#T1.1: pong_timeout fallback to DefaultPongTimeout (AC-005)
+	if cfg.PongTimeout <= 0 {
+		cfg.PongTimeout = 120 * time.Second
 	}
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		return nil, fmt.Errorf("crypto.key is required when crypto.enabled is true")
