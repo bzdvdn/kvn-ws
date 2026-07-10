@@ -3,10 +3,23 @@ package quic
 import (
 	"context"
 	"crypto/tls"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/quic-go/quic-go"
 )
+
+// @sk-task quic-transport#T3.1: strip URL to host:port for QUIC dial
+func dialAddr(endpoint string) string {
+	if strings.Contains(endpoint, "://") {
+		u, err := url.Parse(endpoint)
+		if err == nil && u.Host != "" {
+			return u.Host
+		}
+	}
+	return endpoint
+}
 
 const DefaultDialTimeout = 10 * time.Second
 
@@ -16,7 +29,7 @@ func Dial(ctx context.Context, addr string, tlsConf *tls.Config, quicConf *quic.
 	dialCtx, cancel := context.WithTimeout(ctx, DefaultDialTimeout)
 	defer cancel()
 
-	conn, err := quic.DialAddr(dialCtx, addr, tlsConf, quicConf)
+	conn, err := quic.DialAddr(dialCtx, dialAddr(addr), tlsConf, quicConf)
 	if err != nil {
 		return nil, err
 	}

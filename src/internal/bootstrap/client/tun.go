@@ -366,8 +366,9 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 			}
 		case <-time.After(100 * time.Millisecond):
 			// @sk-task dns-setup: pass upstreams as resolvers on platforms without dnsBackup (e.g. Windows)
+			// @sk-task dns-setup: also use upstreams when dnsResolvers is empty (systemd-resolved loopback filter)
 			dnsUpstreams := dnsResolvers
-			if dnsBackup == nil && len(c.cfg.DNSProxy.Upstreams) > 0 {
+			if len(dnsUpstreams) == 0 && len(c.cfg.DNSProxy.Upstreams) > 0 {
 				dnsUpstreams = c.cfg.DNSProxy.Upstreams
 			}
 			applyDNS(dnsBackup, tunDev, c.cfg.DNSProxy.Listen, phyGateway, phyIface, dnsUpstreams)

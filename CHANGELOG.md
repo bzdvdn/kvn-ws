@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.2] 2026-07-10
+
+### Fixed
+
+- **DNS routing: exclude-маршруты не добавлялись при systemd-resolved** — `setupDNS()` отфильтровывал loopback-резолвер `127.0.0.53` как IsLoopback, оставляя `dnsResolvers` пустым. `applyDNS()` не получал upstream-адреса (`1.1.1.1/32`, `8.8.8.8/32`), и direct UDP-запросы от `resolveDirect` уходили в TUN вместо физического интерфейса. Исправлено: условие `dnsBackup == nil` заменено на `len(dnsUpstreams) == 0`, чтобы использовать `Upstreams` при пустом `dnsResolvers`.
+- **QUIC Dial: URL с путём не обрезался до host:port** — `quic.DialAddr` получал `wss://host:443/api/v1/events` вместо `host:443`, вызывая ошибку парсинга адреса. Исправлено: добавлена `dialAddr()`, которая при наличии `://` парсит URL и возвращает `u.Host`.
+
 ## [1.0.1] 2026-07-10
 
 ### Fixed
