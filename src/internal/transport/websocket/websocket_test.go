@@ -1012,3 +1012,52 @@ func TestSetKeepaliveWithCustomTimeout(t *testing.T) {
 		t.Fatalf("Write PongMessage: %v", err)
 	}
 }
+
+// @sk-test performance-scope-p2#T3.2: WS control plane off wmu (AC-009)
+func TestWSControlPlane(t *testing.T) {
+	server, conn := newTestWSPair(t)
+	defer server.Close()
+	defer conn.Close()
+
+	// 1. Verify control channel is writable while wmu is held
+	wmuHeld := make(chan struct{})
+	wmuReleased := make(chan struct{})
+	go func() {
+		conn.wmu.Lock()
+		close(wmuHeld)
+		<-wmuReleased
+		conn.wmu.Unlock()
+	}()
+	<-wmuHeld
+
+	select {
+	case conn.controlCh <- controlMsg{msgType: websocket.PingMessage}:
+		// control channel accepted message while wmu is held — success
+	case <-time.After(time.Second):
+		t.Fatal("control channel send blocked while wmu held")
+	}
+
+	// 2. Verify keepalive goroutine doesn't block when wmu is held
+	keepaliveDone := make(chan struct{})
+	go func() {
+		conn.SetKeepalive(10*time.Millisecond, 120*time.Second)
+		// Allow one tick cycle
+		time.Sleep(50 * time.Millisecond)
+		close(keepaliveDone)
+	}()
+
+	select {
+	case <-keepaliveDone:
+		// keepalive setup and first tick completed without blocking
+	case <-time.After(2 * time.Second):
+		t.Fatal("keepalive goroutine blocked — likely waiting on wmu")
+	}
+
+	// 3. Release wmu — everything should continue normally
+	close(wmuReleased)
+
+	// 4. Verify a data write still works after control plane operations
+	if err := conn.WriteMessage([]byte("test after control")); err != nil {
+		t.Fatalf("WriteMessage after control plane: %v", err)
+	}
+}

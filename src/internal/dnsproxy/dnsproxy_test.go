@@ -107,9 +107,9 @@ func TestSetRouteFunc(t *testing.T) {
 		t.Fatal("routeDirect should not be nil after SetRouteFunc")
 	}
 
-	s.mu.Lock()
+	s.configMu.Lock()
 	fn := s.routeDirect
-	s.mu.Unlock()
+	s.configMu.Unlock()
 	if fn == nil {
 		t.Fatal("stored routeDirect is nil")
 	}

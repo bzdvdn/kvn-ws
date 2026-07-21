@@ -6,6 +6,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **QUIC transport: lock-optimization** — `sync.Mutex` → `sync/atomic` для счётчиков (`Collector`), bool (`Relay.upstreamConn`, `upstreamSession.closed`), ID (`Server.nextID`); `sync.Mutex` → `sync.RWMutex` для read-heavy структур (`Server.mu`, `SessionStreams`, `Manager.Get`). Устранены узкие места блокировок в hot path чтения метрик, DNS-прокси, relay upstream и proxy streams.
+- **QUIC WriteMessage: mu removal** — `QUICConn.mu` удалён из `WriteMessage()`, добавлен отдельный `deadlineMu` для `SetReadDeadline`/`SetWriteDeadline`. `maxMessageSize` переведён в `atomic.Int32`.
+- **ObfuscatedQUICConn: mu removal** — `oc.mu` удалён, `stream.Write` вызывается без общего mutex'а. `nonceInit` переведён на `atomic.Bool` + `CompareAndSwap`.
+- **QUIC ReadMessage: sync.Pool** — буферы чтения выделяются из `readBufPool` (cap=1500) вместо `make` на каждый вызов.
+- **ObfuscatedQUICConn xorBuf: sync.Pool** — буферы XOR выделяются из `xorBufPool` вместо `make` на каждый вызов.
+- **WS WriteMessage padding: math/rand/v2** — генерация случайного padding'а переведена с `crypto/rand.Read` на `math/rand/v2.Uint32` (значительно быстрее, без аллокаций).
+- **BatchWriter.Flush: sync.Pool** — буфер флаша выделяется из `batchBufPool` вместо `make` на каждый вызов.
+- **Rate limiter: sync.Map** — `IPRateLimiter` и `SessionPacketLimiter` переведены с `sync.Mutex`+`map` на `sync.Map` (read-heavy нагрузка без конкуренции).
+- **DNS proxy: split mutex** — `Server.mu RWMutex` разделён на `configMu RWMutex` (конфигурация) и `pendingMu sync.Mutex` (pending map). Документирован lock ordering.
+- **WS control plane: write off wmu** — keepalive ping и pong handler вынесены из `wmu` в отдельный control writer (буферизованный канал cap=8 + горутина). Control path не блокирует data path и не блокируется им.
+
+### Fixed
+
+- **WS control plane: data race в gorilla/websocket** — control writer goroutine вызывал `gorilla.Conn.WriteMessage` конкурентно с data path, что детектировалось race detector'ом. Исправлено: control writer захватывает `wmu` для фактической записи (gorilla/websocket не поддерживает конкурентные вызовы).
+
 ## [1.0.2] 2026-07-10
 
 ### Fixed

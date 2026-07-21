@@ -3,12 +3,12 @@ package websocket
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"io"
 	"math"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"strings"
@@ -38,8 +38,14 @@ type WSConfig struct {
 	PaddingSize    int
 }
 
+type controlMsg struct {
+	msgType int
+	data    []byte
+}
+
 // @sk-task core-tunnel-mvp#T2.1: WebSocket connection wrapper (AC-002)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
+// @sk-task performance-scope-p2#T3.2: control writer for ping/pong off wmu (AC-009)
 type WSConn struct {
 	conn      *websocket.Conn
 	cfg       WSConfig
@@ -47,11 +53,33 @@ type WSConn struct {
 	wmu       sync.Mutex
 	stopCh    chan struct{}
 	closeOnce sync.Once
+	controlCh chan controlMsg
+}
+
+var batchBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 4096)
+		return &b
+	},
+}
+
+func getBatchBuf(size int) []byte {
+	ptr := batchBufPool.Get().(*[]byte)
+	buf := *ptr
+	if cap(buf) < size {
+		buf = make([]byte, size)
+	}
+	return buf[:size]
+}
+
+func putBatchBuf(buf []byte) {
+	batchBufPool.Put(&buf)
 }
 
 // @sk-task performance-and-polish#T2.3: BatchWriter for coalescing writes (AC-003)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 // @sk-task production-readiness-hardening#T2.3: idempotent Close via sync.Once (AC-003)
+// @sk-task performance-scope-p2#T2.4: Flush from sync.Pool (AC-005)
 type BatchWriter struct {
 	conn      *WSConn
 	buf       bytes.Buffer
@@ -88,18 +116,21 @@ func (bw *BatchWriter) Write(data []byte) error {
 	return nil
 }
 
+// @sk-task performance-scope-p2#T2.4: copy from sync.Pool (AC-005)
 func (bw *BatchWriter) Flush() error {
 	bw.mu.Lock()
 	if bw.buf.Len() == 0 {
 		bw.mu.Unlock()
 		return nil
 	}
-	data := make([]byte, bw.buf.Len())
+	data := getBatchBuf(bw.buf.Len())
 	copy(data, bw.buf.Bytes())
 	bw.buf.Reset()
 	bw.mu.Unlock()
 
-	return bw.conn.WriteMessage(data)
+	err := bw.conn.WriteMessage(data)
+	putBatchBuf(data)
+	return err
 }
 
 func (bw *BatchWriter) flushLoop() {
@@ -158,6 +189,7 @@ func (c *WSConn) ReadMessage() ([]byte, error) {
 }
 
 // @sk-task whitelist-obfuscation#T3.2: padding frame wrap in WriteMessage (AC-005)
+// @sk-task performance-scope-p2#T1.4: padding PRNG — math/rand/v2 instead of crypto/rand (AC-004)
 func (c *WSConn) WriteMessage(data []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
@@ -179,12 +211,33 @@ func (c *WSConn) WriteMessage(data []byte) error {
 		binary.BigEndian.PutUint32(msg[:4], uint32(payloadLen))
 		copy(msg[4:], data)
 		if padding > 0 {
-			_, _ = rand.Read(msg[totalLen:])
+			randBytes(msg[totalLen:])
 		}
 		return c.conn.WriteMessage(websocket.BinaryMessage, msg)
 	}
 
 	return c.conn.WriteMessage(websocket.BinaryMessage, data)
+}
+
+func randBytes(buf []byte) {
+	for i := range buf {
+		buf[i] = byte(rand.Uint32())
+	}
+}
+
+func (c *WSConn) startControlWriter() {
+	go func() {
+		for {
+			select {
+			case msg := <-c.controlCh:
+				c.wmu.Lock()
+				_ = c.conn.WriteMessage(msg.msgType, msg.data)
+				c.wmu.Unlock()
+			case <-c.stopCh:
+				return
+			}
+		}
+	}()
 }
 
 func (c *WSConn) Close() error {
@@ -206,6 +259,7 @@ func (c *WSConn) Subprotocol() string {
 // @sk-task production-hardening#T4.1: set keepalive with ping/pong (AC-002)
 // @sk-task production-readiness-hardening#T2.6: log.Printf → zap (AC-006)
 // @sk-task fix-ping-drops#T1.1: retry ping on transient error, set write deadline to prevent wmu lockup
+// @sk-task performance-scope-p2#T3.2: ping via controlCh, not wmu (AC-009)
 func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 	c.conn.SetPongHandler(func(string) error {
 		return c.conn.SetReadDeadline(time.Now().Add(timeout))
@@ -218,30 +272,22 @@ func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
 			case <-c.stopCh:
 				return
 			case <-ticker.C:
-				c.wmu.Lock()
-				_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				err := c.conn.WriteMessage(websocket.PingMessage, nil)
-				_ = c.conn.SetWriteDeadline(time.Time{})
-				c.wmu.Unlock()
-				if err != nil {
-					c.logger.Warn("ping error", zap.Error(err))
-				}
+				c.controlCh <- controlMsg{msgType: websocket.PingMessage}
 			}
 		}
 	}()
 }
 
 // @sk-task production-hardening#T4.1: set ping handler with write mutex (AC-002)
+// @sk-task performance-scope-p2#T3.2: pong via controlCh, not wmu (AC-009)
 func (c *WSConn) SetPingHandler(h func(string) error) {
 	c.conn.SetPingHandler(func(appData string) error {
 		err := h(appData)
 		if err != nil {
 			return err
 		}
-		// pong reply is also a write — must hold wmu
-		c.wmu.Lock()
-		defer c.wmu.Unlock()
-		return c.conn.WriteMessage(websocket.PongMessage, nil)
+		c.controlCh <- controlMsg{msgType: websocket.PongMessage}
+		return nil
 	})
 }
 
@@ -282,8 +328,15 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 		return nil, err
 	}
 	// @sk-task post-hardening#T2.1: cap incoming message size (AC-005)
-	conn.SetReadLimit(wsReadLimit)
-	return &WSConn{conn: conn, cfg: wsCfg, logger: logger, stopCh: make(chan struct{})}, nil
+	wc := &WSConn{
+		conn:      conn,
+		cfg:       wsCfg,
+		logger:    logger,
+		stopCh:    make(chan struct{}),
+		controlCh: make(chan controlMsg, 8),
+	}
+	wc.startControlWriter()
+	return wc, nil
 }
 
 // @sk-task security-acl#T4: NewOriginChecker creates origin check function from whitelist
@@ -360,7 +413,14 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
 		_ = tcpConn.SetNoDelay(true)
 	}
-	wsConn := &WSConn{conn: conn, cfg: cfg, logger: logger, stopCh: make(chan struct{})}
+	wsConn := &WSConn{
+		conn:      conn,
+		cfg:       cfg,
+		logger:    logger,
+		stopCh:    make(chan struct{}),
+		controlCh: make(chan controlMsg, 8),
+	}
+	wsConn.startControlWriter()
 	wsConn.SetPingHandler(func(appData string) error {
 		return conn.SetReadDeadline(time.Now().Add(DefaultPongTimeout))
 	})

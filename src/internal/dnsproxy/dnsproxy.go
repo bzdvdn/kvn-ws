@@ -30,11 +30,15 @@ type StreamConn interface {
 // @sk-task dns-response-tracker#T2.2: tracker field (AC-005)
 // @sk-task lock-optimization#T3.1: nextID → atomic.AddUint32 (AC-003)
 // @sk-task lock-optimization#T3.2: mu → RWMutex (AC-006)
+// @sk-task performance-scope-p2#T3.1: configMu + pendingMu split (AC-008)
+// Lock ordering: configMu → pendingMu (forward), pendingMu → configMu (HandleDNSResponse)
+// Always release before acquire to avoid deadlock.
 type Server struct {
 	listenAddr    string
 	upstreams     []string
 	conn          *net.UDPConn
-	mu            sync.RWMutex
+	configMu      sync.RWMutex
+	pendingMu     sync.Mutex
 	stream        StreamConn
 	nextID        uint32
 	pending       map[uint32]chan []byte
@@ -53,43 +57,43 @@ func New(listenAddr string, upstreams ...string) *Server {
 }
 
 func (s *Server) SetStream(stream StreamConn) {
-	s.mu.Lock()
+	s.configMu.Lock()
 	s.stream = stream
-	s.mu.Unlock()
+	s.configMu.Unlock()
 }
 
 func (s *Server) ClearStream() {
-	s.mu.Lock()
+	s.configMu.Lock()
 	s.stream = nil
-	s.mu.Unlock()
+	s.configMu.Unlock()
 }
 
 // @sk-task transparent-proxy#T5.4: domain-based DNS routing — RouteFunc for excluded domains
 func (s *Server) SetRouteFunc(fn func(domain string) bool) {
-	s.mu.Lock()
+	s.configMu.Lock()
 	s.routeDirect = fn
-	s.mu.Unlock()
+	s.configMu.Unlock()
 }
 
 // @sk-task transparent-proxy#T5.4: original nameservers for local DNS resolution of excluded domains
 func (s *Server) SetOrigResolvers(resolvers []string) {
-	s.mu.Lock()
+	s.configMu.Lock()
 	s.origResolves = resolvers
-	s.mu.Unlock()
+	s.configMu.Unlock()
 }
 
 // @sk-task dns-response-tracker#T2.2: SetTracker sets the DNS tracker for IP→domain mapping (AC-005)
 func (s *Server) SetTracker(t *dns.Tracker) {
-	s.mu.Lock()
+	s.configMu.Lock()
 	s.tracker = t
-	s.mu.Unlock()
+	s.configMu.Unlock()
 }
 
 // @sk-task dns-response-tracker#T3.5: SetDirectRouteFunc callback for kernel exclude routes
 func (s *Server) SetDirectRouteFunc(fn func(ips []netip.Addr)) {
-	s.mu.Lock()
+	s.configMu.Lock()
 	s.directRouteFn = fn
-	s.mu.Unlock()
+	s.configMu.Unlock()
 }
 
 // @sk-task transparent-proxy#T2.3: DNS forwarder via TCP to upstream (AC-009)
@@ -140,12 +144,12 @@ func (s *Server) Shutdown() error {
 // resp is owned by the caller; we copy it here because the caller may return
 // its buffer to a pool after this call returns.
 func (s *Server) HandleDNSResponse(streamID uint32, resp []byte) {
-	s.mu.Lock()
+	s.pendingMu.Lock()
 	ch, ok := s.pending[streamID]
 	if ok {
 		delete(s.pending, streamID)
 	}
-	s.mu.Unlock()
+	s.pendingMu.Unlock()
 	if ok {
 		respCopy := make([]byte, len(resp))
 		copy(respCopy, resp)
@@ -158,12 +162,12 @@ func (s *Server) HandleDNSResponse(streamID uint32, resp []byte) {
 
 // @sk-task transparent-proxy#T2.3: forward DNS query to upstream via TCP (AC-009)
 func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) {
-	s.mu.RLock()
+	s.configMu.RLock()
 	stream := s.stream
 	routeDirect := s.routeDirect
 	origResolves := s.origResolves
 	upstreams := s.upstreams
-	s.mu.RUnlock()
+	s.configMu.RUnlock()
 
 	// Check domain-based routing first (no stream needed for direct resolution)
 	if routeDirect != nil {
@@ -239,9 +243,9 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 
 	// @sk-task dns-response-tracker#T3.2: track IPs from direct DNS response
 	if domain := extractDNSDomain(query); domain != "" {
-		s.mu.RLock()
+		s.configMu.RLock()
 		tracker := s.tracker
-		s.mu.RUnlock()
+		s.configMu.RUnlock()
 		if tracker != nil {
 			tracker.TrackResponse(domain, resp)
 		}
@@ -283,10 +287,10 @@ func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDP
 			continue
 		}
 		if domain != "" {
-			s.mu.RLock()
+			s.configMu.RLock()
 			tracker := s.tracker
 			fn := s.directRouteFn
-			s.mu.RUnlock()
+			s.configMu.RUnlock()
 			if tracker != nil {
 				tracker.TrackResponse(domain, resp[:n])
 			}
@@ -333,14 +337,14 @@ func extractDNSDomain(msg []byte) string {
 func (s *Server) forwardViaTunnel(ctx context.Context, query []byte, raddr *net.UDPAddr, stream StreamConn) {
 	streamID := atomic.AddUint32(&s.nextID, 1)
 	ch := make(chan []byte, 1)
-	s.mu.Lock()
+	s.pendingMu.Lock()
 	s.pending[streamID] = ch
-	s.mu.Unlock()
+	s.pendingMu.Unlock()
 
 	defer func() {
-		s.mu.Lock()
+		s.pendingMu.Lock()
 		delete(s.pending, streamID)
-		s.mu.Unlock()
+		s.pendingMu.Unlock()
 	}()
 
 	payload := make([]byte, 4+len(query))
@@ -365,9 +369,9 @@ func (s *Server) forwardViaTunnel(ctx context.Context, query []byte, raddr *net.
 	case resp := <-ch:
 		// @sk-task dns-response-tracker#T3.2: track IPs from tunnel-forwarded DNS response
 		if domain := extractDNSDomain(query); domain != "" {
-			s.mu.RLock()
+			s.configMu.RLock()
 			tracker := s.tracker
-			s.mu.RUnlock()
+			s.configMu.RUnlock()
 			if tracker != nil {
 				tracker.TrackResponse(domain, resp)
 			}

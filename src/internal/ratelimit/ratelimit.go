@@ -10,29 +10,30 @@ import (
 
 // @sk-task production-hardening#T2.1: IP-based rate limiter (AC-003)
 // @sk-task production-hardening#T2.2: per-session packet rate limiter (AC-004)
+// @sk-task performance-scope-p2#T2.5: sync.Map вместо sync.Mutex (AC-006)
 // IPRateLimiter limits requests per IP address.
 type IPRateLimiter struct {
-	mu       sync.Mutex
-	limiters map[string]*rate.Limiter
+	limiters sync.Map
 	burst    int
 	perMin   int
 }
 
 func NewIPRateLimiter(burst, perMin int) *IPRateLimiter {
 	return &IPRateLimiter{
-		limiters: make(map[string]*rate.Limiter),
-		burst:    burst,
-		perMin:   perMin,
+		burst:  burst,
+		perMin: perMin,
 	}
 }
 
 func (rl *IPRateLimiter) Allow(addr string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	lim, ok := rl.limiters[addr]
+	limIface, _ := rl.limiters.Load(addr)
+	lim, ok := limIface.(*rate.Limiter)
 	if !ok {
 		lim = rate.NewLimiter(rate.Limit(rl.perMin)/60, rl.burst)
-		rl.limiters[addr] = lim
+		actual, loaded := rl.limiters.LoadOrStore(addr, lim)
+		if loaded {
+			lim = actual.(*rate.Limiter)
+		}
 	}
 	return lim.Allow()
 }
@@ -46,39 +47,39 @@ func (rl *IPRateLimiter) StartCleanup(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				rl.mu.Lock()
-				for k, lim := range rl.limiters {
-					if lim.Tokens() >= float64(rl.burst) {
-						delete(rl.limiters, k)
+				rl.limiters.Range(func(k, v any) bool {
+					if v.(*rate.Limiter).Tokens() >= float64(rl.burst) {
+						rl.limiters.Delete(k)
 					}
-				}
-				rl.mu.Unlock()
+					return true
+				})
 			}
 		}
 	}()
 }
 
+// @sk-task performance-scope-p2#T2.5: sync.Map вместо sync.Mutex (AC-006)
 // SessionPacketLimiter limits packet rate per session.
 type SessionPacketLimiter struct {
-	mu       sync.Mutex
-	limiters map[string]*rate.Limiter
+	limiters sync.Map
 	perSec   int
 }
 
 func NewSessionPacketLimiter(perSec int) *SessionPacketLimiter {
 	return &SessionPacketLimiter{
-		limiters: make(map[string]*rate.Limiter),
-		perSec:   perSec,
+		perSec: perSec,
 	}
 }
 
 func (pl *SessionPacketLimiter) Allow(sessionID string) bool {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
-	lim, ok := pl.limiters[sessionID]
+	limIface, _ := pl.limiters.Load(sessionID)
+	lim, ok := limIface.(*rate.Limiter)
 	if !ok {
 		lim = rate.NewLimiter(rate.Limit(pl.perSec), pl.perSec)
-		pl.limiters[sessionID] = lim
+		actual, loaded := pl.limiters.LoadOrStore(sessionID, lim)
+		if loaded {
+			lim = actual.(*rate.Limiter)
+		}
 	}
 	return lim.Allow()
 }
@@ -92,13 +93,12 @@ func (pl *SessionPacketLimiter) StartCleanup(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				pl.mu.Lock()
-				for k, lim := range pl.limiters {
-					if lim.Tokens() >= float64(pl.perSec) {
-						delete(pl.limiters, k)
+				pl.limiters.Range(func(k, v any) bool {
+					if v.(*rate.Limiter).Tokens() >= float64(pl.perSec) {
+						pl.limiters.Delete(k)
 					}
-				}
-				pl.mu.Unlock()
+					return true
+				})
 			}
 		}
 	}()
