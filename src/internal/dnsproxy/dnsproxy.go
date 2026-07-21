@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/dns"
@@ -27,11 +28,13 @@ type StreamConn interface {
 // @sk-task dns-upstreams-list#T2.1: upstream string → upstreams []string + fallback (AC-005)
 // @sk-task transparent-proxy#T1.3: DNS proxy server skeleton (DEC-003)
 // @sk-task dns-response-tracker#T2.2: tracker field (AC-005)
+// @sk-task lock-optimization#T3.1: nextID → atomic.AddUint32 (AC-003)
+// @sk-task lock-optimization#T3.2: mu → RWMutex (AC-006)
 type Server struct {
 	listenAddr    string
 	upstreams     []string
 	conn          *net.UDPConn
-	mu            sync.Mutex
+	mu            sync.RWMutex
 	stream        StreamConn
 	nextID        uint32
 	pending       map[uint32]chan []byte
@@ -155,11 +158,12 @@ func (s *Server) HandleDNSResponse(streamID uint32, resp []byte) {
 
 // @sk-task transparent-proxy#T2.3: forward DNS query to upstream via TCP (AC-009)
 func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) {
-	s.mu.Lock()
+	s.mu.RLock()
 	stream := s.stream
 	routeDirect := s.routeDirect
 	origResolves := s.origResolves
-	s.mu.Unlock()
+	upstreams := s.upstreams
+	s.mu.RUnlock()
 
 	// Check domain-based routing first (no stream needed for direct resolution)
 	if routeDirect != nil {
@@ -175,9 +179,6 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 	}
 
 	// fallback: direct TCP to upstreams in order (used when tunnel not available)
-	s.mu.Lock()
-	upstreams := s.upstreams
-	s.mu.Unlock()
 
 	if len(upstreams) == 0 {
 		return
@@ -238,9 +239,9 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 
 	// @sk-task dns-response-tracker#T3.2: track IPs from direct DNS response
 	if domain := extractDNSDomain(query); domain != "" {
-		s.mu.Lock()
+		s.mu.RLock()
 		tracker := s.tracker
-		s.mu.Unlock()
+		s.mu.RUnlock()
 		if tracker != nil {
 			tracker.TrackResponse(domain, resp)
 		}
@@ -282,10 +283,10 @@ func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDP
 			continue
 		}
 		if domain != "" {
-			s.mu.Lock()
+			s.mu.RLock()
 			tracker := s.tracker
 			fn := s.directRouteFn
-			s.mu.Unlock()
+			s.mu.RUnlock()
 			if tracker != nil {
 				tracker.TrackResponse(domain, resp[:n])
 			}
@@ -330,10 +331,9 @@ func extractDNSDomain(msg []byte) string {
 }
 
 func (s *Server) forwardViaTunnel(ctx context.Context, query []byte, raddr *net.UDPAddr, stream StreamConn) {
-	s.mu.Lock()
-	streamID := s.nextID
-	s.nextID++
+	streamID := atomic.AddUint32(&s.nextID, 1)
 	ch := make(chan []byte, 1)
+	s.mu.Lock()
 	s.pending[streamID] = ch
 	s.mu.Unlock()
 
@@ -365,9 +365,9 @@ func (s *Server) forwardViaTunnel(ctx context.Context, query []byte, raddr *net.
 	case resp := <-ch:
 		// @sk-task dns-response-tracker#T3.2: track IPs from tunnel-forwarded DNS response
 		if domain := extractDNSDomain(query); domain != "" {
-			s.mu.Lock()
+			s.mu.RLock()
 			tracker := s.tracker
-			s.mu.Unlock()
+			s.mu.RUnlock()
 			if tracker != nil {
 				tracker.TrackResponse(domain, resp)
 			}

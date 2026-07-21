@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -22,6 +22,7 @@ import (
 )
 
 // @sk-task relay-terminator#T3.2: upstream session (AC-004)
+// @sk-task lock-optimization#T3.4: closed → atomic.Bool (AC-005)
 type upstreamSession struct {
 	stream     transport.StreamConn
 	tunDev     tun.TunDevice
@@ -29,14 +30,11 @@ type upstreamSession struct {
 	assignedIP net.IP
 	nat        *natTracker
 
-	mu     sync.Mutex
-	closed bool
+	closed atomic.Bool
 }
 
 func (us *upstreamSession) isClosed() bool {
-	us.mu.Lock()
-	defer us.mu.Unlock()
-	return us.closed
+	return us.closed.Load()
 }
 
 // @sk-task relay-terminator#T3.2: dial upstream + handshake (AC-004)
@@ -207,9 +205,7 @@ func buildSession(ctx context.Context, conn transport.StreamConn, tunDev tun.Tun
 
 // @sk-task relay-terminator#T3.2: send packet upstream (AC-004)
 func (us *upstreamSession) Send(packet []byte) error {
-	us.mu.Lock()
-	defer us.mu.Unlock()
-	if us.closed {
+	if us.closed.Load() {
 		return fmt.Errorf("upstream closed")
 	}
 	f := framing.Frame{
@@ -228,9 +224,7 @@ func (us *upstreamSession) Send(packet []byte) error {
 // @sk-task relay-terminator#T3.2: receive responses from upstream (AC-004)
 func (us *upstreamSession) receiveLoop(ctx context.Context) {
 	defer func() {
-		us.mu.Lock()
-		us.closed = true
-		us.mu.Unlock()
+		us.closed.Store(true)
 		_ = us.stream.Close()
 	}()
 	for {

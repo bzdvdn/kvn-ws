@@ -41,6 +41,7 @@ import (
 // @sk-task relay-terminator#T1.3: Relay struct (AC-001)
 // @sk-task relay-terminator#T2.1: add terminator fields (AC-001, AC-004)
 // @sk-task geoip-geosite-integration#T3.3: add configPath for source cache
+// @sk-task lock-optimization#T3.3: upstreamConn → atomic.Bool (AC-004)
 type Relay struct {
 	cfg        *config.RelayConfig
 	logger     *zap.Logger
@@ -58,7 +59,7 @@ type Relay struct {
 	clientTransport string
 
 	upstreamMu   sync.Mutex
-	upstreamConn bool
+	upstreamConn atomic.Bool
 
 	// Routing and forwarding state
 	ruleSet  *routing.RuleSet

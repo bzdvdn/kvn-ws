@@ -22,8 +22,9 @@ const streamWriteChanSize = 64
 type StreamConn = transport.StreamConn
 
 // @sk-task post-hardening#T3.4: per-session proxy stream container (AC-012)
+// @sk-task lock-optimization#T3.5: Load → RLock (AC-007)
 type SessionStreams struct {
-	mu sync.Mutex
+	mu sync.RWMutex
 	m  map[uint32]net.Conn
 }
 
@@ -32,9 +33,9 @@ func NewSessionStreams() *SessionStreams {
 }
 
 func (s *SessionStreams) Load(key uint32) (net.Conn, bool) {
-	s.mu.Lock()
+	s.mu.RLock()
 	v, ok := s.m[key]
-	s.mu.Unlock()
+	s.mu.RUnlock()
 	return v, ok
 }
 
@@ -130,8 +131,9 @@ func (s *Stream) ForwardToStream(stream StreamConn) {
 }
 
 // @sk-task quic-proxy-mode#T2.1: Manager.wsConn → Manager.stream (AC-001, AC-003)
+// @sk-task lock-optimization#T3.5: Get → RLock (AC-008)
 type Manager struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	streams map[uint32]*Stream
 	stream  StreamConn
 	logf    func(format string, args ...any)
@@ -158,8 +160,8 @@ func (m *Manager) Add(s *Stream) {
 }
 
 func (m *Manager) Get(id uint32) *Stream {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.streams[id]
 }
 

@@ -1,7 +1,9 @@
 package client
 
 import (
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -67,17 +69,19 @@ func (rb *RingBuffer) Cap() int {
 }
 
 // @sk-task kvn-web-redesign#T1.1: Collector gathers client-side metrics and pushes to channel (AC-013)
+// @sk-task lock-optimization#T2.1: txBytes/rxBytes/reconnects → atomic (AC-001)
+// @sk-task lock-optimization#T2.2: latencyMs → atomic (AC-002)
 type Collector struct {
-	rb         *RingBuffer
-	startedAt  time.Time
-	reconnects int64
+	rb        *RingBuffer
+	startedAt time.Time
 
-	mu        sync.Mutex
 	txBytes   int64
 	rxBytes   int64
-	latencyMs float64
+	reconnects int64
+	latencyMs uint64
 
-	done chan struct{}
+	startedMu sync.Mutex
+	done      chan struct{}
 }
 
 func NewCollector() *Collector {
@@ -88,9 +92,9 @@ func NewCollector() *Collector {
 }
 
 func (c *Collector) Start() {
-	c.mu.Lock()
+	c.startedMu.Lock()
 	c.startedAt = time.Now()
-	c.mu.Unlock()
+	c.startedMu.Unlock()
 }
 
 func (c *Collector) Stop() {
@@ -106,44 +110,36 @@ func (c *Collector) Done() <-chan struct{} {
 }
 
 func (c *Collector) AddTX(n int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.txBytes += n
+	atomic.AddInt64(&c.txBytes, n)
 }
 
 func (c *Collector) AddRX(n int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.rxBytes += n
+	atomic.AddInt64(&c.rxBytes, n)
 }
 
 func (c *Collector) SetLatency(ms float64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.latencyMs = ms
+	atomic.StoreUint64(&c.latencyMs, math.Float64bits(ms))
 }
 
 func (c *Collector) IncReconnects() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.reconnects++
+	atomic.AddInt64(&c.reconnects, 1)
 }
 
 func (c *Collector) Snapshot() MetricSnapshot {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.startedMu.Lock()
 	uptime := int64(0)
 	if !c.startedAt.IsZero() {
 		uptime = int64(time.Since(c.startedAt).Seconds())
 	}
+	c.startedMu.Unlock()
 	return MetricSnapshot{
-		TxBytes:    c.txBytes,
-		RxBytes:    c.rxBytes,
-		LatencyMs:  c.latencyMs,
+		TxBytes:    atomic.LoadInt64(&c.txBytes),
+		RxBytes:    atomic.LoadInt64(&c.rxBytes),
+		LatencyMs:  math.Float64frombits(atomic.LoadUint64(&c.latencyMs)),
 		UptimeS:    uptime,
 		TxSpeed:    0,
 		RxSpeed:    0,
-		Reconnects: c.reconnects,
+		Reconnects: atomic.LoadInt64(&c.reconnects),
 	}
 }
 

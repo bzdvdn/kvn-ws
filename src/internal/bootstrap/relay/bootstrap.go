@@ -141,7 +141,7 @@ func (r *Relay) initTerminator() error {
 func (r *Relay) connectUpstream(ctx context.Context) error {
 	if r.cfg.Server == "" {
 		r.logger.Warn("no upstream server configured, upstream routing will drop packets")
-		r.upstreamConn = true
+		r.upstreamConn.Store(true)
 		return nil
 	}
 	us, err := dialUpstream(ctx, r.ctx, r.cfg, r.tunDev, r.logger, r.clientTransport, r.nat)
@@ -158,15 +158,18 @@ func (r *Relay) connectUpstream(ctx context.Context) error {
 
 // @sk-task relay-terminator#T7.2: lazy upstream connect with retry (RQ-014)
 func (r *Relay) ensureUpstream(ctx context.Context) error {
+	if r.upstreamConn.Load() {
+		return nil
+	}
 	r.upstreamMu.Lock()
 	defer r.upstreamMu.Unlock()
-	if r.upstreamConn {
+	if r.upstreamConn.Load() {
 		return nil
 	}
 	if err := r.connectUpstream(ctx); err != nil {
 		return err
 	}
-	r.upstreamConn = true
+	r.upstreamConn.Store(true)
 	return nil
 }
 
@@ -279,12 +282,12 @@ func (r *Relay) reconnectUpstream() {
 	}
 
 	r.logger.Info("reconnecting upstream")
-	r.upstreamConn = false
+	r.upstreamConn.Store(false)
 	if err := r.connectUpstream(r.ctx); err != nil {
 		r.logger.Error("upstream reconnect failed", zap.Error(err))
 		return
 	}
-	r.upstreamConn = true
+	r.upstreamConn.Store(true)
 	r.logger.Info("upstream reconnected")
 }
 
