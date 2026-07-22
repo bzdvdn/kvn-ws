@@ -22,6 +22,7 @@ import android.os.PowerManager
 import android.graphics.drawable.Icon
 import android.provider.Settings
 import com.kvn.client.config.ConnectionConfig
+import com.kvn.client.BuildConfig
 import com.kvn.client.crypto.AesGcmCipher
 import com.kvn.client.dns.DnsCache
 import com.kvn.client.dns.DnsParser
@@ -88,6 +89,8 @@ class KvnVpnService : VpnService() {
     var onTrafficUpdate: ((rx: Long, tx: Long) -> Unit)? = null
 
     private var notificationUpdateJob: kotlinx.coroutines.Job? = null
+    // @sk-task android-latency-power-fix#T3.1: batched traffic counter emission (AC-005)
+    private var trafficBatchJob: kotlinx.coroutines.Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     // @sk-task android-fakedns-routing#T2.1: fakeDNS resolver for domain routing (DEC-001)
@@ -149,6 +152,20 @@ class KvnVpnService : VpnService() {
             tunFdRef?.close()
             tunFdRef = null
             context.stopService(Intent(context, KvnVpnService::class.java))
+        }
+
+        // @sk-task android-latency-power-fix#T1.1: battery exemption request for UI (AC-001)
+        fun requestBatteryExemption(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                }
+            }
         }
     }
 
@@ -244,6 +261,8 @@ class KvnVpnService : VpnService() {
 
     private var preResolvedServerIps: List<InetAddress>? = null
     private var tunReaderStarted = false
+    // @sk-task android-latency-power-fix#T1.2: pre-allocated buffer for TUN reader (AC-002)
+    private var tunReadBuffer: ByteArray? = null
 
     private fun resolveServerIpsBeforeVpn() {
         preResolvedServerIps = try {
@@ -509,19 +528,6 @@ class KvnVpnService : VpnService() {
         } catch (_: Exception) { null }
     }
 
-    private fun requestBatteryExemptionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                startActivity(intent)
-            }
-        }
-    }
-
     // @sk-task doze-resilience#T2.1: acquire WakeLock + WifiLock (AC-001)
     // @sk-task doze-resilience#T3.1: check keepAwakeEnabled before acquire (AC-007)
     private fun acquireWakeLock() {
@@ -595,9 +601,9 @@ class KvnVpnService : VpnService() {
 
     // @sk-task kvn-android#T2.1: service lifecycle start (AC-006)
     // @sk-task doze-resilience#T2.1: acquire WakeLock on start (AC-001)
-    // @sk-task doze-resilience#T3.3: register SCREEN_ON receiver (AC-003)
+    // @sk-task doze-resilience#T3.3: register SCREEN_ON receiver for fast reconnect (AC-003)
+    // @sk-task android-latency-power-fix#T1.1: removed battery exemption from doStart (AC-001)
     private fun doStart(): Int {
-        requestBatteryExemptionIfNeeded()
         try {
             startForeground(NOTIFICATION_ID, createNotification(ConnectionState.CONNECTING))
         } catch (_: Exception) {
@@ -646,11 +652,24 @@ class KvnVpnService : VpnService() {
         return Pair(addr, prefix)
     }
 
+    // @sk-task android-latency-power-fix#T3.1: batched traffic counter emission every 100ms (AC-005)
+    private fun startTrafficBatcher() {
+        trafficBatchJob?.cancel()
+        trafficBatchJob = serviceScope.launch {
+            while (isActive) {
+                delay(100)
+                onTrafficUpdate?.invoke(rxBytes.get(), txBytes.get())
+            }
+        }
+    }
+
     // @sk-task android-dns-cache#T1.1: closeTun for reconnect (AC-003, AC-005)
     // @sk-task android-dns-cache#T2.4: clear DNS state on disconnect (AC-001)
     // @sk-task android-fakedns-routing#T2.1: cleanup fakeDNS resolver and direct tunnels (AC-005)
     // @sk-task android-fakedns-routing#T3.2: cleanup FakeIpPool on disconnect (AC-005)
     private fun closeTun() {
+        trafficBatchJob?.cancel()
+        trafficBatchJob = null
         tunInput?.close()
         tunOutput?.close()
         tunFd?.close()
@@ -669,6 +688,9 @@ class KvnVpnService : VpnService() {
         fakeDnsResolver = null
         fakeIpPool = null
         directDeliverer = null
+        tunReadBuffer = null
+        cipher?.clear()
+        serverSessionId = ""
     }
 
 
@@ -801,7 +823,12 @@ class KvnVpnService : VpnService() {
                 if (config.cryptoEnabled && config.cryptoKey.isNotBlank() && serverHello.cryptoSalt.isNotEmpty()) {
                     val masterKey = config.cryptoKey.toByteArray()
                     val sessionKey = AesGcmCipher.deriveKey(masterKey, serverHello.cryptoSalt, serverHello.sessionId)
-                    cipher = AesGcmCipher(sessionKey)
+                    // @sk-task android-latency-power-fix#T2.1: cached Cipher instance, init or reset on reconnect (AC-003)
+                    if (cipher?.isInitialized() == true) {
+                        cipher!!.reset(sessionKey)
+                    } else {
+                        cipher = AesGcmCipher().also { it.init(sessionKey) }
+                    }
                     cryptoEnabled = true
                 }
                 // @sk-task kvn-android#RX-FIX: establish TUN after receiving assigned IP
@@ -828,6 +855,8 @@ class KvnVpnService : VpnService() {
                         )
                         directDeliverer = DirectDeliverer()
                     }
+                    // @sk-task android-latency-power-fix#T3.1: start batched traffic counter emission (AC-005)
+                    startTrafficBatcher()
                     serviceScope.launch { tunReader() }
                 }
             }
@@ -838,7 +867,6 @@ class KvnVpnService : VpnService() {
             }
             FrameTypes.FRAME_TYPE_DATA -> {
                 rxBytes.addAndGet(frame.payload.size.toLong())
-                onTrafficUpdate?.invoke(rxBytes.get(), txBytes.get())
                 val data = if (cryptoEnabled && cipher != null) {
                     try { cipher!!.decrypt(frame.payload) } catch (_: Exception) { frame.payload }
                 } else {
@@ -849,7 +877,6 @@ class KvnVpnService : VpnService() {
             FrameTypes.FRAME_TYPE_PROXY -> {
                 // Proxy frames: forward payload to TUN
                 rxBytes.addAndGet(frame.payload.size.toLong())
-                onTrafficUpdate?.invoke(rxBytes.get(), txBytes.get())
                 writeToTun(frame.payload)
             }
             FrameTypes.FRAME_TYPE_CLOSE -> {
@@ -862,22 +889,23 @@ class KvnVpnService : VpnService() {
     }
 
     // @sk-task android-fakedns-routing#T2.1: tunReader with fakeDNS interception and direct delivery (DEC-001)
+    // @sk-task android-latency-power-fix#T1.2: pre-allocated buffer for TUN reader (AC-002)
     private suspend fun tunReader() = withContext(Dispatchers.IO) {
-        val buf = ByteArray(config.mtu)
+        val buf = tunReadBuffer ?: ByteArray(config.mtu).also { tunReadBuffer = it }
         while (isActive) {
             try {
                 val len = tunInput?.read(buf) ?: break
                 if (len > 0) {
                     val data = buf.copyOf(len)
                     txBytes.addAndGet(len.toLong())
-                    onTrafficUpdate?.invoke(rxBytes.get(), txBytes.get())
 
                     // Try to route through fakeDNS / direct delivery first
                     if (config.routingDomainsEnabled && routePacket(data)) {
                         continue // packet consumed
                     }
 
-                    if (config.routingDomainsEnabled) {
+                    // @sk-task android-latency-power-fix#T3.2: per-packet log only in debug (AC-006)
+                    if (config.routingDomainsEnabled && (config.logLevel == "debug" || BuildConfig.DEBUG)) {
                         val proto = when (data[9].toInt() and 0xFF) { 6 -> "TCP"; 17 -> "UDP"; else -> "?" }
                         AppLogger.i("TUN", "fwd $proto ${data.size}B")
                     }
@@ -1261,7 +1289,7 @@ class KvnVpnService : VpnService() {
         }
 
         // Forward — not consumed
-        if (protocol == 6 && config.routingDomainsEnabled) {
+        if (protocol == 6 && config.routingDomainsEnabled && (config.logLevel == "debug" || BuildConfig.DEBUG)) {
             val flags = data[ihl + 13].toInt() and 0x3F
             val dPort = ((data[ihl + 2].toInt() and 0xFF) shl 8) or (data[ihl + 3].toInt() and 0xFF)
             val excluded = resolver?.isExcluded(dstIp) == true

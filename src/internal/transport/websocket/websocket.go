@@ -23,7 +23,6 @@ import (
 
 const MultiplexSubprotocol = "kvn-ws-mux"
 const DefaultPongTimeout = 120 * time.Second
-const wsReadLimit = 1 << 20 // 1MB
 
 // @sk-task foundation#T1.3: internal stubs (AC-002)
 // @sk-task performance-and-polish#T1.1: WSConfig for Dial/Accept options (AC-004, AC-006, AC-007)
@@ -64,7 +63,10 @@ var batchBufPool = sync.Pool{
 }
 
 func getBatchBuf(size int) []byte {
-	ptr := batchBufPool.Get().(*[]byte)
+	ptr, ok := batchBufPool.Get().(*[]byte)
+	if !ok {
+		return make([]byte, size)
+	}
 	buf := *ptr
 	if cap(buf) < size {
 		buf = make([]byte, size)
@@ -219,9 +221,10 @@ func (c *WSConn) WriteMessage(data []byte) error {
 	return c.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
+// #nosec G404 — padding PRNG: math/rand/v2 per sk-task (AC-004), crypto not needed
 func randBytes(buf []byte) {
 	for i := range buf {
-		buf[i] = byte(rand.Uint32())
+		buf[i] = byte(rand.Uint32() & 0xff)
 	}
 }
 
@@ -231,8 +234,13 @@ func (c *WSConn) startControlWriter() {
 			select {
 			case msg := <-c.controlCh:
 				c.wmu.Lock()
-				_ = c.conn.WriteMessage(msg.msgType, msg.data)
+				_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				err := c.conn.WriteMessage(msg.msgType, msg.data)
+				_ = c.conn.SetWriteDeadline(time.Time{})
 				c.wmu.Unlock()
+				if err != nil && msg.msgType == websocket.PingMessage {
+					c.logger.Warn("ping error", zap.Error(err))
+				}
 			case <-c.stopCh:
 				return
 			}

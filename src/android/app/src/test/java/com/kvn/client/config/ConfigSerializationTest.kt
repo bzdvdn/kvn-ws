@@ -178,6 +178,9 @@ class QrConfigTest {
         assertEquals(emptyList<String>(), config.routingIncludeRanges)
         assertEquals(emptyList<String>(), config.routingExcludeRanges)
         assertEquals(emptyList<String>(), config.tlsSni)
+        assertEquals(emptyList<String>(), config.routingIncludeDomains)
+        assertEquals(emptyList<String>(), config.routingExcludeDomains)
+        assertEquals("info", config.logLevel)
     }
 
     // @sk-test: parse kvn-web full config with URL, nested obfuscation, null kill_switch
@@ -215,6 +218,12 @@ class QrConfigTest {
         assertEquals(512, config.obfuscationPaddingSize)
         assertFalse(config.cryptoEnabled)
         assertEquals(10485760, config.maxMessageSize)
+        assertEquals("debug", config.logLevel)
+        assertEquals(emptyList<String>(), config.routingIncludeDomains)
+        assertEquals(listOf(".we-on.com"), config.routingExcludeDomains)
+        assertEquals("", config.geoipUrl)
+        assertFalse(config.dnsCacheEnabled)
+        assertEquals(3600, config.dnsCacheTtl)
     }
 }
 

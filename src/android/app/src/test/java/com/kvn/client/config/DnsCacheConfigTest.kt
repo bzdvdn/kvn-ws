@@ -56,13 +56,40 @@ class DnsCacheConfigSerializationTest {
     }
 }
 
-// @sk-test android-dns-cache#T5.3: QR JSON with dns_cache.enabled (AC-009)
+// @sk-test: QR JSON with dns_routing.enabled (web-compat), fallback to dns_cache
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26])
 class DnsCacheQrConfigTest {
 
+    // @sk-test android-web-config-alignment#T1.1: parse dns_routing.enabled + ttl from web JSON
     @Test
-    fun testParseWebJsonWithDnsCacheEnabled() {
+    fun testParseWebJsonWithDnsRoutingEnabled() {
+        val jsonStr = """{
+            "server": "wss://example.com:443/kvn",
+            "transport": "tcp",
+            "auth": {"token": "tok"},
+            "tls": {"verify_mode": "verify", "server_name": "", "sni": []},
+            "mtu": 1400, "ipv6": false, "auto_reconnect": true,
+            "routing": {
+                "default_route": "server",
+                "include_ranges": [], "exclude_ranges": [],
+                "include_ips": [], "exclude_ips": [],
+                "include_domains": [], "exclude_domains": [],
+                "dns_routing": {"enabled": true, "ttl": 7200}
+            },
+            "kill_switch": null, "reconnect": null,
+            "mode": "tun", "crypto": {"enabled": false, "key": ""},
+            "max_message_size": 65535
+        }"""
+        val config = parseQrConfig(jsonStr)
+        assertNotNull(config)
+        assertTrue(config!!.dnsCacheEnabled)
+        assertEquals(7200, config.dnsCacheTtl)
+    }
+
+    // @sk-test android-web-config-alignment#T1.1: backward compat with dns_cache field name
+    @Test
+    fun testParseWebJsonWithDnsCacheBackwardCompat() {
         val jsonStr = """{
             "server": "wss://example.com:443/kvn",
             "transport": "tcp",
@@ -83,10 +110,11 @@ class DnsCacheQrConfigTest {
         val config = parseQrConfig(jsonStr)
         assertNotNull(config)
         assertTrue(config!!.dnsCacheEnabled)
+        assertEquals(3600, config.dnsCacheTtl)
     }
 
     @Test
-    fun testParseWebJsonWithoutDnsCache() {
+    fun testParseWebJsonWithoutDnsRouting() {
         val jsonStr = """{
             "server": "wss://example.com:443/kvn",
             "transport": "tcp",
@@ -106,24 +134,28 @@ class DnsCacheQrConfigTest {
         val config = parseQrConfig(jsonStr)
         assertNotNull(config)
         assertFalse(config!!.dnsCacheEnabled)
+        assertEquals(3600, config.dnsCacheTtl)
     }
 
+    // @sk-test android-web-config-alignment#T1.1: export dns_routing (not dns_cache) field name
     @Test
-    fun testConfigToWebJsonExportsDnsCache() {
+    fun testConfigToWebJsonExportsDnsRouting() {
         val config = ConnectionConfig(
             serverAddress = "example.com",
             port = 443,
             token = "tok",
-            dnsCacheEnabled = true
+            dnsCacheEnabled = true,
+            dnsCacheTtl = 7200
         )
         val webJson = configToWebJson(config)
-        assertTrue(webJson.contains("dns_cache"))
+        assertTrue("should use dns_routing field name", webJson.contains("dns_routing"))
         assertTrue(webJson.contains("enabled"))
         assertTrue(webJson.contains("true"))
+        assertTrue(webJson.contains("\"ttl\":7200") || webJson.contains("\"ttl\": 7200"))
     }
 
     @Test
-    fun testConfigToWebJsonDnsCacheFalse() {
+    fun testConfigToWebJsonDnsRoutingFalse() {
         val config = ConnectionConfig(
             serverAddress = "example.com",
             port = 443,
@@ -131,7 +163,7 @@ class DnsCacheQrConfigTest {
             dnsCacheEnabled = false
         )
         val webJson = configToWebJson(config)
-        assertTrue(webJson.contains("dns_cache"))
+        assertTrue("should use dns_routing field name", webJson.contains("dns_routing"))
         assertTrue(webJson.contains("enabled"))
         assertTrue(webJson.contains("false"))
     }

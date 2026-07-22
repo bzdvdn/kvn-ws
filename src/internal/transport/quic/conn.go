@@ -22,7 +22,10 @@ var readBufPool = sync.Pool{
 }
 
 func getReadBuf(size int) []byte {
-	ptr := readBufPool.Get().(*[]byte)
+	ptr, ok := readBufPool.Get().(*[]byte)
+	if !ok {
+		return make([]byte, size)
+	}
 	buf := *ptr
 	if cap(buf) < size {
 		buf = make([]byte, size)
@@ -41,6 +44,7 @@ func putReadBuf(buf []byte) {
 // @sk-task performance-scope-p2#T2.3: maxMessageSize atomic.Int32 (AC-007)
 type QUICConn struct {
 	deadlineMu     sync.Mutex
+	writeMu        sync.Mutex
 	conn           quic.Connection
 	stream         quic.Stream
 	maxMessageSize atomic.Int32
@@ -56,7 +60,7 @@ func NewQUICConn(conn quic.Connection, stream quic.Stream) *QUICConn {
 }
 
 func (c *QUICConn) SetMaxMessageSize(size int) {
-	if size > 0 {
+	if size > 0 && size <= math.MaxInt32 {
 		c.maxMessageSize.Store(int32(size))
 	}
 }
@@ -79,11 +83,12 @@ func (c *QUICConn) ReadMessage() ([]byte, error) {
 	return buf, nil
 }
 
-// @sk-task performance-scope-p2#T2.1: WriteMessage without mu (AC-007)
 func (c *QUICConn) WriteMessage(data []byte) error {
 	if len(data) > math.MaxUint32 {
 		return io.ErrShortWrite
 	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data))) // #nosec G115 — checked above
 	if _, err := c.stream.Write(lenBuf[:]); err != nil {

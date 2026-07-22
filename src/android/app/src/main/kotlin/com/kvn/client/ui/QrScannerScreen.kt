@@ -40,7 +40,7 @@ import com.google.zxing.ChecksumException
 import com.google.zxing.FormatException
 import com.google.zxing.NotFoundException
 import com.google.zxing.PlanarYUVLuminanceSource
-import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.common.GlobalHistogramBinarizer
 import com.google.zxing.qrcode.QRCodeReader
 import com.kvn.client.config.ConnectionConfig
 import kotlinx.serialization.Serializable
@@ -81,6 +81,15 @@ data class WebTlsCfg(
 @Serializable
 data class WebDnsCacheCfg(val enabled: Boolean = false)
 
+// @sk-task android-web-config-alignment#T1.1: web JSON model for dns_routing with enabled + ttl (web-compat)
+@Serializable
+data class WebDnsRoutingCfg(val enabled: Boolean = false, val ttl: Int = 3600)
+
+// @sk-task android-web-config-alignment#T1.1: web JSON model for log.level (web-compat)
+@Serializable
+data class WebLogCfg(val level: String = "info")
+
+// @sk-task android-web-config-alignment#T1.1: web JSON routing model with dns_routing, domains, geoip_url (web-compat)
 @Serializable
 data class WebRoutingCfg(
     val default_route: String = "server",
@@ -88,7 +97,11 @@ data class WebRoutingCfg(
     val exclude_ranges: List<String>? = emptyList(),
     val include_ips: List<String>? = emptyList(),
     val exclude_ips: List<String>? = emptyList(),
-    val dns_cache: WebDnsCacheCfg? = null
+    val dns_cache: WebDnsCacheCfg? = null,
+    val dns_routing: WebDnsRoutingCfg? = null,
+    val include_domains: List<String>? = emptyList(),
+    val exclude_domains: List<String>? = emptyList(),
+    val geoip_url: String? = null
 )
 
 @Serializable
@@ -100,6 +113,7 @@ data class WebReconnectCfg(val min_backoff_sec: Int = 1, val max_backoff_sec: In
 @Serializable
 data class WebCryptoCfg(val enabled: Boolean = false, val key: String = "")
 
+// @sk-task android-web-config-alignment#T1.1: web JSON config model with name + log (web-compat)
 @Serializable
 private data class WebConfig(
     val server: String = "",
@@ -116,14 +130,16 @@ private data class WebConfig(
     val mode: String = "tun",
     val crypto: WebCryptoCfg = WebCryptoCfg(),
     val multiplex: Boolean = false,
-    val max_message_size: Int = 65535
+    val max_message_size: Int = 65535,
+    val name: String? = null,
+    val log: WebLogCfg? = null
 )
 
 // @sk-task kvn-android#T5.2: QR code scanner screen with finder overlay (AC-007, RQ-011)
 // @sk-task android-log-tag#T3.2: migrated android.util.Log to AppLogger (AC-012)
 @Composable
 fun QrScannerScreen(
-    onQrScanned: (ConnectionConfig) -> Unit,
+    onQrScanned: (ConnectionConfig, name: String) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
@@ -134,13 +150,17 @@ fun QrScannerScreen(
             onResult = { raw ->
                 val config = parseQrConfig(raw)
                 if (config != null) {
-                    onQrScanned(config)
+                    AppLogger.d("QrScannerScreen", "QR parsed OK: ${config.serverAddress}")
+                    Toast.makeText(context, "Config loaded: ${config.serverAddress}", Toast.LENGTH_SHORT).show()
+                    val name = try { JSONObject(raw).optString("name", "").ifBlank { "Imported" } } catch (_: Exception) { "Imported" }
+                    onQrScanned(config, name)
                 } else {
-                    Toast.makeText(context, "Failed to parse QR config", Toast.LENGTH_SHORT).show()
+                    AppLogger.w("QrScannerScreen", "QR parse failed, raw=${raw.take(120)}")
+                    Toast.makeText(context, "QR format not supported", Toast.LENGTH_LONG).show()
                 }
             },
             onError = { msg ->
-                Toast.makeText(context, "Scanner error: $msg", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Scanner: $msg", Toast.LENGTH_LONG).show()
             }
         )
     }
@@ -166,7 +186,7 @@ fun QrScannerScreen(
                 preview.setSurfaceProvider(previewView.surfaceProvider)
 
                 val imageAnalysis = ImageAnalysis.Builder()
-                    .setTargetResolution(AndroidSize(1280, 720))
+                    .setTargetResolution(AndroidSize(640, 480))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                     .also {
@@ -271,6 +291,7 @@ class QrCodeAnalyzer(
 
     private val processing = AtomicBoolean(false)
     private var started = false
+    private var frameCount = 0
 
     // ML Kit fallback
     private val mlOptions = BarcodeScannerOptions.Builder()
@@ -289,10 +310,17 @@ class QrCodeAnalyzer(
             onReady()
         }
 
+        frameCount++
+        val w = imageProxy.width
+        val h = imageProxy.height
+        val fmt = imageProxy.format
+        AppLogger.d("QrCodeAnalyzer", "frame#$frameCount ${w}x$h fmt=$fmt planes=${imageProxy.planes.size}")
+
         try {
             // 1) Try ZXing first (pure Java, no model download)
             var text = decodeZxing(imageProxy)
             if (text != null) {
+                AppLogger.d("QrCodeAnalyzer", "ZXing decoded: ${text.take(80)}…")
                 onResult(text)
                 processing.set(false)
                 imageProxy.close()
@@ -305,10 +333,18 @@ class QrCodeAnalyzer(
                 val input = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                 mlScanner.process(input)
                     .addOnSuccessListener { barcodes ->
-                        for (b in barcodes) b.rawValue?.let { onResult(it) }
+                        if (barcodes.isEmpty()) {
+                            AppLogger.d("QrCodeAnalyzer", "ML Kit: no barcodes")
+                        } else {
+                            for (b in barcodes) {
+                                AppLogger.d("QrCodeAnalyzer", "ML Kit decoded: ${b.rawValue?.take(80)}…")
+                                b.rawValue?.let { onResult(it) }
+                            }
+                        }
                     }
                     .addOnFailureListener { e ->
                         AppLogger.e("QrCodeAnalyzer", "ML Kit failed", e)
+                        onError?.invoke("ML Kit: ${e.message}")
                     }
                     .addOnCompleteListener {
                         processing.set(false)
@@ -317,25 +353,37 @@ class QrCodeAnalyzer(
             } else {
                 val bitmap = imageProxyToBitmap(imageProxy)
                 if (bitmap != null) {
+                    AppLogger.d("QrCodeAnalyzer", "ML Kit bitmap fallback ${bitmap.width}x${bitmap.height}")
                     val input = InputImage.fromBitmap(bitmap, imageProxy.imageInfo.rotationDegrees)
                     mlScanner.process(input)
                         .addOnSuccessListener { barcodes ->
-                            for (b in barcodes) b.rawValue?.let { onResult(it) }
+                            if (barcodes.isEmpty()) {
+                                AppLogger.d("QrCodeAnalyzer", "ML Kit bitmap: no barcodes")
+                            } else {
+                                for (b in barcodes) {
+                                    AppLogger.d("QrCodeAnalyzer", "ML Kit bitmap decoded: ${b.rawValue?.take(80)}…")
+                                    b.rawValue?.let { onResult(it) }
+                                }
+                            }
                         }
                         .addOnFailureListener { e ->
                             AppLogger.e("QrCodeAnalyzer", "ML Kit bitmap fallback failed", e)
+                            onError?.invoke("ML Kit: ${e.message}")
                         }
                         .addOnCompleteListener {
                             processing.set(false)
                             imageProxy.close()
                         }
                 } else {
+                    AppLogger.w("QrCodeAnalyzer", "mediaImage=null AND bitmap=null — cannot scan frame")
+                    onError?.invoke("Camera frame not available")
                     processing.set(false)
                     imageProxy.close()
                 }
             }
         } catch (e: Exception) {
             AppLogger.e("QrCodeAnalyzer", "analyze error", e)
+            onError?.invoke("Scan error: ${e.message}")
             processing.set(false)
             imageProxy.close()
         }
@@ -351,16 +399,28 @@ class QrCodeAnalyzer(
                     val pixelStride = yPlane.pixelStride
                     val w = proxy.width
                     val h = proxy.height
-                    val luminance = ByteArray(w * h)
-                    for (row in 0 until h) {
-                        val rowBase = row * rowStride
-                        for (col in 0 until w) {
-                            luminance[row * w + col] = buf.get(rowBase + col * pixelStride)
+                    // Downscale if too large — QR needs only ~640px max
+                    val maxDim = 800
+                    val scale = if (w.coerceAtLeast(h) > maxDim) {
+                        (w.coerceAtLeast(h).toFloat() / maxDim).coerceAtLeast(1f)
+                    } else 1f
+                    val sw = if (scale > 1f) (w / scale).toInt() else w
+                    val sh = if (scale > 1f) (h / scale).toInt() else h
+                    val step = scale.toInt().coerceAtLeast(1)
+                    if (scale > 1f) AppLogger.d("QrCodeAnalyzer", "ZXing: downscale ${w}x$h -> ${sw}x$sh (step=$step)")
+                    val luminance = ByteArray(sw * sh)
+                    for (row in 0 until sh) {
+                        val srcRow = (row * step).coerceAtMost(h - 1)
+                        val rowBase = srcRow * rowStride
+                        val dstBase = row * sw
+                        for (col in 0 until sw) {
+                            val srcCol = (col * step).coerceAtMost(w - 1)
+                            luminance[dstBase + col] = buf.get(rowBase + srcCol * pixelStride)
                         }
                     }
-                    val source = PlanarYUVLuminanceSource(luminance, w, h, 0, 0, w, h, false)
+                    val source = PlanarYUVLuminanceSource(luminance, sw, sh, 0, 0, sw, sh, false)
                     val zxing = QRCodeReader()
-                    val res = zxing.decode(BinaryBitmap(HybridBinarizer(source)))
+                    val res = zxing.decode(BinaryBitmap(GlobalHistogramBinarizer(source)))
                     zxing.reset()
                     res.text
                 }
@@ -369,30 +429,57 @@ class QrCodeAnalyzer(
                     val bpp = proxy.planes[0].pixelStride
                     val w = proxy.width
                     val h = proxy.height
-                    val luminance = ByteArray(w * h)
-                    for (i in 0 until w * h) {
-                        val r = buf.get(i * bpp).toInt() and 0xFF
-                        val g = buf.get(i * bpp + 1).toInt() and 0xFF
-                        val b = buf.get(i * bpp + 2).toInt() and 0xFF
-                        luminance[i] = ((r + g + g + b) / 4).toByte()
+                    val maxDim = 800
+                    val scale = if (w.coerceAtLeast(h) > maxDim) {
+                        (w.coerceAtLeast(h).toFloat() / maxDim).coerceAtLeast(1f)
+                    } else 1f
+                    val sw = if (scale > 1f) (w / scale).toInt() else w
+                    val sh = if (scale > 1f) (h / scale).toInt() else h
+                    val step = scale.toInt().coerceAtLeast(1)
+                    if (scale > 1f) AppLogger.d("QrCodeAnalyzer", "ZXing: downscale ${w}x$h -> ${sw}x$sh (step=$step)")
+                    val luminance = ByteArray(sw * sh)
+                    for (row in 0 until sh) {
+                        val srcRow = (row * step).coerceAtMost(h - 1)
+                        val dstBase = row * sw
+                        for (col in 0 until sw) {
+                            val srcCol = (col * step).coerceAtMost(w - 1)
+                            val srcIdx = srcRow * w * bpp + srcCol * bpp
+                            val r = buf.get(srcIdx).toInt() and 0xFF
+                            val g = buf.get(srcIdx + 1).toInt() and 0xFF
+                            val b = buf.get(srcIdx + 2).toInt() and 0xFF
+                            luminance[dstBase + col] = ((r + g + g + b) / 4).toByte()
+                        }
                     }
-                    val source = PlanarYUVLuminanceSource(luminance, w, h, 0, 0, w, h, false)
+                    val source = PlanarYUVLuminanceSource(luminance, sw, sh, 0, 0, sw, sh, false)
                     val zxing = QRCodeReader()
-                    val res = zxing.decode(BinaryBitmap(HybridBinarizer(source)))
+                    val res = zxing.decode(BinaryBitmap(GlobalHistogramBinarizer(source)))
                     res.text
                 }
-                else -> null
+                else -> {
+                    AppLogger.w("QrCodeAnalyzer", "ZXing: unsupported plane count ${proxy.planes.size}")
+                    null
+                }
             }
             result
-        } catch (_: NotFoundException) { null }
-          catch (_: ChecksumException) { null }
-          catch (_: FormatException) { null }
+        } catch (_: NotFoundException) { AppLogger.d("QrCodeAnalyzer", "ZXing: not found"); null }
+          catch (_: ChecksumException) { AppLogger.d("QrCodeAnalyzer", "ZXing: checksum error"); null }
+          catch (_: FormatException) { AppLogger.d("QrCodeAnalyzer", "ZXing: format error"); null }
     }
 
     private fun imageProxyToBitmap(proxy: ImageProxy): Bitmap? {
         if (proxy.planes.size != 3) return null
         val w = proxy.width
         val h = proxy.height
+        // Downscale NV21 for performance — ML Kit needs only ~800px max
+        val maxDim = 800
+        val scale = if (w.coerceAtLeast(h) > maxDim) {
+            (w.coerceAtLeast(h).toFloat() / maxDim).coerceAtLeast(1f)
+        } else 1f
+        val sw = if (scale > 1f) (w / scale).toInt() else w
+        val sh = if (scale > 1f) (h / scale).toInt() else h
+        val step = scale.toInt().coerceAtLeast(1)
+        if (scale > 1f) AppLogger.d("QrCodeAnalyzer", "bitmap: downscale ${w}x$h -> ${sw}x$sh")
+
         val yPlane = proxy.planes[0]
         val uPlane = proxy.planes[1]
         val vPlane = proxy.planes[2]
@@ -400,38 +487,47 @@ class QrCodeAnalyzer(
         val uBuf = uPlane.buffer.apply { rewind() }
         val vBuf = vPlane.buffer.apply { rewind() }
 
-        val ySize = w * h
-        val uvSize = w * h / 2
+        val ySize = sw * sh
+        val uvSize = sw * sh / 2
         val nv21 = ByteArray(ySize + uvSize)
-
-        // Копируем Y-плоскость с учётом row stride
         val yRowStride = yPlane.rowStride
         val yPixelStride = yPlane.pixelStride
-        var yPos = 0
-        for (row in 0 until h) {
-            val rowBase = row * yRowStride
-            for (col in 0 until w) {
-                nv21[yPos++] = yBuf.get(rowBase + col * yPixelStride)
-            }
-        }
-
-        // Интерливинг V/U для NV21: V first, U second (plane[2]=V, plane[1]=U)
         val uRowStride = uPlane.rowStride
         val vRowStride = vPlane.rowStride
         val uvPixelStride = uPlane.pixelStride
-        val uvW = w / 2
-        val uvH = h / 2
-        var chromaPos = ySize
-        for (row in 0 until uvH) {
-            for (col in 0 until uvW) {
-                nv21[chromaPos++] = vBuf.get(row * vRowStride + col * uvPixelStride)
-                nv21[chromaPos++] = uBuf.get(row * uRowStride + col * uvPixelStride)
+
+        // Downsampled Y
+        var yPos = 0
+        for (row in 0 until sh) {
+            val srcRow = (row * step).coerceAtMost(h - 1)
+            val rowBase = srcRow * yRowStride
+            for (col in 0 until sw) {
+                val srcCol = (col * step).coerceAtMost(w - 1)
+                nv21[yPos++] = yBuf.get(rowBase + srcCol * yPixelStride)
             }
         }
 
-        val yuv = YuvImage(nv21, ImageFormat.NV21, w, h, null)
+        // Downsampled UV (interleaved V/U for NV21)
+        val uvW = w / 2
+        val uvH = h / 2
+        val suvW = sw / 2
+        val suvH = sh / 2
+        val uvStep = step.coerceAtLeast(2)
+        var chromaPos = ySize
+        for (row in 0 until suvH) {
+            val srcRow = (row * uvStep / 2).coerceAtMost(uvH - 1)
+            val vRowBase = srcRow * vRowStride
+            val uRowBase = srcRow * uRowStride
+            for (col in 0 until suvW) {
+                val srcCol = (col * uvStep / 2).coerceAtMost(uvW - 1)
+                nv21[chromaPos++] = vBuf.get(vRowBase + srcCol * uvPixelStride)
+                nv21[chromaPos++] = uBuf.get(uRowBase + srcCol * uvPixelStride)
+            }
+        }
+
+        val yuv = YuvImage(nv21, ImageFormat.NV21, sw, sh, null)
         val out = ByteArrayOutputStream()
-        yuv.compressToJpeg(Rect(0, 0, w, h), 85, out)
+        yuv.compressToJpeg(Rect(0, 0, sw, sh), 85, out)
         return BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
     }
 }
@@ -450,13 +546,18 @@ fun parseQrConfig(raw: String): ConnectionConfig? {
     try {
         val cfg = json.decodeFromString<ConnectionConfig>(raw)
         if (cfg.serverAddress.isNotEmpty()) return cfg
-    } catch (_: Exception) { }
+    } catch (e: Exception) {
+        AppLogger.d("parseQrConfig", "android format failed: ${e.message}")
+    }
 
     // Try kvn-web format
     try {
         val web = json.decodeFromString<WebConfig>(raw)
         return webToAndroidConfig(web)
-    } catch (_: Exception) { }
+    } catch (e: Exception) {
+        AppLogger.e("parseQrConfig", "web format failed: ${e.message}")
+        AppLogger.d("parseQrConfig", "raw QR: ${raw.take(200)}")
+    }
 
     return null
 }
@@ -497,6 +598,7 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         autoReconnect = web.auto_reconnect ?: true,
         maxMessageSize = web.max_message_size,
         multiplex = web.multiplex,
+        logLevel = web.log?.level ?: "info",
         minBackoffSec = rc?.min_backoff_sec ?: 1,
         maxBackoffSec = rc?.max_backoff_sec ?: 30,
         tlsVerifyMode = web.tls.verify_mode,
@@ -507,6 +609,9 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         routingExcludeRanges = routing?.exclude_ranges ?: emptyList(),
         routingIncludeIps = routing?.include_ips ?: emptyList(),
         routingExcludeIps = routing?.exclude_ips ?: emptyList(),
+        routingIncludeDomains = routing?.include_domains ?: emptyList(),
+        routingExcludeDomains = routing?.exclude_domains ?: emptyList(),
+        geoipUrl = routing?.geoip_url ?: "",
         cryptoEnabled = web.crypto.enabled,
         cryptoKey = web.crypto.key,
         killSwitchEnabled = ks?.enabled ?: false,
@@ -514,8 +619,10 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         obfuscationUtls = ob?.utls?.enabled ?: false,
         obfuscationPaddingEnabled = ob?.padding?.enabled ?: false,
         obfuscationPaddingSize = ob?.padding?.size ?: 0,
-        // @sk-task android-dns-cache#T4.3: map dns_cache.enabled from QR JSON (AC-009)
-        dnsCacheEnabled = routing?.dns_cache?.enabled ?: false
+        // @sk-task android-web-config-alignment#T1.1: map dns_routing (preferred) or dns_cache (backward compat) from QR JSON
+        dnsCacheEnabled = routing?.dns_routing?.enabled ?: routing?.dns_cache?.enabled ?: false,
+        // @sk-task android-web-config-alignment#T1.1: map dns_routing.ttl from QR JSON
+        dnsCacheTtl = routing?.dns_routing?.ttl ?: 3600
     )
 }
 
@@ -537,14 +644,21 @@ fun configToWebJson(config: ConnectionConfig): String {
         put("server_name", config.tlsServerName)
         put("sni", JSONArray(config.tlsSni))
     })
+    root.put("log", JSONObject().apply { put("level", config.logLevel) })
     root.put("routing", JSONObject().apply {
         put("default_route", config.routingDefaultRoute)
         put("include_ranges", JSONArray(config.routingIncludeRanges))
         put("exclude_ranges", JSONArray(config.routingExcludeRanges))
         put("include_ips", JSONArray(config.routingIncludeIps))
         put("exclude_ips", JSONArray(config.routingExcludeIps))
-        // @sk-task android-dns-cache#T4.3: export dns_cache.enabled to QR JSON (AC-009)
-        put("dns_cache", JSONObject().apply { put("enabled", config.dnsCacheEnabled) })
+        put("include_domains", JSONArray(config.routingIncludeDomains))
+        put("exclude_domains", JSONArray(config.routingExcludeDomains))
+        put("geoip_url", config.geoipUrl)
+        // @sk-task android-web-config-alignment#T1.1: export dns_routing to QR JSON (web-compatible field name)
+        put("dns_routing", JSONObject().apply {
+            put("enabled", config.dnsCacheEnabled)
+            put("ttl", config.dnsCacheTtl)
+        })
     })
     root.put("kill_switch", JSONObject().apply { put("enabled", config.killSwitchEnabled) })
     root.put("reconnect", JSONObject().apply {

@@ -20,10 +20,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Rate limiter: sync.Map** — `IPRateLimiter` и `SessionPacketLimiter` переведены с `sync.Mutex`+`map` на `sync.Map` (read-heavy нагрузка без конкуренции).
 - **DNS proxy: split mutex** — `Server.mu RWMutex` разделён на `configMu RWMutex` (конфигурация) и `pendingMu sync.Mutex` (pending map). Документирован lock ordering.
 - **WS control plane: write off wmu** — keepalive ping и pong handler вынесены из `wmu` в отдельный control writer (буферизованный канал cap=8 + горутина). Control path не блокирует data path и не блокируется им.
+- **QR generation (kvn-web): увеличенная плотность для мобильного сканирования** — canvas 320→512px, error correction 'M'→'Q' (25%), margin 4→6, явные цвета `dark:#000 / light:#fff`, белая подложка 16px padding. JSON очищен от null/empty-полей через `strip()` для уменьшения объёма данных.
+- **Server name из QR (Android)** — `parseQrConfig` теперь возвращает `name` из JSON-поля `"name"`. Сервер создаётся с оригинальным именем вместо `"Imported <timestamp>"`.
+- **QR onError callback (Android)** — `QrCodeAnalyzer.onError` теперь реально вызывается (был объявлен, но не использовался). Пользователь видит toast при ошибках сканера.
+- **AesGcmCipherTest (Android)** — исправлен API: конструктор → `init()`, синхронизирован с production кодом.
 
 ### Fixed
 
 - **WS control plane: data race в gorilla/websocket** — control writer goroutine вызывал `gorilla.Conn.WriteMessage` конкурентно с data path, что детектировалось race detector'ом. Исправлено: control writer захватывает `wmu` для фактической записи (gorilla/websocket не поддерживает конкурентные вызовы).
+- **QR scan (Android): низкая стабильность сканирования** — камера на некоторых устройствах выдавала 3000×3000 кадры, несмотря на `setTargetResolution`. ZXing `HybridBinarizer` плохо работал на QR с экрана. Исправлено: CameraX target 640×480, downscale до 800px в `decodeZxing()` и `imageProxyToBitmap()`, переключение на `GlobalHistogramBinarizer`.
+- **Config import (Android): paste/load терял TLS/DNS/padding поля** — `fillFormFromConfig` копировал только 3 поля (serverUrl, token, mode). Исправлено: paste/load вызывает `vm.saveCurrentServerConfig(cfg)` для полного сохранения в DataStore.
+- **Go CI: golangci-lint errcheck (type assertions) + gosec G115/G404** — unchecked type assertions в `ratelimit.go` (4 шт), `quic/conn.go`, `obfuscated.go`, `websocket.go`; `wsReadLimit` unused; G115 overflow в `conn.go`/`websocket.go`; gofmt в `buffer.go`; G404 weak RNG в `websocket.go` (#nosec — padding не требует crypto). Все исправлены.
 
 ## [1.0.2] 2026-07-10
 

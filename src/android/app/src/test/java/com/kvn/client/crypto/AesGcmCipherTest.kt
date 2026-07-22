@@ -10,7 +10,8 @@ class AesGcmCipherTest {
     @Test
     fun testEncryptDecrypt() {
         val key = SecretKeySpec(ByteArray(32) { it.toByte() }, "AES")
-        val cipher = AesGcmCipher(key)
+        val cipher = AesGcmCipher()
+        cipher.init(key)
 
         val plaintext = "Hello KVN!".toByteArray()
         val encrypted = cipher.encrypt(plaintext)
@@ -25,8 +26,10 @@ class AesGcmCipherTest {
         val key1 = SecretKeySpec(ByteArray(32) { 0x01 }, "AES")
         val key2 = SecretKeySpec(ByteArray(32) { 0x02 }, "AES")
 
-        val cipher1 = AesGcmCipher(key1)
-        val cipher2 = AesGcmCipher(key2)
+        val cipher1 = AesGcmCipher()
+        cipher1.init(key1)
+        val cipher2 = AesGcmCipher()
+        cipher2.init(key2)
 
         val plaintext = "secret data".toByteArray()
         val encrypted = cipher1.encrypt(plaintext)

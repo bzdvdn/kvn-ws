@@ -619,7 +619,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                         val cfg = parseQrConfig(pasteText)
                         if (cfg != null) {
                             fillFormFromConfig(cfg)
-                            vm.markDirty()
+                            vm.saveCurrentServerConfig(cfg)
                             Toast.makeText(context, "Config loaded", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(context, "Invalid config JSON", Toast.LENGTH_SHORT).show()
@@ -638,7 +638,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                             val cfg = parseQrConfig(text)
                             if (cfg != null) {
                                 fillFormFromConfig(cfg)
-                                vm.markDirty()
+                                vm.saveCurrentServerConfig(cfg)
                                 Toast.makeText(context, "Config imported", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(context, "Invalid config", Toast.LENGTH_SHORT).show()
@@ -666,8 +666,8 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     // QR scanner screen
     if (showQrScanner) {
         QrScannerScreen(
-            onQrScanned = { cfg ->
-                vm.addServer("Imported ${System.currentTimeMillis()}", cfg)
+            onQrScanned = { cfg, name ->
+                vm.addServer(name, cfg)
                 showQrScanner = false
             },
             onCancel = { showQrScanner = false }

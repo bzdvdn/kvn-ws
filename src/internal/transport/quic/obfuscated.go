@@ -16,7 +16,10 @@ var xorBufPool = sync.Pool{
 }
 
 func getXorBuf(size int) []byte {
-	ptr := xorBufPool.Get().(*[]byte)
+	ptr, ok := xorBufPool.Get().(*[]byte)
+	if !ok {
+		return make([]byte, size)
+	}
 	buf := *ptr
 	if cap(buf) < size {
 		buf = make([]byte, size)
@@ -36,6 +39,7 @@ type ObfuscatedQUICConn struct {
 	*QUICConn
 	nonce     [8]byte
 	nonceInit atomic.Bool
+	writeMu   sync.Mutex
 }
 
 // @sk-task whitelist-obfuscation#T4.1: NewObfuscatedQUICConn without isClient param (AC-006)
@@ -66,6 +70,7 @@ func (oc *ObfuscatedQUICConn) initNonce() error {
 	tlsState := oc.conn.ConnectionState().TLS
 	material, err := tlsState.ExportKeyingMaterial("kvn-obfuscation", nil, 8)
 	if err != nil {
+		oc.nonceInit.Store(false) // allow retry on failure
 		return err
 	}
 	copy(oc.nonce[:], material)
@@ -114,6 +119,8 @@ func (oc *ObfuscatedQUICConn) WriteMessage(data []byte) error {
 	if err := oc.initNonce(); err != nil {
 		return err
 	}
+	oc.writeMu.Lock()
+	defer oc.writeMu.Unlock()
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data))) // #nosec G115 — checked above
 	xorBytes(lenBuf[:], lenBuf[:], oc.nonce[:])

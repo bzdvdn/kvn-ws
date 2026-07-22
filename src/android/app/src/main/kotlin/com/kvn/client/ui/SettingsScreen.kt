@@ -20,6 +20,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kvn.client.config.ConnectionConfig
 import com.kvn.client.ui.theme.KvnPrimary
 import com.kvn.client.ui.theme.KvnSuccess
+import com.kvn.client.vpn.KvnVpnService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -476,6 +477,16 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+        }
+
+        // @sk-task android-latency-power-fix#T1.1: battery exemption button in UI (AC-001)
+        SettingsSection(title = "Battery") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Ignore battery optimizations", modifier = Modifier.weight(1f))
+                Button(onClick = {
+                    KvnVpnService.requestBatteryExemption(context)
+                }) { Text("Request") }
             }
         }
 

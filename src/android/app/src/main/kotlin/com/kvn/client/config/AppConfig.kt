@@ -69,6 +69,8 @@ data class ConnectionConfig(
     val obfuscationPaddingSize: Int = 0,
     // @sk-task android-dns-cache#T4.1: DNS cache toggle field (AC-008)
     val dnsCacheEnabled: Boolean = false,
+    // @sk-task android-web-config-alignment#T1.1: DNS cache TTL in seconds (web export compat)
+    val dnsCacheTtl: Int = 3600,
     // @sk-task kvn-android#T5.22: per-server DNS and app filter settings
     val dnsServers: List<String> = emptyList(),
     val appIncludeList: List<String> = emptyList(),

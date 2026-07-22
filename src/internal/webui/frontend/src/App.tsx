@@ -79,8 +79,22 @@ function AppInner() {
   const [qrData, setQrData] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
+  // @sk-task: strip null/empty fields to reduce QR size and improve scan reliability
   const handleQr = async () => {
-    const data = JSON.stringify({ ...serverConfig, name: activeServer });
+    const obj: Record<string, any> = { ...serverConfig, name: activeServer };
+    // Remove null/undefined leaves so QR data is as short as possible
+    const strip = (v: any): any => {
+      if (v === null || v === undefined) return undefined;
+      if (Array.isArray(v)) { const a = v.map(strip).filter(x => x !== undefined); return a.length ? a : undefined; }
+      if (typeof v === "object") {
+        const o: Record<string, any> = {};
+        for (const [k, w] of Object.entries(v)) { const s = strip(w); if (s !== undefined) o[k] = s; }
+        return Object.keys(o).length ? o : undefined;
+      }
+      if (typeof v === "string" && v === "") return undefined;
+      return v;
+    };
+    const data = JSON.stringify(strip(obj));
     setQrData(data);
     setQrOpen(true);
   };
@@ -277,12 +291,17 @@ function AppInner() {
   );
 }
 
+// @sk-task: QR with white background, high error correction, and wide margin for reliable mobile scanning
 function QRCodeSVG({ data }: { data: string }) {
   const ref = React.useRef<HTMLCanvasElement>(null);
   React.useEffect(() => {
-    if (ref.current) QRCode.toCanvas(ref.current, data, { width: 320 });
+    if (ref.current) QRCode.toCanvas(ref.current, data, { width: 512, errorCorrectionLevel: "Q", margin: 6, color: { dark: "#000", light: "#fff" } });
   }, [data]);
-  return <canvas ref={ref} width={320} height={320} />;
+  return (
+    <div style={{ background: "#fff", borderRadius: 8, display: "inline-block", padding: 16 }}>
+      <canvas ref={ref} width={512} height={512} style={{ display: "block" }} />
+    </div>
+  );
 }
 
 // @sk-task kvn-web-redesign#T2.5: app shell with component composition and context (AC-005)

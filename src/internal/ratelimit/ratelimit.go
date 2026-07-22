@@ -32,7 +32,9 @@ func (rl *IPRateLimiter) Allow(addr string) bool {
 		lim = rate.NewLimiter(rate.Limit(rl.perMin)/60, rl.burst)
 		actual, loaded := rl.limiters.LoadOrStore(addr, lim)
 		if loaded {
-			lim = actual.(*rate.Limiter)
+			if l, ok := actual.(*rate.Limiter); ok {
+				lim = l
+			}
 		}
 	}
 	return lim.Allow()
@@ -48,7 +50,7 @@ func (rl *IPRateLimiter) StartCleanup(ctx context.Context) {
 				return
 			case <-ticker.C:
 				rl.limiters.Range(func(k, v any) bool {
-					if v.(*rate.Limiter).Tokens() >= float64(rl.burst) {
+					if lim, ok := v.(*rate.Limiter); ok && lim.Tokens() >= float64(rl.burst) {
 						rl.limiters.Delete(k)
 					}
 					return true
@@ -78,7 +80,9 @@ func (pl *SessionPacketLimiter) Allow(sessionID string) bool {
 		lim = rate.NewLimiter(rate.Limit(pl.perSec), pl.perSec)
 		actual, loaded := pl.limiters.LoadOrStore(sessionID, lim)
 		if loaded {
-			lim = actual.(*rate.Limiter)
+			if l, ok := actual.(*rate.Limiter); ok {
+				lim = l
+			}
 		}
 	}
 	return lim.Allow()
@@ -94,7 +98,7 @@ func (pl *SessionPacketLimiter) StartCleanup(ctx context.Context) {
 				return
 			case <-ticker.C:
 				pl.limiters.Range(func(k, v any) bool {
-					if v.(*rate.Limiter).Tokens() >= float64(pl.perSec) {
+					if lim, ok := v.(*rate.Limiter); ok && lim.Tokens() >= float64(pl.perSec) {
 						pl.limiters.Delete(k)
 					}
 					return true

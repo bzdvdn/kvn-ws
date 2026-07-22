@@ -75,10 +75,10 @@ type Collector struct {
 	rb        *RingBuffer
 	startedAt time.Time
 
-	txBytes   int64
-	rxBytes   int64
+	txBytes    int64
+	rxBytes    int64
 	reconnects int64
-	latencyMs uint64
+	latencyMs  uint64
 
 	startedMu sync.Mutex
 	done      chan struct{}

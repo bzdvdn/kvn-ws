@@ -1,30 +1,30 @@
 package com.kvn.client.protocol
 
-import java.nio.ByteBuffer
-
 const val FRAME_HEADER_SIZE = 4
 const val FRAME_MAX_PAYLOAD = 65535
 
 // @sk-task kvn-android#T2.2: Kotlin binary frame encode (AC-001, AC-004)
+// @sk-task android-latency-power-fix#T2.2: zero-copy encode without ByteBuffer (AC-004)
 fun Frame.encode(): ByteArray {
     require(payload.size <= FRAME_MAX_PAYLOAD) { "payload exceeds max frame size" }
-    val buf = ByteBuffer.allocate(FRAME_HEADER_SIZE + payload.size)
-    buf.put(type)
-    buf.put(flags)
-    buf.putShort(payload.size.toUShort().toShort())
-    buf.put(payload)
-    return buf.array()
+    val result = ByteArray(FRAME_HEADER_SIZE + payload.size)
+    result[0] = type
+    result[1] = flags
+    result[2] = ((payload.size shr 8) and 0xFF).toByte()
+    result[3] = (payload.size and 0xFF).toByte()
+    System.arraycopy(payload, 0, result, FRAME_HEADER_SIZE, payload.size)
+    return result
 }
 
 // @sk-task kvn-android#T2.2: Kotlin binary frame decode (AC-001, AC-004)
+// @sk-task android-latency-power-fix#T2.2: zero-copy decode without ByteBuffer.wrap (AC-004)
 fun ByteArray.toFrame(): Frame {
     require(this.size >= FRAME_HEADER_SIZE) { "frame too short" }
-    val buf = java.nio.ByteBuffer.wrap(this)
-    val type = buf.get()
-    val flags = buf.get()
-    val length = buf.getShort().toInt() and 0xFFFF
+    val type = this[0]
+    val flags = this[1]
+    val length = ((this[2].toInt() and 0xFF) shl 8) or (this[3].toInt() and 0xFF)
     require(length <= this.size - FRAME_HEADER_SIZE) { "frame length exceeds data" }
     val payload = ByteArray(length)
-    buf.get(payload)
+    System.arraycopy(this, FRAME_HEADER_SIZE, payload, 0, length)
     return Frame(type, flags, payload)
 }
