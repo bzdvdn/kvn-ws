@@ -4,9 +4,20 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// @sk-task kvn-web-redesign#T1.2: forward client logs to the web UI via SSE (AC-013)
+// uiLogCore forwards every log entry (all levels) to the web UI log stream.
+// It never writes to stdout/syslog — the filtered sink is the core it is
+// composed with via zapcore.NewTee.
 type uiLogCore struct {
-	zapcore.Core
 	pushLog func(LogEntry)
+}
+
+func (c *uiLogCore) Enabled(level zapcore.Level) bool {
+	return true
+}
+
+func (c *uiLogCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry { //nolint:gocritic // matches zapcore.Core interface
+	return ce.AddCore(entry, c)
 }
 
 func (c *uiLogCore) Write(entry zapcore.Entry, fields []zapcore.Field) error { //nolint:gocritic // matches zapcore.Core interface
@@ -32,12 +43,13 @@ func (c *uiLogCore) Write(entry zapcore.Entry, fields []zapcore.Field) error { /
 		IP:     ip,
 	}
 	c.pushLog(le)
-	return c.Core.Write(entry, fields)
+	return nil
 }
 
-func (c *uiLogCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry { //nolint:gocritic // matches zapcore.Core interface
-	if entry.Level >= zapcore.DebugLevel {
-		return ce.AddCore(entry, c)
-	}
-	return ce
+func (c *uiLogCore) Sync() error {
+	return nil
+}
+
+func (c *uiLogCore) With(fields []zapcore.Field) zapcore.Core {
+	return c
 }

@@ -76,8 +76,9 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pushLog := s.state.PushLog
+	// @sk-task webui-log-level-filter#T1.1: SSE gets all levels, syslog only the configured level (AC-003)
 	hookLogger := baseLogger.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
-		return &uiLogCore{Core: core, pushLog: pushLog}
+		return zapcore.NewTee(&uiLogCore{pushLog: pushLog}, core)
 	}))
 	cl.SetLogger(hookLogger)
 

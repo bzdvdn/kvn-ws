@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.1] 2026-08-05
+
+### Fixed
+
+- **kvn-web: логгер клиента игнорировал настроенный уровень** — `uiLogCore.Check` в `webui_log_core.go` сравнивал `entry.Level >= zapcore.DebugLevel` (истинно для всех уровней), поэтому debug-логи проходили в stdout/syslog независимо от `log_level: info`. При активном VPN-трафике журнал раздувался до десятков ГБ. Исправлено: `Check` сначала делегирует фильтрацию встроенному ядру (`c.Core.Enabled(entry.Level)`), а `SSE` и `syslog` синхронизированы по уровню.
+- **QUIC obfuscation: двойная блокировка write mutex'а** — `ObfuscatedQUICConn.WriteMessage` захватывал собственный `oc.writeMu`, а затем вызов `oc.QUICConn.WriteMessage` повторно захватывал `QUICConn.writeMu` — сериализация одного пути записи двумя mutex'ами удваивала latency. Исправлено: `oc.writeMu` удалён, запись идёт под единым `QUICConn.writeMu`.
+- **Android: per-packet latency (Cipher.getInstance + ByteBuffer)** — `AesGcmCipher` инициализировал `Cipher.getInstance("AES/GCM/NoPadding")` на каждый encrypt/decrypt вызов, а `FrameCodec.encode`/`toFrame` аллоцировали `ByteBuffer`. При высоком трафике это давало заметную per-packet задержку и alloc'и. Исправлено: кэшированные `encryptCipher`/`decryptCipher` экземпляры `Cipher`, zero-copy encode/decode без `ByteBuffer` (прямая работа с байтовыми массивами).
+
+### Changed
+
+- **kvn-web: раздельные каналы логов SSE / syslog** — логгер клиента собирается через `zapcore.NewTee`: `uiLogCore` (SSE) теперь чистый forward-к префикс, принимает **все** уровни (debug и выше) для веб-лога, а запись в stdout/syslog фильтруется базовым ядром по `log_level`. Отвечает за передачу `action`/`ip`/`ts` в лог UI.
+
 ## [1.1.0] 2026-07-22
 
 ### Changed

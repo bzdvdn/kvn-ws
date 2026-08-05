@@ -39,7 +39,6 @@ type ObfuscatedQUICConn struct {
 	*QUICConn
 	nonce     [8]byte
 	nonceInit atomic.Bool
-	writeMu   sync.Mutex
 }
 
 // @sk-task whitelist-obfuscation#T4.1: NewObfuscatedQUICConn without isClient param (AC-006)
@@ -119,8 +118,8 @@ func (oc *ObfuscatedQUICConn) WriteMessage(data []byte) error {
 	if err := oc.initNonce(); err != nil {
 		return err
 	}
-	oc.writeMu.Lock()
-	defer oc.writeMu.Unlock()
+	oc.QUICConn.writeMu.Lock()
+	defer oc.QUICConn.writeMu.Unlock()
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data))) // #nosec G115 — checked above
 	xorBytes(lenBuf[:], lenBuf[:], oc.nonce[:])
