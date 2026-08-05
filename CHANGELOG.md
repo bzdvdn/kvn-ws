@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.2] 2026-08-05
+
+### Fixed
+
+- **kvn-web: Log Level не применялся к активному серверу** — поле Log Level было только в Global-вкладке и писалось в глобальный конфиг, но `mergeConfig` отдавал приоритет per-server `log.level`. Если в сохранённом сервере стоял `debug` (напр. из QR/import), он перекрывал глобальный `info`, и клиент логировал debug в syslog независимо от настроек. Исправлено: Log Level перенесён в General-вкладку сервера (`onNestServer`), пишется в конфиг активного сервера и корректно применяется через merge.
+
 ## [1.1.1] 2026-08-05
 
 ### Fixed

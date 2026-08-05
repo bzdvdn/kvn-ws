@@ -355,6 +355,32 @@ func TestMergeConfigDNSUpstreamsNotOverridden(t *testing.T) {
 	}
 }
 
+// @sk-test webui-log-level-per-server#T1.1: server log level overrides global (AC-003)
+func TestMergeConfigLogLevelServerOverridesGlobal(t *testing.T) {
+	global := config.ClientConfig{
+		Log: config.LogConfig{Level: "info"},
+	}
+	server := config.ClientConfig{
+		Log: config.LogConfig{Level: "debug"},
+	}
+	merged := mergeConfig(&global, &server)
+	if merged.Log.Level != "debug" {
+		t.Errorf("merged log.level = %q, want server value debug", merged.Log.Level)
+	}
+}
+
+// @sk-test webui-log-level-per-server#T1.1: server without log level falls back to global (AC-003)
+func TestMergeConfigLogLevelFallbackToGlobal(t *testing.T) {
+	global := config.ClientConfig{
+		Log: config.LogConfig{Level: "info"},
+	}
+	server := config.ClientConfig{}
+	merged := mergeConfig(&global, &server)
+	if merged.Log.Level != "info" {
+		t.Errorf("merged log.level = %q, want global fallback info", merged.Log.Level)
+	}
+}
+
 // @sk-test dns-upstreams-list#T4.1: TestDNSProxyCfgJSONRoundTrip (AC-008)
 func TestDNSProxyCfgJSONRoundTrip(t *testing.T) {
 	// new format: upstreams

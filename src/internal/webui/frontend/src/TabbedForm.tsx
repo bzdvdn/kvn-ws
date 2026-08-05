@@ -274,6 +274,16 @@ export default function TabbedForm(props: TabbedFormProps) {
         <input style={inputStyle} type="number" value={serverConfig.tunnel_timeout || 30} onChange={(e) => props.onUpdateServer("tunnel_timeout", parseInt(e.target.value) || 30)}
           placeholder="30" />
       </div>
+      {/* @sk-task webui-log-level-per-server#T1.1: per-server log level (AC-003) */}
+      <div style={fieldStyle()}>
+        <span style={labelStyle()}>Log Level</span>
+        <select style={selectStyle} value={serverConfig.log?.level || "info"} onChange={(e) => props.onNestServer("log", "level", e.target.value)}>
+          <option value="debug">debug</option>
+          <option value="info">info</option>
+          <option value="warn">warn</option>
+          <option value="error">error</option>
+        </select>
+      </div>
     </>
   );
 
@@ -524,16 +534,6 @@ export default function TabbedForm(props: TabbedFormProps) {
 
   const renderGlobal = () => (
     <>
-      <div style={fieldStyle()}>
-        <span style={labelStyle()}>Log Level</span>
-        <select style={selectStyle} value={globalConfig.log?.level || "info"} onChange={(e) => props.onNestGlobal("log", "level", e.target.value)}>
-          <option value="debug">debug</option>
-          <option value="info">info</option>
-          <option value="warn">warn</option>
-          <option value="error">error</option>
-        </select>
-      </div>
-
       <div style={subTitleStyle}>Proxy</div>
       <div style={fieldStyle()}>
         <span style={labelStyle()}>Proxy Listen</span>
