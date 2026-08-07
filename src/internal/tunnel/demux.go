@@ -55,15 +55,17 @@ func (d *TunDemux) run() {
 	defer d.signalAll(errors.New("tun demux stopped"))
 
 	for {
-		buf := make([]byte, 1500)
+		buf := getTunReadBuf()
 		n, err := d.tunDev.Read(buf)
 		if err != nil {
+			putTunReadBuf(buf)
 			d.logger.Error("tun read error in demux", zap.Error(err))
 			return
 		}
 
 		destIP := parseDestIP(buf[:n])
 		if destIP == nil {
+			putTunReadBuf(buf)
 			continue
 		}
 
@@ -72,12 +74,14 @@ func (d *TunDemux) run() {
 		d.mu.RUnlock()
 
 		if !ok {
+			putTunReadBuf(buf)
 			continue
 		}
 
 		select {
 		case ch <- tunReadResult{n: n, buf: buf}:
 		default:
+			putTunReadBuf(buf)
 		}
 	}
 }

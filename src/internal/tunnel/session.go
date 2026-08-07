@@ -33,6 +33,15 @@ var proxyBufPool = sync.Pool{
 	},
 }
 
+// @sk-task latency: sync.Pool for TUN read buffers — avoid a fresh 1500-byte
+// allocation per packet on the latency-critical read path
+var tunReadBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 1500)
+		return &b
+	},
+}
+
 // @sk-task arch-refactoring#T3.5: magic numbers → Session fields (AC-006)
 // wsTunnelTimeout and defaultProxyConcurrency replaced by Session fields set via config.
 
@@ -158,11 +167,12 @@ func (s *Session) startTunReader(ctx context.Context) {
 	}
 	go func() {
 		for {
-			buf := make([]byte, 1500)
+			buf := getTunReadBuf()
 			n, err := s.tunDev.Read(buf)
 			select {
 			case s.tunReaderCh <- tunReadResult{n, err, buf}:
 			case <-ctx.Done():
+				putTunReadBuf(buf)
 				return
 			}
 			if err != nil {
@@ -566,6 +576,9 @@ func (s *Session) tunToWS(ctx context.Context) error {
 		case r = <-s.tunReaderCh:
 		}
 		if r.err != nil {
+			if r.buf != nil {
+				putTunReadBuf(r.buf)
+			}
 			return r.err
 		}
 		n := r.n
@@ -577,11 +590,13 @@ func (s *Session) tunToWS(ctx context.Context) error {
 			if rerr := s.tunRouter.RoutePacket(payload); rerr != nil {
 				s.logger.Debug("route packet error", zap.Error(rerr))
 			}
+			putTunReadBuf(r.buf)
 			continue
 		}
 		if s.bwMgr != nil {
 			delay, ok := s.bwMgr.Reserve(s.tokenName, n)
 			if !ok {
+				putTunReadBuf(r.buf)
 				continue
 			}
 			if delay > 0 {
@@ -592,6 +607,7 @@ func (s *Session) tunToWS(ctx context.Context) error {
 			encrypted, err := s.cipher.Encrypt(payload)
 			if err != nil {
 				s.logger.Error("encrypt failed, dropping packet", zap.Error(err))
+				putTunReadBuf(r.buf)
 				continue
 			}
 			payload = encrypted
@@ -603,16 +619,33 @@ func (s *Session) tunToWS(ctx context.Context) error {
 		}
 		data, err := f.Encode()
 		if err != nil {
+			putTunReadBuf(r.buf)
 			return err
 		}
 		if err := s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
 			framing.ReturnBuffer(data)
+			putTunReadBuf(r.buf)
 			return err
 		}
 		if err := s.stream.WriteMessage(data); err != nil {
 			framing.ReturnBuffer(data)
+			putTunReadBuf(r.buf)
 			return err
 		}
 		framing.ReturnBuffer(data)
+		putTunReadBuf(r.buf)
 	}
+}
+
+// @sk-task latency: pool get/put helpers for TUN read buffers
+func getTunReadBuf() []byte {
+	ptr, ok := tunReadBufPool.Get().(*[]byte)
+	if !ok {
+		return make([]byte, 1500)
+	}
+	return *ptr
+}
+
+func putTunReadBuf(buf []byte) {
+	tunReadBufPool.Put(&buf)
 }

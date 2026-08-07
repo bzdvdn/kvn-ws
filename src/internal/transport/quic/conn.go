@@ -42,12 +42,15 @@ func putReadBuf(buf []byte) {
 // @sk-task performance-scope-p2#T1.1: ReadMessage sync.Pool (AC-001)
 // @sk-task performance-scope-p2#T2.1: WriteMessage без mu, deadlineMu (AC-007)
 // @sk-task performance-scope-p2#T2.3: maxMessageSize atomic.Int32 (AC-007)
+// @sk-task latency: split deadlineMu into read/write so independent
+// read (wsToTun) and write (tunToWS/proxy/DNS) paths don't serialize on one lock
 type QUICConn struct {
-	deadlineMu     sync.Mutex
-	writeMu        sync.Mutex
-	conn           quic.Connection
-	stream         quic.Stream
-	maxMessageSize atomic.Int32
+	readDeadlineMu  sync.Mutex
+	writeDeadlineMu sync.Mutex
+	writeMu         sync.Mutex
+	conn            quic.Connection
+	stream          quic.Stream
+	maxMessageSize  atomic.Int32
 }
 
 func NewQUICConn(conn quic.Connection, stream quic.Stream) *QUICConn {
@@ -99,14 +102,14 @@ func (c *QUICConn) WriteMessage(data []byte) error {
 }
 
 func (c *QUICConn) SetReadDeadline(t time.Time) error {
-	c.deadlineMu.Lock()
-	defer c.deadlineMu.Unlock()
+	c.readDeadlineMu.Lock()
+	defer c.readDeadlineMu.Unlock()
 	return c.stream.SetReadDeadline(t)
 }
 
 func (c *QUICConn) SetWriteDeadline(t time.Time) error {
-	c.deadlineMu.Lock()
-	defer c.deadlineMu.Unlock()
+	c.writeDeadlineMu.Lock()
+	defer c.writeDeadlineMu.Unlock()
 	return c.stream.SetWriteDeadline(t)
 }
 

@@ -77,9 +77,29 @@ func (oc *ObfuscatedQUICConn) initNonce() error {
 }
 
 // @sk-task whitelist-obfuscation#T4.1: xorBytes helper for payload obfuscation (AC-006)
+// @sk-task latency: word-wise xorBytes — nonce is always 8 bytes (TLS-Exporter),
+// so obfuscate 8 bytes at once with a fixed uint64 key instead of a byte-by-byte
+// loop + modulo (was the CPU hot spot limiting tunnel throughput)
 func xorBytes(dst, src, nonce []byte) {
+	n := len(nonce)
+	if n == 0 {
+		copy(dst, src)
+		return
+	}
+	if n == 8 {
+		key := binary.LittleEndian.Uint64(nonce)
+		i := 0
+		for ; i+8 <= len(src); i += 8 {
+			v := binary.LittleEndian.Uint64(src[i:])
+			binary.LittleEndian.PutUint64(dst[i:], v^key)
+		}
+		for ; i < len(src); i++ {
+			dst[i] = src[i] ^ nonce[i&0x07]
+		}
+		return
+	}
 	for i := range src {
-		dst[i] = src[i] ^ nonce[i%len(nonce)]
+		dst[i] = src[i] ^ nonce[i%n]
 	}
 }
 
