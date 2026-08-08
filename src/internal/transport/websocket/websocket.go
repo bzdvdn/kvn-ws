@@ -49,7 +49,8 @@ type WSConn struct {
 	conn      *websocket.Conn
 	cfg       WSConfig
 	logger    *zap.Logger
-	wmu       sync.Mutex
+	readMu    sync.Mutex
+	writeMu   sync.Mutex
 	stopCh    chan struct{}
 	closeOnce sync.Once
 	controlCh chan controlMsg
@@ -76,6 +77,31 @@ func getBatchBuf(size int) []byte {
 
 func putBatchBuf(buf []byte) {
 	batchBufPool.Put(&buf)
+}
+
+// @sk-task latency: sync.Pool for padded frame buffers — avoid a fresh
+// allocation per message on the padded write path
+var msgBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 4096)
+		return &b
+	},
+}
+
+func getMsgBuf(size int) []byte {
+	ptr, ok := msgBufPool.Get().(*[]byte)
+	if !ok {
+		return make([]byte, size)
+	}
+	buf := *ptr
+	if cap(buf) < size {
+		buf = make([]byte, size)
+	}
+	return buf[:size]
+}
+
+func putMsgBuf(buf []byte) {
+	msgBufPool.Put(&buf)
 }
 
 // @sk-task performance-and-polish#T2.3: BatchWriter for coalescing writes (AC-003)
@@ -159,15 +185,15 @@ func (bw *BatchWriter) Close() error {
 
 // @sk-task production-readiness-hardening#T2.1: deadline helpers for WSConn (AC-001)
 func (c *WSConn) SetReadDeadline(t time.Time) error {
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
 	return c.conn.SetReadDeadline(t)
 }
 
 // @sk-task production-readiness-hardening#T2.1: deadline helpers for WSConn (AC-001)
 func (c *WSConn) SetWriteDeadline(t time.Time) error {
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	return c.conn.SetWriteDeadline(t)
 }
 
@@ -193,8 +219,8 @@ func (c *WSConn) ReadMessage() ([]byte, error) {
 // @sk-task whitelist-obfuscation#T3.2: padding frame wrap in WriteMessage (AC-005)
 // @sk-task performance-scope-p2#T1.4: padding PRNG — math/rand/v2 instead of crypto/rand (AC-004)
 func (c *WSConn) WriteMessage(data []byte) error {
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 
 	if c.cfg.PaddingEnabled {
 		payloadLen := len(data)
@@ -209,13 +235,15 @@ func (c *WSConn) WriteMessage(data []byte) error {
 		}
 		padding := (padSize - totalLen%padSize) % padSize
 
-		msg := make([]byte, totalLen+padding)
+		msg := getMsgBuf(totalLen + padding)
 		binary.BigEndian.PutUint32(msg[:4], uint32(payloadLen))
 		copy(msg[4:], data)
 		if padding > 0 {
 			randBytes(msg[totalLen:])
 		}
-		return c.conn.WriteMessage(websocket.BinaryMessage, msg)
+		err := c.conn.WriteMessage(websocket.BinaryMessage, msg)
+		putMsgBuf(msg)
+		return err
 	}
 
 	return c.conn.WriteMessage(websocket.BinaryMessage, data)
@@ -223,8 +251,12 @@ func (c *WSConn) WriteMessage(data []byte) error {
 
 // #nosec G404 — padding PRNG: math/rand/v2 per sk-task (AC-004), crypto not needed
 func randBytes(buf []byte) {
-	for i := range buf {
-		buf[i] = byte(rand.Uint32() & 0xff)
+	i := 0
+	for ; i+8 <= len(buf); i += 8 {
+		binary.LittleEndian.PutUint64(buf[i:], rand.Uint64())
+	}
+	for ; i < len(buf); i++ {
+		buf[i] = byte(rand.Uint32())
 	}
 }
 
@@ -233,11 +265,11 @@ func (c *WSConn) startControlWriter() {
 		for {
 			select {
 			case msg := <-c.controlCh:
-				c.wmu.Lock()
+				c.writeMu.Lock()
 				_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 				err := c.conn.WriteMessage(msg.msgType, msg.data)
 				_ = c.conn.SetWriteDeadline(time.Time{})
-				c.wmu.Unlock()
+				c.writeMu.Unlock()
 				if err != nil && msg.msgType == websocket.PingMessage {
 					c.logger.Warn("ping error", zap.Error(err))
 				}

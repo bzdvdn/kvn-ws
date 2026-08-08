@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.3] 2026-08-07
+
+### Fixed
+
+- **Туннель ограничивался дефолтным rate-limiting`ом** — `rate_limiting.packets_per_sec` в `server.go` по умолчанию был `1000` (≈1.3 МБ/с на MTU 1300), а в шаблоне инсталлятора `5000` (≈6.5 МБ/с). Любая туннельная загрузка упиралась в этот потолок независимо от оптимизаций транспорта (не грузились/вили видео, разброс скорости). Дефолт поднят до `40000` во всех местах: код (`server.go`), `scripts/install-server.sh`, `configs/server.yaml`, `examples/server.yaml`, `examples/relay-terminator/server.yaml`.
+
+### Performance
+
+- **QUIC: разделены deadline-мутексы (read/write)** — `deadlineMu` разделён на `readDeadlineMu`/`writeDeadlineMu`: независимые пути чтения (`wsToTun`) и записи (`tunToWS`/proxy/DNS) перестали сериализоваться на одном замке на каждом сообщении.
+- **QUIC obfuscation: побитовый XOR словами** — `xorBytes` обрабатывает payload по 8 байт за раз через фикс-ключ `uint64` (nonce всегда 8 байт из TLS-Exporter) вместо байт-цикла с `%`. Снимает локальный per-packet hotspot.
+- **TUN-буферы на `sync.Pool`** — `session.go`/`demux.go` используют пул вместо `make([]byte, 1500)` на каждый пакет.
+- **WebSocket: раздельные `readMu`/`writeMu`** — чтение и запись не сериализуются на одном `wmu`; данные и control (ping/pong) идут под единым `writeMu` (требование gorilla).
+- **WebSocket padding: быстрый PRNG + пул буферов** — паддинг заполняется по 8 байт `rand.Uint64()` вместо `rand` на байт, а буфер фрейма берётся из пула (без `make()` на сообщение). Формат маскировки на сети не изменился.
+
 ## [1.1.2] 2026-08-05
 
 ### Fixed

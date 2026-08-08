@@ -191,7 +191,7 @@ session:
   max_clients: 100
   idle_timeout_sec: 120
 rate_limiting:
-  packets_per_sec: 5000
+  packets_per_sec: 40000
 origin:
   allow_empty: true
 auth:

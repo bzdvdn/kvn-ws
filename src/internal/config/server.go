@@ -220,7 +220,7 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		cfg.RateLimiting.AuthPerMinute = 1
 	}
 	if cfg.RateLimiting.PacketsPerSec == 0 {
-		cfg.RateLimiting.PacketsPerSec = 1000
+		cfg.RateLimiting.PacketsPerSec = 40000
 	}
 	if cfg.Admin.Listen == "" {
 		cfg.Admin.Listen = "localhost:8443"

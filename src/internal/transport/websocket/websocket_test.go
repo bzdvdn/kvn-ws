@@ -1023,10 +1023,10 @@ func TestWSControlPlane(t *testing.T) {
 	wmuHeld := make(chan struct{})
 	wmuReleased := make(chan struct{})
 	go func() {
-		conn.wmu.Lock()
+		conn.writeMu.Lock()
 		close(wmuHeld)
 		<-wmuReleased
-		conn.wmu.Unlock()
+		conn.writeMu.Unlock()
 	}()
 	<-wmuHeld
 
