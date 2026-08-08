@@ -251,12 +251,12 @@ func (c *WSConn) WriteMessage(data []byte) error {
 
 // #nosec G404 — padding PRNG: math/rand/v2 per sk-task (AC-004), crypto not needed
 func randBytes(buf []byte) {
-	i := 0
-	for ; i+8 <= len(buf); i += 8 {
-		binary.LittleEndian.PutUint64(buf[i:], rand.Uint64())
-	}
-	for ; i < len(buf); i++ {
-		buf[i] = byte(rand.Uint32())
+	var v [8]byte
+	for i := 0; i < len(buf); {
+		n := min(8, len(buf)-i)
+		binary.LittleEndian.PutUint64(v[:], rand.Uint64())
+		copy(buf[i:], v[:n])
+		i += n
 	}
 }
 
