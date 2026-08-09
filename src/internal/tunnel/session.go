@@ -60,6 +60,15 @@ type streamWriter struct {
 	ch   chan []byte
 }
 
+// dialStream carries the client→target queue for a proxy stream while the
+// server dials the target (and afterwards). Every proxy frame for that
+// stream routes to the same channel, so reads on wsToTun never block on a
+// slow target dial and the ordering is preserved across the dial hand-off.
+type dialStream struct {
+	conn net.Conn
+	ch   chan []byte
+}
+
 // OutgoingInterceptor is called before writing a data frame to the TUN device.
 // If it returns true, the frame is considered handled and TUN write is skipped.
 type OutgoingInterceptor func(payload []byte) (handled bool, err error)
@@ -79,6 +88,7 @@ type Session struct {
 	cipher           *crypto.SessionCipher
 	proxyStreams     *proxy.SessionStreams
 	streamWriters    sync.Map // uint32 → *streamWriter, per-stream ordered writes
+	dialStreams      sync.Map // uint32 → *dialStream, dial in flight (client→target queue)
 	proxySem         chan struct{}
 	tunRouter        *routing.TunRouter
 	tunReaderCh      chan tunReadResult
@@ -326,6 +336,8 @@ func (s *Session) handleCloseFrame() {
 }
 
 // @sk-task arch-refactoring#T3.3: extracted proxy frame handler (AC-005)
+// @sk-task proxy-slow-dial: async target dial — the read-loop must never
+// block on net.DialTimeout; new streams are queued and dialed in a goroutine.
 func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	defer f.Release()
 	if s.proxyStreams == nil {
@@ -352,8 +364,8 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 	dst := string(payload[6 : 6+dstLen])
 	data := payload[6+dstLen:]
 
+	// Existing completed stream: ordered async write via its per-stream goroutine.
 	if _, ok := s.proxyStreams.Load(streamID); ok {
-		// Async ordered write via per-stream goroutine.
 		sw, ok := s.streamWriters.Load(streamID)
 		if !ok {
 			return
@@ -364,60 +376,120 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 		bw.ch <- tmp
 		return
 	}
+	if len(data) == 0 {
+		return
+	}
 
-	tcpConn, err := net.DialTimeout("tcp", dst, 10*time.Second)
-	if err != nil {
-		s.logger.Warn("proxy dial failed", zap.String("dst", dst), zap.String("ip", dst), zap.Error(err))
-		closeFrame := framing.Frame{
-			Type:    framing.FrameTypeProxy,
-			Payload: make([]byte, 6),
-		}
-		binary.BigEndian.PutUint32(closeFrame.Payload[0:4], streamID)
-		binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
-		if encoded, encErr := closeFrame.Encode(); encErr == nil {
-			_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
-			if err := s.stream.WriteMessage(encoded); err != nil {
-				s.logger.Warn("write close frame failed", zap.Error(err))
-			}
-			framing.ReturnBuffer(encoded)
+	// Dial already in flight: enqueue (read-loop never blocks, drop on overflow).
+	if sw, ok := s.dialStreams.Load(streamID); ok {
+		ds, _ := sw.(*dialStream)
+		tmp := make([]byte, len(data))
+		copy(tmp, data)
+		select {
+		case ds.ch <- tmp:
+		default:
 		}
 		return
 	}
-	s.proxyStreams.Store(streamID, tcpConn)
-	s.logger.Info("proxy tunnel", zap.String("dst", dst), zap.String("ip", dst))
 
-	// Start per-stream ordered writer goroutine.
-	sw := &streamWriter{
-		conn: tcpConn,
-		ch:   make(chan []byte, 64),
+	// New stream: create the queue, start an async dial, then route initial data.
+	ds := &dialStream{
+		conn: nil,
+		ch:   make(chan []byte, 2048),
 	}
-	s.streamWriters.Store(streamID, sw)
-	go func() {
-		for buf := range sw.ch {
-			_ = sw.conn.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
-			if _, err := sw.conn.Write(buf); err != nil {
-				break
-			}
+	s.dialStreams.Store(streamID, ds)
+	tmp := make([]byte, len(data))
+	copy(tmp, data)
+	select {
+	case ds.ch <- tmp:
+	default:
+	}
+	go s.dialProxyStream(ctx, streamID, dst, ds)
+}
+
+// dialProxyStream dials the target asynchronously, then wires the client→target
+// writer and the target→client forwarder. All frames route through ds.ch, so
+// ordering is preserved and wsToTun stays non-blocking.
+func (s *Session) dialProxyStream(ctx context.Context, sid uint32, dst string, ds *dialStream) {
+	defer func() {
+		// Remove only if it's the same dial we registered (defensive).
+		if cur, ok := s.dialStreams.Load(sid); ok && cur == ds {
+			s.dialStreams.Delete(sid)
 		}
 	}()
 
-	if len(data) > 0 {
-		tmp := make([]byte, len(data))
-		copy(tmp, data)
-		sw.ch <- tmp
+	var tcpConn net.Conn
+	var err error
+	if ctx.Err() == nil {
+		d := &net.Dialer{Timeout: 10 * time.Second}
+		tcpConn, err = d.DialContext(ctx, "tcp", dst)
+	} else {
+		err = ctx.Err()
+	}
+	if err != nil {
+		s.logger.Warn("proxy dial failed", zap.String("dst", dst), zap.String("ip", dst), zap.Error(err))
+		if ctx.Err() == nil {
+			s.writeProxyCloseFrame(sid)
+		}
+		return
 	}
 
 	select {
 	case s.proxySem <- struct{}{}:
 	default:
-		s.logger.Warn("proxy concurrency limit reached, dropping stream", zap.Uint32("stream_id", streamID))
+		s.logger.Warn("proxy concurrency limit reached, dropping stream", zap.Uint32("stream_id", sid))
 		_ = tcpConn.Close()
-		s.proxyStreams.Delete(streamID)
-		s.streamWriters.Delete(streamID)
+		s.writeProxyCloseFrame(sid)
 		return
 	}
 
-	go s.forwardProxyStream(streamID, tcpConn, dst, ctx)
+	ds.conn = tcpConn
+	s.proxyStreams.Store(sid, tcpConn)
+	s.streamWriters.Store(sid, &streamWriter{conn: tcpConn, ch: ds.ch})
+	s.dialStreams.Delete(sid)
+
+	s.logger.Info("proxy tunnel", zap.String("dst", dst), zap.String("ip", dst))
+
+	// Client→target writer: drains ds.ch sequentially, exits on write error or
+	// session cancellation. Never closed here — the router stops feeding frames
+	// once the stream is torn down.
+	go func() {
+		for {
+			select {
+			case buf := <-ds.ch:
+				if ds.conn == nil {
+					return
+				}
+				_ = ds.conn.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
+				if _, err := ds.conn.Write(buf); err != nil {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Target→client forward loop (owns teardown of the stream).
+	go s.forwardProxyStream(sid, tcpConn, dst, ctx)
+}
+
+// writeProxyCloseFrame sends a proxy close frame with no destination length,
+// signalling to the client the stream is done.
+func (s *Session) writeProxyCloseFrame(sid uint32) {
+	closeFrame := framing.Frame{
+		Type:    framing.FrameTypeProxy,
+		Payload: make([]byte, 6),
+	}
+	binary.BigEndian.PutUint32(closeFrame.Payload[0:4], sid)
+	binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
+	if encoded, encErr := closeFrame.Encode(); encErr == nil {
+		_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
+		if err := s.stream.WriteMessage(encoded); err != nil {
+			s.logger.Warn("write close frame failed", zap.Error(err))
+		}
+		framing.ReturnBuffer(encoded)
+	}
 }
 
 // @sk-task dns-upstreams-list#T2.2: use s.dnsUpstreams instead of hardcoded addr (AC-006)
@@ -497,11 +569,7 @@ func (s *Session) forwardDNS(ctx context.Context, query []byte, upstreams []stri
 func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, parentCtx context.Context) {
 	defer func() {
 		<-s.proxySem
-		if sw, ok := s.streamWriters.Load(sid); ok {
-			s.streamWriters.Delete(sid)
-			w, _ := sw.(*streamWriter)
-			close(w.ch)
-		}
+		s.streamWriters.Delete(sid)
 		_ = tcp.Close()
 		s.proxyStreams.Delete(sid)
 		if parentCtx.Err() != nil {

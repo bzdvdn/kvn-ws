@@ -163,6 +163,7 @@ func (c *Client) doHandshake(ctx context.Context, stream transport.StreamConn) b
 // @sk-task win-proxy-multi-conn#T3.4: DNS proxy bound to slot 0 (AC-006)
 // @sk-task win-proxy-multi-conn#T3.5: QUIC keepalive on slot 0 (AC-007)
 // @sk-task win-proxy-multi-conn#T3.6: teardown all slots on any error (AC-003)
+// @sk-task ipv4-prefer-tunnel#T3.1: prefer IPv4 literal for tunneled dsts (server VPS has no IPv6 route, Telegram CDN hangs otherwise)
 func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, transparent bool) {
 	// Close all streams on exit
 	defer func() {
@@ -308,19 +309,27 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 				return
 			}
 			ipAddr := net.ParseIP(host)
+			var ipv4Only net.IP
 			if ipAddr == nil {
 				addrs, _ := net.DefaultResolver.LookupHost(ctx, host)
-				if len(addrs) > 0 {
-					ipAddr = net.ParseIP(addrs[0])
+				for _, a := range addrs {
+					if ip := net.ParseIP(a); ip != nil {
+						if ipv4Only == nil && ip.To4() != nil {
+							ipv4Only = ip
+						}
+						if ipAddr == nil {
+							ipAddr = ip
+						}
+					}
 				}
-				if dnsTracker != nil && len(addrs) > 0 {
+				if len(addrs) > 0 {
 					var ips []netip.Addr
 					for _, a := range addrs {
 						if ip, err := netip.ParseAddr(a); err == nil {
 							ips = append(ips, ip)
 						}
 					}
-					if len(ips) > 0 {
+					if len(ips) > 0 && dnsTracker != nil {
 						dnsTracker.Track(host, ips)
 					}
 				}
@@ -363,6 +372,29 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 				}()
 				return
 			}
+
+			// Prefer IPv4 destination for tunneled connections: the server VPS has
+			// no IPv6 route to many CDNs (e.g. Telegram), so dialing an IPv6 literal
+			// or an IPv6-preferred hostname fails. Rewrite a domain dst to its IPv4
+			// literal so the server dials v4 immediately.
+			if ipv4Only != nil {
+				if _, port, err := net.SplitHostPort(dst); err == nil {
+					dst = net.JoinHostPort(ipv4Only.String(), port)
+				}
+			}
+
+			// @sk-task ipv4-prefer-tunnel#T3.3: log DNS resolution + family so slow
+			// or v6-only resolution is visible in kvn-client logs
+			var fam string
+			switch {
+			case ipv4Only != nil:
+				fam = "v4"
+			case ipAddr != nil:
+				fam = ipAddr.String()
+			default:
+				fam = "unresolved"
+			}
+			c.logger.Info("proxy resolv", zap.String("dst", dst), zap.String("resolved", fam), zap.String("host", host))
 		}
 
 		// Pick a slot by round-robin

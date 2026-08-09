@@ -3,6 +3,7 @@ package tunnel
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
 
@@ -102,6 +104,131 @@ func encodeFrame(t *testing.T, f *framing.Frame) []byte {
 		t.Fatalf("encode frame: %v", err)
 	}
 	return data
+}
+
+func proxyPayload(sid uint32, dst string, data []byte) []byte {
+	p := make([]byte, 4+2+len(dst)+len(data))
+	binary.BigEndian.PutUint32(p[0:4], sid)
+	binary.BigEndian.PutUint16(p[4:6], uint16(len(dst))) // #nosec G115 — bounded by protocol
+	copy(p[6:], dst)
+	copy(p[6+len(dst):], data)
+	return p
+}
+
+// recStream records frames written back to the transport stream (e.g. close frames).
+type recStream struct {
+	*mockStreamConn
+	mu  sync.Mutex
+	out [][]byte
+}
+
+func (r *recStream) WriteMessage(data []byte) error {
+	r.mu.Lock()
+	buf := make([]byte, len(data))
+	copy(buf, data)
+	r.out = append(r.out, buf)
+	r.mu.Unlock()
+	return nil
+}
+
+// @sk-test proxy-slow-dial: wsToTun read-loop must not block on a proxy target
+// dial. Stream 1 uses a non-routable destination (dial may hang), stream 2 must
+// still reach its listener while that dial is pending.
+func TestProxyDialAsyncDoesNotBlockLoop(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	echoAddr := ln.Addr().String()
+	received := make(chan string, 1)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 4096)
+			n, _ := c.Read(buf)
+			received <- string(buf[:n])
+			_ = c.Close()
+		}
+	}()
+
+	f1 := encodeFrame(t, &framing.Frame{
+		Type:    framing.FrameTypeProxy,
+		Payload: proxyPayload(1, "203.0.113.9:81", []byte("ping1")),
+	})
+	f2 := encodeFrame(t, &framing.Frame{
+		Type:    framing.FrameTypeProxy,
+		Payload: proxyPayload(2, echoAddr, []byte("ping2")),
+	})
+
+	stream := &recStream{mockStreamConn: &mockStreamConn{messages: [][]byte{f1, f2}}}
+	s := &Session{
+		stream:        stream,
+		logger:        zap.NewNop(),
+		proxyStreams:  proxy.NewSessionStreams(),
+		proxySem:      make(chan struct{}, 256),
+		tunnelTimeout: 2 * time.Second,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() { _ = s.wsToTun(ctx) }()
+
+	select {
+	case got := <-received:
+		if got != "ping2" {
+			t.Fatalf("echo = %q, want %q", got, "ping2")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("read-loop was blocked: stream 2 not relayed while stream 1 dial pending")
+	}
+}
+
+// @sk-test proxy-slow-dial: on a failed target dial the server writes a close
+// frame with an empty destination back to the client.
+func TestProxyDialFailureSendsCloseFrame(t *testing.T) {
+	f := encodeFrame(t, &framing.Frame{
+		Type:    framing.FrameTypeProxy,
+		Payload: proxyPayload(42, "127.0.0.1:9", []byte("ping")),
+	})
+
+	stream := &recStream{mockStreamConn: &mockStreamConn{messages: [][]byte{f}}}
+	s := &Session{
+		stream:        stream,
+		logger:        zap.NewNop(),
+		proxyStreams:  proxy.NewSessionStreams(),
+		proxySem:      make(chan struct{}, 256),
+		tunnelTimeout: 2 * time.Second,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() { _ = s.wsToTun(ctx) }()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		stream.mu.Lock()
+		for _, msg := range stream.out {
+			var fr framing.Frame
+			if err := fr.Decode(msg); err != nil {
+				continue
+			}
+			if fr.Type == framing.FrameTypeProxy && len(fr.Payload) >= 6 {
+				sid := binary.BigEndian.Uint32(fr.Payload[0:4])
+				dstLen := binary.BigEndian.Uint16(fr.Payload[4:6])
+				if sid == 42 && dstLen == 0 {
+					stream.mu.Unlock()
+					return
+				}
+			}
+		}
+		stream.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("no close frame delivered for a failed proxy dial")
 }
 
 // @sk-test arch-refactoring#T4.1: wsToTun data frame dispatch + Release (AC-005)

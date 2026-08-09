@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -18,14 +19,15 @@ var (
 )
 
 const (
-	socksVersion5     = 0x05
-	socksCmdConnect   = 0x01
-	socksAtypIPv4     = 0x01
-	socksAtypDomain   = 0x03
-	socksAtypIPv6     = 0x04
-	socksAuthNone     = 0x00
-	socksAuthUserPass = 0x02
-	socksRepSuccess   = 0x00
+	socksVersion5           = 0x05
+	socksCmdConnect         = 0x01
+	socksAtypIPv4           = 0x01
+	socksAtypDomain         = 0x03
+	socksAtypIPv6           = 0x04
+	socksAuthNone           = 0x00
+	socksAuthUserPass       = 0x02
+	socksRepSuccess         = 0x00
+	socksRepHostUnreachable = 0x04 // RFC 1928: host unreachable
 )
 
 type ProxyAuth struct {
@@ -169,9 +171,35 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) (handedOff bo
 		}
 	}
 
-	var authMethod byte = socksAuthNone
-	if l.auth != nil {
+	var authMethod byte
+	methods := buf[2 : 2+numMethods]
+	if l.auth == nil {
+		// Accept no-auth, or reject when the client did not offer it.
+		authMethod = socksAuthNone
+		if !bytes.Contains(methods, []byte{socksAuthNone}) {
+			_, _ = client.Write([]byte{socksVersion5, 0xFF})
+			return
+		}
+	} else {
+		// Honor RFC 1929 method negotiation: some clients (e.g. Telegram
+		// Android) only offer no-auth, which they cannot be forced off. Prefer
+		// user/pass when offered, otherwise fall back to no-auth.
 		authMethod = socksAuthUserPass
+		methodOK := false
+		for _, m := range methods {
+			if m == socksAuthUserPass {
+				methodOK = true
+				break
+			}
+		}
+		if !methodOK && bytes.Contains(methods, []byte{socksAuthNone}) {
+			authMethod = socksAuthNone
+			methodOK = true
+		}
+		if !methodOK {
+			_, _ = client.Write([]byte{socksVersion5, 0xFF})
+			return
+		}
 	}
 	_, _ = client.Write([]byte{socksVersion5, authMethod})
 
@@ -247,7 +275,20 @@ func (l *Listener) handleSOCKS5(client net.Conn, firstByte []byte) (handedOff bo
 		}
 		ip := net.IP(buf[4:20])
 		port := binary.BigEndian.Uint16(buf[20:22])
-		dst = fmt.Sprintf("[%s]:%d", ip, port)
+		if ip4 := ip.To4(); ip4 != nil {
+			// IPv4-mapped ::ffff:a.b.c.d → dial as plain IPv4.
+			dst = fmt.Sprintf("%s:%d", ip4, port)
+			break
+		}
+		// @sk-task ipv4-prefer-tunnel#T3.2: reject raw IPv6 CONNECT — the exit
+		// node (VPS) has no IPv6 route (Telegram media hangs on IPv6 DCs).
+		// A host-unreachable reply lets the client fall back to its IPv4
+		// endpoint immediately instead of waiting for a dead dial.
+		_, _ = client.Write([]byte{
+			socksVersion5, socksRepHostUnreachable, 0x00, socksAtypIPv4,
+			0, 0, 0, 0, 0, 0,
+		})
+		return
 	case socksAtypDomain:
 		if n < 5 {
 			_, err = io.ReadFull(client, buf[n:5])

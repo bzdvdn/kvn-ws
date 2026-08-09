@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.4] 2026-08-09
+
+### Fixed
+
+- **Прокси-режим: блокировка read-loop на `net.DialTimeout`** — `handleProxyFrame` дозванивался до цели (`net.DialTimeout("tcp", dst, 10s)`) синхронно в read-loop и блокировал весь туннель на время dial. Переписано на async: `dialProxyStream` + `dialStream` (канал-очередь для фреймов на время dial, `dialStreams sync.Map`), `writeProxyCloseFrame` для корректного close-фрейма при неудачном dial. Тесты `TestProxyDialAsyncDoesNotBlockLoop` и `TestProxyDialFailureSendsCloseFrame`.
+- **SOCKS5: Telegram Android не поддерживает RFC 1929 (username/password)** — при включённом `proxy_auth` Telegram виснул на «connecting» (ноутбук работал). Метод-negotiation теперь соответствует клиенту: если предложены и no-auth, и user/pass — выбирается user/pass; только no-auth — фолбэк на no-auth; ни один метод — `0xFF` reject. Тест `TestSOCKS5AuthMethodNegotiation`.
+- **IPv6-медиа Telegram зависало в прокси-режиме** — VPS без IPv6: raw IPv6 CONNECT (`ATYP=0x04`) отвечает `0x04 host unreachable` мгновенно, позволяя клиенту сразу фолбэкнуть на IPv4-эндпоинт того же DC; IPv4-mapped `::ffff:a.b.c.d` переписываются в обычный IPv4. Тест `TestSOCKS5IPv6AddressHandling`.
+
+### Changed
+
+- **Прокси: приоритет IPv4 для туннелированных соединений** — в `client/proxy.go` домены резолвятся с предпочтением A-записи, и destination переписывается в IPv4-литерал, чтобы exit-сервер (без IPv6) коннектился сразу по v4. Добавлено логирование `proxy resolv` (host / resolved family / dst) для диагностики DNS.
+- **SOCKS5-листенер: IPv4-mapped IPv6** — `::ffff:` адреса обрабатываются как IPv4 вместо отправки серверу «мёртвого» IPv6-литерала.
+
 ## [1.1.3] 2026-08-07
 
 ### Fixed
