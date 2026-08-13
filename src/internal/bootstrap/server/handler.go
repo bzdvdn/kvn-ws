@@ -103,6 +103,13 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	}
 
 	tokenName := tokenCfg.Name
+
+	// @sk-task dual-ws-channel#T3.1: secondary channel handshake branch (AC-001)
+	if clientHello.Channel == "secondary" {
+		s.handleSecondaryStream(ctx, stream, clientHello, tokenName, mtu, remoteAddr)
+		return
+	}
+
 	var sidBuf [16]byte
 	if _, rerr := rand.Read(sidBuf[:]); rerr != nil {
 		copy(sidBuf[:], clientHello.Token)
@@ -196,6 +203,9 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	tunSess := tunnel.NewSession(s.tunDev, stream, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams,
 		tunnelTimeout, 1000, assignedIP, assignedIPv6, s.cfg.DNSUpstreams)
 	tunSess.SetDemux(s.tunDemux)
+	// @sk-task dual-ws-channel#T3.1: register session before Run for secondary binding (AC-001)
+	s.tunnelSessRefs.Store(sess.ID, tunSess)
+	defer s.tunnelSessRefs.Delete(sess.ID)
 	if err := tunSess.Run(sessionCtx); err != nil {
 		s.logger.Info("session ended",
 			zap.String("session", sess.ID),
@@ -210,4 +220,84 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	sessionStreams.CloseAll()
 	s.sm.Remove(sess.ID)
 	_ = stream.Close()
+}
+
+// @sk-task dual-ws-channel#T3.1: bind secondary stream to an existing tunnel session (AC-001)
+func (s *Server) handleSecondaryStream(ctx context.Context, stream tunnel.StreamConn, clientHello *handshake.ClientHello, tokenName string, mtu int, remoteAddr string) {
+	reject := func(reason string) {
+		pkglog.Audit(s.logger, zapcore.WarnLevel, "secondary auth failed",
+			zap.String("session_id", clientHello.SessionId),
+			zap.String("reason", reason),
+			zap.String("remote_addr", remoteAddr),
+		)
+		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: reason})
+		authData, _ := authFrame.Encode()
+		_ = stream.WriteMessage(authData)
+		framing.ReturnBuffer(authData)
+		_ = stream.Close()
+	}
+
+	sess := s.sm.Get(clientHello.SessionId)
+	if sess == nil {
+		reject("session not found")
+		return
+	}
+	if sess.TokenName != tokenName {
+		reject("token mismatch")
+		return
+	}
+	ref, ok := s.tunnelSessRefs.Load(clientHello.SessionId)
+	if !ok {
+		reject("session not active")
+		return
+	}
+	tunSess := ref.(*tunnel.Session)
+	if mtu <= 0 {
+		mtu = handshake.DefaultMTU
+	}
+	serverHello, err := handshake.EncodeServerHello(&handshake.ServerHello{
+		SessionId:    sess.ID,
+		AssignedIp:   sess.AssignedIp,
+		AssignedIpv6: sess.AssignedIpv6,
+		Mtu:          mtu,
+		GatewayIp:    s.gatewayIP,
+	})
+	if err != nil {
+		s.logger.Error("encode secondary server hello", zap.Error(err))
+		_ = stream.Close()
+		return
+	}
+	helloData, err := serverHello.Encode()
+	if err != nil {
+		s.logger.Error("encode secondary hello frame", zap.Error(err))
+		_ = stream.Close()
+		return
+	}
+	if err := stream.WriteMessage(helloData); err != nil {
+		framing.ReturnBuffer(helloData)
+		s.logger.Error("send secondary server hello", zap.Error(err))
+		_ = stream.Close()
+		return
+	}
+	framing.ReturnBuffer(helloData)
+
+	tunSess.SetSecondary(stream)
+	s.logger.Info("secondary channel bound",
+		zap.String("session", sess.ID),
+		zap.String("token", tokenName),
+	)
+	// The secondary read/write loops own the stream; block until the owning
+	// session terminates (ref removed after Run) or the request returns.
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, ok := s.tunnelSessRefs.Load(clientHello.SessionId); !ok {
+				return
+			}
+		}
+	}
 }

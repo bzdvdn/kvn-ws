@@ -68,6 +68,8 @@ type Server struct {
 	httpServer    *http.Server
 	startTime     time.Time
 	shutdownTO    time.Duration
+	// @sk-task dual-ws-channel#T3.1: active tunnel sessions by session_id for secondary binding (AC-001)
+	tunnelSessRefs sync.Map // string → *tunnel.Session
 }
 
 func New(configPath string) (*Server, error) {

@@ -12,6 +12,7 @@ import (
 
 // @sk-task performance-and-polish#T3.1: encode MTU in ClientHello (AC-004)
 // @sk-task quic-transport#T1.2: encode Transport field (AC-001, AC-004)
+// @sk-task dual-ws-channel#T1.2: encode Channel/SessionId tags for secondary channel (AC-001)
 func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 	tokenBytes := []byte(hello.Token)
 	flags := byte(0)
@@ -28,7 +29,17 @@ func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 	if len(transportBytes) > 0 {
 		transportSize = 2 + len(transportBytes)
 	}
-	payload := make([]byte, 2+2+len(tokenBytes)+mtuSize+transportSize)
+	channelBytes := []byte(hello.Channel)
+	channelSize := 0
+	if len(channelBytes) > 0 {
+		channelSize = 2 + len(channelBytes)
+	}
+	sessionBytes := []byte(hello.SessionId)
+	sessionSize := 0
+	if len(sessionBytes) > 0 {
+		sessionSize = 2 + len(sessionBytes)
+	}
+	payload := make([]byte, 2+2+len(tokenBytes)+mtuSize+transportSize+channelSize+sessionSize)
 	payload[0] = hello.ProtoVersion
 	payload[1] = flags
 	binary.BigEndian.PutUint16(payload[2:4], uint16(len(tokenBytes))) // #nosec G115 — bounded by config
@@ -45,6 +56,24 @@ func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 		payload[pos] = TransportTag
 		payload[pos+1] = byte(len(transportBytes)) // #nosec G115 — checked above
 		copy(payload[pos+2:], transportBytes)
+		pos += 2 + len(transportBytes)
+	}
+	if channelSize > 0 {
+		if len(channelBytes) > 255 {
+			return nil, fmt.Errorf("channel tag too long")
+		}
+		payload[pos] = ChannelTag
+		payload[pos+1] = byte(len(channelBytes)) // #nosec G115 — checked above
+		copy(payload[pos+2:], channelBytes)
+		pos += 2 + len(channelBytes)
+	}
+	if sessionSize > 0 {
+		if len(sessionBytes) > 255 {
+			return nil, fmt.Errorf("session tag too long")
+		}
+		payload[pos] = SessionTag
+		payload[pos+1] = byte(len(sessionBytes)) // #nosec G115 — checked above
+		copy(payload[pos+2:], sessionBytes)
 	}
 	return &framing.Frame{
 		Type:    framing.FrameTypeHello,
@@ -55,6 +84,7 @@ func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 
 // @sk-task performance-and-polish#T3.1: decode MTU from ClientHello (AC-004)
 // @sk-task quic-transport#T1.2: decode Transport field (AC-001, AC-004)
+// @sk-task dual-ws-channel#T1.2: decode Channel/SessionId tags (backward compatible) (AC-001)
 func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 	if frame.Type != framing.FrameTypeHello {
 		return nil, fmt.Errorf("unexpected frame type %d", frame.Type)
@@ -88,6 +118,12 @@ func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 		}
 		if tag == TransportTag {
 			hello.Transport = string(data[pos+2 : pos+2+length])
+		}
+		if tag == ChannelTag {
+			hello.Channel = string(data[pos+2 : pos+2+length])
+		}
+		if tag == SessionTag {
+			hello.SessionId = string(data[pos+2 : pos+2+length])
 		}
 		pos += 2 + length
 	}

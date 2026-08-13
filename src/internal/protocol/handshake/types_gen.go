@@ -11,6 +11,8 @@ const (
 	CryptoTag = 0x09
 	GatewayTag = 0x0A
 	TransportTag = 0x0B
+	ChannelTag = 0x0C
+	SessionTag = 0x0D
 	ProtoVersion = 0x02
 	SessionIDLen = 16
 )
@@ -22,6 +24,8 @@ type ClientHello struct {
 	Token string
 	Mtu int
 	Transport string
+	Channel string
+	SessionId string
 }
 // @sk-task kvn-android#T1.1: generated ServerHello (AC-004)
 type ServerHello struct {

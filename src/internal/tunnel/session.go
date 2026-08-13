@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -76,8 +77,15 @@ type OutgoingInterceptor func(payload []byte) (handled bool, err error)
 // Session encapsulates bidirectional forwarding between a transport
 // stream (WebSocket or QUIC) and a TUN device.
 type Session struct {
-	tunDev           tun.TunDevice
-	stream           StreamConn
+	tunDev tun.TunDevice
+	stream StreamConn
+	// @sk-task dual-ws-channel#T2.2: secondary channel for UDP traffic (AC-002)
+	// @sk-task dual-ws-channel#T3.3: buffering guards for late secondary bind (AC-005)
+	secondary        StreamConn
+	secondaryMu      sync.RWMutex
+	loopOnce         sync.Once
+	runCtx           context.Context
+	primaryReady     atomic.Bool
 	sm               *session.SessionManager
 	sessionID        string
 	tokenName        string
@@ -160,6 +168,40 @@ func (s *Session) SetDemux(d *TunDemux) {
 	s.demux = d
 }
 
+// @sk-task dual-ws-channel#T2.2: bind secondary channel for UDP traffic (AC-002)
+// @sk-task dual-ws-channel#T3.1: late secondary bind — server binds after Run started (AC-001)
+func (s *Session) SetSecondary(sc StreamConn) {
+	s.secondaryMu.Lock()
+	s.secondary = sc
+	ctx := s.runCtx
+	s.secondaryMu.Unlock()
+	if ctx != nil {
+		s.startSecondaryLoop()
+	}
+}
+
+// @sk-task dual-ws-channel#T3.1: secondary loop runs independently of the primary errgroup (AC-004)
+func (s *Session) startSecondaryLoop() {
+	s.loopOnce.Do(func() {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Error("secondaryToTun recovered from panic", zap.Any("panic", r))
+				}
+			}()
+			if err := s.secondaryToTun(s.getRunCtx()); err != nil {
+				s.logger.Debug("secondary channel ended", zap.Error(err))
+			}
+			s.secondaryMu.Lock()
+			if s.secondary != nil {
+				_ = s.secondary.Close()
+				s.secondary = nil
+			}
+			s.secondaryMu.Unlock()
+		}()
+	})
+}
+
 func (s *Session) SetOutgoingInterceptor(fn OutgoingInterceptor) {
 	s.outgoingInterceptor = fn
 }
@@ -203,6 +245,7 @@ func (s *Session) Run(ctx context.Context) (err error) {
 		}
 	}()
 	s.startTunReader(ctx)
+	s.setRunCtx(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() (err error) {
 		defer func() {
@@ -222,7 +265,38 @@ func (s *Session) Run(ctx context.Context) (err error) {
 		}()
 		return s.tunToWS(ctx)
 	})
+	s.primaryReady.Store(true)
+	if s.hasSecondary() {
+		s.startSecondaryLoop()
+	}
 	return eg.Wait()
+}
+
+func (s *Session) setRunCtx(ctx context.Context) {
+	s.secondaryMu.Lock()
+	s.runCtx = ctx
+	s.secondaryMu.Unlock()
+}
+
+func (s *Session) getRunCtx() context.Context {
+	s.secondaryMu.RLock()
+	defer s.secondaryMu.RUnlock()
+	if s.runCtx != nil {
+		return s.runCtx
+	}
+	return context.Background()
+}
+
+func (s *Session) hasSecondary() bool {
+	s.secondaryMu.RLock()
+	defer s.secondaryMu.RUnlock()
+	return s.secondary != nil
+}
+
+func (s *Session) getSecondary() StreamConn {
+	s.secondaryMu.RLock()
+	defer s.secondaryMu.RUnlock()
+	return s.secondary
 }
 
 // @sk-task fix-ping-drops#T2.1: treat read timeout as non-fatal, continue instead of aborting session
@@ -634,6 +708,121 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 	}
 }
 
+// @sk-task dual-ws-channel#T2.2: secondary read-loop — FrameTypeData → decrypt → TUN (AC-002)
+// @sk-task dual-ws-channel#T3.3: buffer until primaryReady; 300ms / 1024 packets then flush or drop (AC-005)
+func (s *Session) secondaryToTun(ctx context.Context) error {
+	if !s.hasSecondary() {
+		return nil
+	}
+	const (
+		bufferDuration = 300 * time.Millisecond
+		bufferMax      = 1024
+	)
+	var (
+		buffered    [][]byte
+		bufferStart time.Time
+	)
+	flush := func() error {
+		for _, p := range buffered {
+			if _, err := s.tunDev.Write(p); err != nil {
+				return err
+			}
+		}
+		buffered = buffered[:0]
+		return nil
+	}
+	var lastRateLimitLog time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		secondary := s.getSecondary()
+		if secondary == nil {
+			return nil
+		}
+		if s.prl != nil && !s.prl.Allow(s.sessionID) {
+			if time.Since(lastRateLimitLog) > time.Second {
+				lastRateLimitLog = time.Now()
+				pkglog.Audit(s.logger, zapcore.WarnLevel, "secondary packet rate limited",
+					zap.String("session_id", s.sessionID),
+				)
+			}
+			continue
+		}
+		if err := secondary.SetReadDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
+			return err
+		}
+		data, err := secondary.ReadMessage()
+		if err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				s.logger.Debug("secondary read timeout, continuing", zap.Error(err))
+				if len(buffered) > 0 && s.primaryReady.Load() {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			return err
+		}
+		var f framing.Frame
+		if err := f.Decode(data); err != nil {
+			return err
+		}
+		if f.Type == framing.FrameTypeClose {
+			f.Release()
+			return nil
+		}
+		if f.Type != framing.FrameTypeData {
+			f.Release()
+			continue
+		}
+		if s.cipher != nil {
+			decrypted, err := s.cipher.Decrypt(f.Payload)
+			if err != nil {
+				s.logger.Warn("secondary decrypt failed, dropping packet", zap.Error(err))
+				f.Release()
+				continue
+			}
+			f.Release()
+			f.Payload = decrypted
+		}
+		if !s.primaryReady.Load() {
+			if len(buffered) == 0 {
+				bufferStart = time.Now()
+			}
+			if len(buffered) < bufferMax && time.Since(bufferStart) <= bufferDuration {
+				payload := make([]byte, len(f.Payload))
+				copy(payload, f.Payload)
+				buffered = append(buffered, payload)
+				f.Release()
+				continue
+			}
+			// Buffer full or primary not ready in time: drop the new packet
+			// (kept buffered packets are flushed once primary becomes ready).
+			s.logger.Debug("secondary buffer full or timeout, dropping incoming",
+				zap.Int("buffered", len(buffered)),
+			)
+			f.Release()
+			continue
+		}
+		if len(buffered) > 0 {
+			if err := flush(); err != nil {
+				f.Release()
+				return err
+			}
+		}
+		if _, err := s.tunDev.Write(f.Payload); err != nil {
+			f.Release()
+			return err
+		}
+		f.Release()
+	}
+}
+
 // @sk-task fix-critical-leaks#T3.1: TUN reader — channel-based (AC-001)
 func (s *Session) tunToWS(ctx context.Context) error {
 	for {
@@ -671,6 +860,10 @@ func (s *Session) tunToWS(ctx context.Context) error {
 				time.Sleep(delay)
 			}
 		}
+		target := s.stream
+		if secondary := s.getSecondary(); secondary != nil && parseIPProto(payload) {
+			target = secondary
+		}
 		if s.cipher != nil {
 			encrypted, err := s.cipher.Encrypt(payload)
 			if err != nil {
@@ -690,12 +883,12 @@ func (s *Session) tunToWS(ctx context.Context) error {
 			putTunReadBuf(r.buf)
 			return err
 		}
-		if err := s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
+		if err := target.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
 			framing.ReturnBuffer(data)
 			putTunReadBuf(r.buf)
 			return err
 		}
-		if err := s.stream.WriteMessage(data); err != nil {
+		if err := target.WriteMessage(data); err != nil {
 			framing.ReturnBuffer(data)
 			putTunReadBuf(r.buf)
 			return err

@@ -2,19 +2,24 @@ package integration_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	gorillaws "github.com/gorilla/websocket"
+	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
+	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
 )
 
 // @sk-test production-readiness-gap#T3: integration test — full handshake + encrypted data round-trip over WebSocket (AC-001)
@@ -497,4 +502,476 @@ func (w *WSConnTest) WriteMessage(data []byte) error {
 
 func (w *WSConnTest) Close() error {
 	return w.conn.Close()
+}
+
+func (w *WSConnTest) SetReadDeadline(t time.Time) error  { return nil }
+func (w *WSConnTest) SetWriteDeadline(t time.Time) error { return nil }
+
+// queueTun is a mock tun.TunDevice fed from a channel; it records writes.
+type queueTun struct {
+	mu      sync.Mutex
+	feedCh  chan []byte
+	written [][]byte
+}
+
+func newQueueTun() *queueTun {
+	return &queueTun{feedCh: make(chan []byte, 16)}
+}
+
+func (q *queueTun) feed(pkt []byte) { q.feedCh <- pkt }
+
+func (q *queueTun) Read(b []byte) (int, error) {
+	pkt, ok := <-q.feedCh
+	if !ok {
+		return 0, io.EOF
+	}
+	n := copy(b, pkt)
+	return n, nil
+}
+
+func (q *queueTun) Write(b []byte) (int, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	buf := make([]byte, len(b))
+	copy(buf, b)
+	q.written = append(q.written, buf)
+	return len(b), nil
+}
+
+func (q *queueTun) writtenCopy() [][]byte {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	out := make([][]byte, len(q.written))
+	copy(out, q.written)
+	return out
+}
+
+func (q *queueTun) Open() error  { return nil }
+func (q *queueTun) Close() error { return nil }
+func (q *queueTun) SetIP(ip net.IP, m *net.IPNet) error {
+	return nil
+}
+func (q *queueTun) SetMTU(mtu int) error { return nil }
+func (q *queueTun) SetGateway(ip net.IP) error {
+	return nil
+}
+func (q *queueTun) RemoveGateway(ip net.IP) error { return nil }
+func (q *queueTun) AddExcludeRoute(cidr string, gw net.IP, iface string) error {
+	return nil
+}
+func (q *queueTun) RemoveExcludeRoute(cidr string, gw net.IP, iface string) error {
+	return nil
+}
+func (q *queueTun) CleanupExcludeRoutes()         {}
+func (q *queueTun) SetDNS(servers []string) error { return nil }
+func (q *queueTun) DisableGSO() error             { return nil }
+
+// ipv4Packet builds a minimal IPv4 packet with the given IP proto field.
+func ipv4Packet(proto byte, payload []byte) []byte {
+	hdr := make([]byte, 20)
+	hdr[0] = 0x45 // IPv4, IHL 5
+	hdr[9] = proto
+	return append(hdr, payload...)
+}
+
+const (
+	dualTestMasterKey = "0123456789abcdef0123456789abcdef"
+	dualTestValidTok  = "dual-test-token"
+	dualTestSession   = "aa11bb22cc33dd44ee55ff6600112233"
+)
+
+// dualChannelServer implements the dual-channel handshake described in the spec:
+// primary connects with a plain hello; secondary with Channel="secondary" +
+// SessionId binds to the matching session (token must match). It records
+// decrypted data frames received on each channel and replies on the secondary.
+type dualChannelServer struct {
+	t            *testing.T
+	upgrader     gorillaws.Upgrader
+	mu           sync.Mutex
+	sessions     map[string]*dualServSession
+	primaryGot   chan []byte
+	secondaryGot chan []byte
+}
+
+type dualServSession struct {
+	sid    string
+	token  string
+	cipher *crypto.SessionCipher
+}
+
+func newDualChannelServer(t *testing.T) *dualChannelServer {
+	return &dualChannelServer{
+		t:            t,
+		upgrader:     gorillaws.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
+		sessions:     make(map[string]*dualServSession),
+		primaryGot:   make(chan []byte, 16),
+		secondaryGot: make(chan []byte, 16),
+	}
+}
+
+func (s *dualChannelServer) handler(w http.ResponseWriter, r *http.Request) {
+	conn, err := s.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer func() { _ = conn.Close() }()
+
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		return
+	}
+	var f framing.Frame
+	if err := f.Decode(msg); err != nil {
+		return
+	}
+	hello, err := handshake.DecodeClientHello(&f)
+	if err != nil {
+		return
+	}
+
+	reject := func(reason string) {
+		authFrame, _ := handshake.EncodeAuthError(&handshake.AuthError{Reason: reason})
+		authData, _ := authFrame.Encode()
+		_ = conn.WriteMessage(gorillaws.BinaryMessage, authData)
+		framing.ReturnBuffer(authData)
+	}
+
+	if hello.Channel == "secondary" {
+		s.mu.Lock()
+		sess := s.sessions[hello.SessionId]
+		s.mu.Unlock()
+		if sess == nil {
+			reject("session not found")
+			return
+		}
+		if hello.Token != sess.token {
+			reject("token mismatch")
+			return
+		}
+		// AC-001: secondary binds by session_id; send back the same session id.
+		serverHello, _ := handshake.EncodeServerHello(&handshake.ServerHello{
+			SessionId:  sess.sid,
+			AssignedIp: net.ParseIP("10.10.0.10").To4(),
+		})
+		shData, err := serverHello.Encode()
+		if err != nil {
+			return
+		}
+		if err := conn.WriteMessage(gorillaws.BinaryMessage, shData); err != nil {
+			framing.ReturnBuffer(shData)
+			return
+		}
+		framing.ReturnBuffer(shData)
+
+		// Relay data frames: decrypt and record, then reply with a UDP packet
+		// so the client-side secondary loop has a packet to decrypt back.
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var df framing.Frame
+			if err := df.Decode(data); err != nil {
+				continue
+			}
+			if df.Type != framing.FrameTypeData {
+				continue
+			}
+			plain, err := sess.cipher.Decrypt(df.Payload)
+			if err != nil {
+				df.Release()
+				continue
+			}
+			df.Release()
+			select {
+			case s.secondaryGot <- plain:
+			default:
+			}
+			// AC-003: return UDP answer comes back over the secondary.
+			var inner []byte
+			if len(plain) > 20 {
+				inner = plain[20:]
+			}
+			reply := ipv4Packet(17 /*UDP*/, append([]byte("reply:"), inner...))
+			enc, err := sess.cipher.Encrypt(reply)
+			if err != nil {
+				continue
+			}
+			rf := framing.Frame{Type: framing.FrameTypeData, Payload: enc}
+			rData, err := rf.Encode()
+			if err != nil {
+				continue
+			}
+			_ = conn.WriteMessage(gorillaws.BinaryMessage, rData)
+			framing.ReturnBuffer(rData)
+		}
+	}
+
+	// Primary channel.
+	if hello.Token != dualTestValidTok {
+		reject("authentication failed")
+		return
+	}
+	salt := bytes.Repeat([]byte{0xbb}, 32)
+	cipher, err := crypto.NewSessionCipher([]byte(dualTestMasterKey), salt, dualTestSession)
+	if err != nil {
+		return
+	}
+	sess := &dualServSession{sid: dualTestSession, token: hello.Token, cipher: cipher}
+	s.mu.Lock()
+	s.sessions[dualTestSession] = sess
+	s.mu.Unlock()
+
+	serverHello, _ := handshake.EncodeServerHello(&handshake.ServerHello{
+		SessionId:  sess.sid,
+		AssignedIp: net.ParseIP("10.10.0.10").To4(),
+		CryptoSalt: salt,
+	})
+	shData, err := serverHello.Encode()
+	if err != nil {
+		return
+	}
+	if err := conn.WriteMessage(gorillaws.BinaryMessage, shData); err != nil {
+		framing.ReturnBuffer(shData)
+		return
+	}
+	framing.ReturnBuffer(shData)
+
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var df framing.Frame
+		if err := df.Decode(data); err != nil {
+			continue
+		}
+		if df.Type != framing.FrameTypeData {
+			continue
+		}
+		plain, err := cipher.Decrypt(df.Payload)
+		if err != nil {
+			df.Release()
+			continue
+		}
+		df.Release()
+		select {
+		case s.primaryGot <- plain:
+		default:
+		}
+	}
+}
+
+// @sk-test dual-ws-channel#T4.1: two-channel round-trip — UDP on secondary, TCP on primary (AC-001/002/003)
+func TestTunnelDualChannelRoundtrip(t *testing.T) {
+	srv := newDualChannelServer(t)
+	server := httptest.NewServer(http.HandlerFunc(srv.handler))
+	defer server.Close()
+
+	wsURL := "ws://" + server.Listener.Addr().String() + "/tunnel"
+	dialer := gorillaws.Dialer{HandshakeTimeout: 5 * time.Second}
+
+	// Client primary channel.
+	primaryConn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial primary: %v", err)
+	}
+	defer func() { _ = primaryConn.Close() }()
+	primaryWS := &WSConnTest{conn: primaryConn}
+
+	primaryHello, _ := handshake.EncodeClientHello(&handshake.ClientHello{
+		ProtoVersion: handshake.ProtoVersion,
+		Token:        dualTestValidTok,
+	})
+	phData, _ := primaryHello.Encode()
+	_ = primaryWS.WriteMessage(phData)
+	framing.ReturnBuffer(phData)
+
+	resp, err := primaryWS.ReadMessage()
+	if err != nil {
+		t.Fatalf("primary read server hello: %v", err)
+	}
+	var pf framing.Frame
+	if err := pf.Decode(resp); err != nil {
+		t.Fatalf("primary decode hello: %v", err)
+	}
+	serverHello, err := handshake.DecodeServerHello(&pf)
+	if err != nil {
+		t.Fatalf("primary decode server hello: %v", err)
+	}
+	if serverHello.SessionId != dualTestSession {
+		t.Fatalf("session id = %q, want %q", serverHello.SessionId, dualTestSession)
+	}
+
+	// Client secondary channel bound by session_id.
+	secondaryConn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial secondary: %v", err)
+	}
+	defer func() { _ = secondaryConn.Close() }()
+	secondaryWS := &WSConnTest{conn: secondaryConn}
+
+	secHello, _ := handshake.EncodeClientHello(&handshake.ClientHello{
+		ProtoVersion: handshake.ProtoVersion,
+		Token:        dualTestValidTok,
+		Channel:      "secondary",
+		SessionId:    dualTestSession,
+	})
+	shData, _ := secHello.Encode()
+	_ = secondaryWS.WriteMessage(shData)
+	framing.ReturnBuffer(shData)
+
+	sresp, err := secondaryWS.ReadMessage()
+	if err != nil {
+		t.Fatalf("secondary read server hello: %v", err)
+	}
+	var sf framing.Frame
+	if err := sf.Decode(sresp); err != nil {
+		t.Fatalf("secondary decode hello: %v", err)
+	}
+	sServerHello, err := handshake.DecodeServerHello(&sf)
+	if err != nil {
+		t.Fatalf("secondary decode server hello: %v", err)
+	}
+	if sServerHello.SessionId != dualTestSession {
+		t.Fatalf("secondary session id = %q, want %q", sServerHello.SessionId, dualTestSession)
+	}
+
+	cipher, err := crypto.NewSessionCipher([]byte(dualTestMasterKey), serverHello.CryptoSalt, dualTestSession)
+	if err != nil {
+		t.Fatalf("client cipher: %v", err)
+	}
+
+	// Client tunnel session with a fed TUN: TCP must go via primary, UDP via secondary.
+	tun := newQueueTun()
+	clientSess := tunnel.NewSession(tun, primaryWS, nil, dualTestSession, "", nil, nil, nil,
+		zap.NewNop(), cipher, nil, 5*time.Second, 1000, nil, nil, nil)
+	clientSess.SetSecondary(secondaryWS)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	go func() { _ = clientSess.Run(ctx) }()
+
+	tcp := ipv4Packet(6 /*TCP*/, []byte("tcp-payload"))
+	udp := ipv4Packet(17 /*UDP*/, []byte("udp-payload"))
+	tun.feed(tcp)
+	tun.feed(udp)
+
+	// AC-002: TCP frame arrives on primary, UDP frame on secondary.
+	gotPrimary := <-srv.primaryGot
+	if len(gotPrimary) < 20 || gotPrimary[9] != 6 {
+		t.Errorf("primary got proto %v, want TCP", gotPrimary)
+	}
+	gotSecondary := <-srv.secondaryGot
+	if len(gotSecondary) < 20 || gotSecondary[9] != 17 {
+		t.Errorf("secondary got proto %v, want UDP", gotSecondary)
+	}
+
+	// AC-003: return UDP answer is written back on the secondary to client TUN.
+	deadline := time.Now().Add(3 * time.Second)
+	var written [][]byte
+	for time.Now().Before(deadline) {
+		written = tun.writtenCopy()
+		if len(written) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(written) == 0 {
+		t.Fatal("client TUN did not receive the return UDP reply via secondary")
+	}
+	reply := written[0]
+	if len(reply) < 20 || string(reply[20:]) != "reply:udp-payload" {
+		t.Errorf("client TUN reply = %q, want %q", reply[20:], "reply:udp-payload")
+	}
+}
+
+// @sk-test dual-ws-channel#T4.1: wrong token rejected on secondary; primary keeps working (AC-001/004)
+func TestTunnelDualChannelForeignTokenAndPrimarySurvives(t *testing.T) {
+	srv := newDualChannelServer(t)
+	server := httptest.NewServer(http.HandlerFunc(srv.handler))
+	defer server.Close()
+
+	wsURL := "ws://" + server.Listener.Addr().String() + "/tunnel"
+	dialer := gorillaws.Dialer{HandshakeTimeout: 5 * time.Second}
+
+	// Primary established first.
+	primaryConn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial primary: %v", err)
+	}
+	defer func() { _ = primaryConn.Close() }()
+	primaryWS := &WSConnTest{conn: primaryConn}
+	primaryHello, _ := handshake.EncodeClientHello(&handshake.ClientHello{
+		ProtoVersion: handshake.ProtoVersion,
+		Token:        dualTestValidTok,
+	})
+	phData, _ := primaryHello.Encode()
+	_ = primaryWS.WriteMessage(phData)
+	framing.ReturnBuffer(phData)
+	resp, err := primaryWS.ReadMessage()
+	if err != nil {
+		t.Fatalf("primary read server hello: %v", err)
+	}
+	var pf framing.Frame
+	if err := pf.Decode(resp); err != nil {
+		t.Fatalf("primary decode hello: %v", err)
+	}
+	serverHello, err := handshake.DecodeServerHello(&pf)
+	if err != nil {
+		t.Fatalf("primary decode server hello: %v", err)
+	}
+
+	// AC-001: secondary with a foreign token is rejected.
+	foreignConn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial foreign secondary: %v", err)
+	}
+	defer func() { _ = foreignConn.Close() }()
+	foreignWS := &WSConnTest{conn: foreignConn}
+	fHello, _ := handshake.EncodeClientHello(&handshake.ClientHello{
+		ProtoVersion: handshake.ProtoVersion,
+		Token:        "wrong-token",
+		Channel:      "secondary",
+		SessionId:    dualTestSession,
+	})
+	fhData, _ := fHello.Encode()
+	_ = foreignWS.WriteMessage(fhData)
+	framing.ReturnBuffer(fhData)
+	fresp, err := foreignWS.ReadMessage()
+	if err != nil {
+		t.Fatalf("foreign secondary read: %v", err)
+	}
+	var ff framing.Frame
+	if err := ff.Decode(fresp); err != nil {
+		t.Fatalf("foreign decode: %v", err)
+	}
+	if ff.Type != framing.FrameTypeAuth {
+		t.Errorf("foreign secondary got frame %d, want Auth", ff.Type)
+	}
+
+	// AC-004: after the failed secondary handshake, primary traffic keeps flowing.
+	cipher, err := crypto.NewSessionCipher([]byte(dualTestMasterKey), serverHello.CryptoSalt, dualTestSession)
+	if err != nil {
+		t.Fatalf("client cipher: %v", err)
+	}
+	enc, err := cipher.Encrypt(ipv4Packet(17, []byte("udp-after-reject")))
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	df := framing.Frame{Type: framing.FrameTypeData, Payload: enc}
+	dData, _ := df.Encode()
+	if err := primaryWS.WriteMessage(dData); err != nil {
+		t.Fatalf("primary write data: %v", err)
+	}
+	framing.ReturnBuffer(dData)
+
+	select {
+	case got := <-srv.primaryGot:
+		if len(got) < 20 || got[9] != 17 {
+			t.Errorf("primary got proto %v, want UDP", got[9])
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("primary session did not survive foreign-token secondary rejection")
+	}
 }

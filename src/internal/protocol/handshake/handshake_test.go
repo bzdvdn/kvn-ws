@@ -364,3 +364,60 @@ func TestServerHelloBackwardCompatNoSalt(t *testing.T) {
 		t.Errorf("CryptoSalt = %v, want empty", decoded.CryptoSalt)
 	}
 }
+
+// @sk-test dual-ws-channel#T1.2: TestClientHelloChannelTagsRoundTrip (AC-001)
+// @sk-test dual-ws-channel#T1.2: secondary channel tags encode/decode (AC-001)
+func TestClientHelloChannelTagsRoundTrip(t *testing.T) {
+	original := &ClientHello{
+		ProtoVersion: ProtoVersion,
+		Token:        "test-token-123",
+		Channel:      "secondary",
+		SessionId:    "0102030405060708090a0b0c0d0e0f10",
+	}
+
+	frame, err := EncodeClientHello(original)
+	if err != nil {
+		t.Fatalf("EncodeClientHello: %v", err)
+	}
+
+	decoded, err := DecodeClientHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeClientHello: %v", err)
+	}
+
+	if decoded.Channel != "secondary" {
+		t.Errorf("Channel = %q, want secondary", decoded.Channel)
+	}
+	if decoded.SessionId != original.SessionId {
+		t.Errorf("SessionId = %q, want %q", decoded.SessionId, original.SessionId)
+	}
+	if decoded.Token != original.Token {
+		t.Errorf("Token = %q, want %q", decoded.Token, original.Token)
+	}
+}
+
+// @sk-test dual-ws-channel#T1.2: TestClientHelloNoTagsBackwardCompat (AC-007)
+// @sk-test dual-ws-channel#T1.2: absence of tags decodes as primary (AC-007)
+func TestClientHelloNoTagsBackwardCompat(t *testing.T) {
+	original := &ClientHello{
+		ProtoVersion: ProtoVersion,
+		Token:        "test-token-123",
+	}
+
+	frame, err := EncodeClientHello(original)
+	if err != nil {
+		t.Fatalf("EncodeClientHello: %v", err)
+	}
+
+	decoded, err := DecodeClientHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeClientHello: %v", err)
+	}
+
+	if decoded.Channel != "" {
+		t.Errorf("Channel = %q, want empty (primary)", decoded.Channel)
+	}
+	if decoded.SessionId != "" {
+		t.Errorf("SessionId = %q, want empty", decoded.SessionId)
+	}
+}

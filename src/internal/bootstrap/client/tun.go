@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/dns"
 	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
@@ -392,7 +394,82 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 	if tunRouter != nil {
 		tunSess.SetTunRouter(tunRouter)
 	}
+	// @sk-task dual-ws-channel#T3.2: secondary channel connect + bind (AC-002, AC-004)
+	if c.cfg.MultiChannel && sessionID != "" {
+		if secondaryConn, secErr := dialSecondaryChannel(ctx, c.cfg, c.logger, sessionID); secErr != nil {
+			c.logger.Warn("secondary channel unavailable, continuing on primary", zap.Error(secErr))
+		} else {
+			defer func() { _ = secondaryConn.Close() }()
+			tunSess.SetSecondary(secondaryConn)
+			c.logger.Info("secondary channel bound",
+				zap.String("session", sessionID),
+				zap.String("server", c.cfg.Server),
+			)
+		}
+	}
 	if err := tunSess.Run(ctx); err != nil {
 		c.logger.Info("session ended", zap.Error(err))
+	}
+}
+
+// @sk-task dual-ws-channel#T3.2: dial secondary stream and complete secondary handshake (AC-001, AC-004)
+func dialSecondaryChannel(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger, sessionID string) (tunnel.StreamConn, error) {
+	stream, err := dialStream(ctx, cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("dial secondary: %w", err)
+	}
+	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
+		ProtoVersion: handshake.ProtoVersion,
+		Ipv6:         cfg.IPv6,
+		Token:        cfg.Auth.Token,
+		Mtu:          cfg.MTU,
+		Channel:      "secondary",
+		SessionId:    sessionID,
+	})
+	if err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("encode secondary hello: %w", err)
+	}
+	helloData, err := helloFrame.Encode()
+	if err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("encode secondary hello frame: %w", err)
+	}
+	if err := stream.WriteMessage(helloData); err != nil {
+		framing.ReturnBuffer(helloData)
+		_ = stream.Close()
+		return nil, fmt.Errorf("send secondary hello: %w", err)
+	}
+	framing.ReturnBuffer(helloData)
+
+	respData, err := stream.ReadMessage()
+	if err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("read secondary server hello: %w", err)
+	}
+	var respFrame framing.Frame
+	if err := respFrame.Decode(respData); err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("decode secondary response: %w", err)
+	}
+	switch respFrame.Type {
+	case framing.FrameTypeAuth:
+		authErr, _ := handshake.DecodeAuthError(&respFrame)
+		_ = stream.Close()
+		return nil, fmt.Errorf("secondary auth rejected: %s", authErr.Reason)
+	case framing.FrameTypeHello:
+		serverHello, err := handshake.DecodeServerHello(&respFrame)
+		if err != nil {
+			_ = stream.Close()
+			return nil, fmt.Errorf("decode secondary server hello: %w", err)
+		}
+		if serverHello.SessionId != sessionID {
+			_ = stream.Close()
+			return nil, fmt.Errorf("secondary session id mismatch: %s != %s", serverHello.SessionId, sessionID)
+		}
+		return stream, nil
+	default:
+		_ = stream.Close()
+		return nil, fmt.Errorf("unexpected secondary response type: %d", int(respFrame.Type))
 	}
 }

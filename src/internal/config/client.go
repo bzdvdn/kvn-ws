@@ -50,6 +50,8 @@ type ClientConfig struct {
 	Transparent         bool            `json:"transparent" mapstructure:"transparent"`
 	DNSProxy            DNSProxyCfg     `json:"dns_proxy" mapstructure:"dns_proxy"`
 	Relay               *RelayCfg       `json:"relay,omitempty" mapstructure:"relay"`
+	// @sk-task dual-ws-channel#T3.2: second WS channel for UDP traffic (AC-002)
+	MultiChannel bool `json:"multi_channel" mapstructure:"multi_channel"`
 }
 
 // @sk-task client-relay-mode#T1.1: relay config struct (AC-003)

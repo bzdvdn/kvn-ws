@@ -116,3 +116,24 @@ func parseDestIP(packet []byte) net.IP {
 		return nil
 	}
 }
+
+// @sk-task dual-ws-channel#T2.1: classify packet as UDP for secondary channel routing (AC-002)
+func parseIPProto(packet []byte) bool {
+	if len(packet) < 1 {
+		return false
+	}
+	switch packet[0] >> 4 {
+	case 4:
+		if len(packet) < 10 {
+			return false
+		}
+		return packet[9] == 17 // udp
+	case 6:
+		if len(packet) < 7 {
+			return false
+		}
+		return packet[6] == 17 // udp
+	default:
+		return false
+	}
+}

@@ -8,6 +8,8 @@ const val DEFAULT_MTU: Int = 1500
 const val CRYPTO_TAG: Byte = 0x09.toByte()
 const val GATEWAY_TAG: Byte = 0x0A.toByte()
 const val TRANSPORT_TAG: Byte = 0x0B.toByte()
+const val CHANNEL_TAG: Byte = 0x0C.toByte()
+const val SESSION_TAG: Byte = 0x0D.toByte()
 const val PROTO_VERSION: Byte = 0x02.toByte()
 const val SESSION_ID_LEN: Int = 16
 
@@ -17,7 +19,9 @@ data class ClientHello(
 	val ipv6: Boolean,
 	val token: String,
 	val mtu: Int,
-	val transport: String
+	val transport: String,
+	val channel: String,
+	val sessionId: String
 )
 
 // @sk-task kvn-android#T1.1: Kotlin ServerHello data class (AC-004)

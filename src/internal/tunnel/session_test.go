@@ -13,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
@@ -321,6 +322,237 @@ func TestTunGoroutineLeak(t *testing.T) {
 	after := runtime.NumGoroutine()
 	if leaked := after - before; leaked > 5 {
 		t.Errorf("goroutine leak: %d goroutines after 10 iterations", leaked)
+	}
+}
+
+// @sk-test dual-ws-channel#T4.2: parseIPProto classification (AC-002)
+func TestParseIPProto(t *testing.T) {
+	v4udp := make([]byte, 20)
+	v4udp[0] = 0x45
+	v4udp[9] = 17
+	v4tcp := make([]byte, 20)
+	v4tcp[0] = 0x45
+	v4tcp[9] = 6
+	v6udp := make([]byte, 40)
+	v6udp[0] = 0x60
+	v6udp[6] = 17
+	v6tcp := make([]byte, 40)
+	v6tcp[0] = 0x60
+	v6tcp[6] = 6
+	v6ext := make([]byte, 40)
+	v6ext[0] = 0x60
+	v6ext[6] = 0x2b // hop-by-hop ext header → fallback primary
+
+	tests := []struct {
+		name string
+		pkt  []byte
+		want bool
+	}{
+		{"ipv4 udp", v4udp, true},
+		{"ipv4 tcp", v4tcp, false},
+		{"ipv6 udp", v6udp, true},
+		{"ipv6 tcp", v6tcp, false},
+		{"ipv6 ext header", v6ext, false},
+		{"short v4", []byte{0x45, 0x00}, false},
+		{"short v6", []byte{0x60}, false},
+		{"empty", nil, false},
+		{"garbage", []byte{0xaa, 0xbb, 0xcc}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseIPProto(tc.pkt); got != tc.want {
+				t.Errorf("parseIPProto(%q) = %v, want %v", tc.pkt, got, tc.want)
+			}
+		})
+	}
+}
+
+// queuedStreamConn lets tests push messages in discrete steps.
+type queuedStreamConn struct {
+	mu       sync.Mutex
+	cond     *sync.Cond
+	messages [][]byte
+	closed   bool
+}
+
+func newQueuedStreamConn() *queuedStreamConn {
+	q := &queuedStreamConn{}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *queuedStreamConn) push(msg []byte) {
+	q.mu.Lock()
+	q.messages = append(q.messages, msg)
+	q.cond.Broadcast()
+	q.mu.Unlock()
+}
+
+func (q *queuedStreamConn) ReadMessage() ([]byte, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for len(q.messages) == 0 && !q.closed {
+		q.cond.Wait()
+	}
+	if len(q.messages) == 0 {
+		return nil, net.ErrClosed
+	}
+	msg := q.messages[0]
+	q.messages = q.messages[1:]
+	return msg, nil
+}
+
+func (q *queuedStreamConn) WriteMessage(data []byte) error     { return nil }
+func (q *queuedStreamConn) SetReadDeadline(t time.Time) error  { return nil }
+func (q *queuedStreamConn) SetWriteDeadline(t time.Time) error { return nil }
+func (q *queuedStreamConn) Close() error {
+	q.mu.Lock()
+	q.closed = true
+	q.cond.Broadcast()
+	q.mu.Unlock()
+	return nil
+}
+
+func waitWritten(t *testing.T, tunW *mockTunWrite, want int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tunW.mu.Lock()
+		n := len(tunW.written)
+		tunW.mu.Unlock()
+		if n == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	tunW.mu.Lock()
+	defer tunW.mu.Unlock()
+	t.Fatalf("expected %d writes to tun, got %d", want, len(tunW.written))
+}
+
+// @sk-test dual-ws-channel#T4.2: buffer accumulates until primaryReady, flushes after (AC-005)
+func TestSecondaryBufferAccumulatesThenFlushes(t *testing.T) {
+	tunW := &mockTunWrite{}
+	secondary := newQueuedStreamConn()
+	s := &Session{
+		tunDev:        tunW,
+		logger:        zap.NewNop(),
+		tunnelTimeout: time.Second,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.setRunCtx(ctx)
+	s.SetSecondary(secondary)
+
+	frameMsg := func(payload []byte) []byte {
+		return encodeFrame(t, &framing.Frame{Type: framing.FrameTypeData, Payload: payload})
+	}
+
+	// primary not ready yet: three frames must be buffered, not written.
+	secondary.push(frameMsg([]byte("p1")))
+	secondary.push(frameMsg([]byte("p2")))
+	secondary.push(frameMsg([]byte("p3")))
+	time.Sleep(50 * time.Millisecond)
+	tunW.mu.Lock()
+	nBefore := len(tunW.written)
+	tunW.mu.Unlock()
+	if nBefore != 0 {
+		t.Fatalf("primary not ready: expected 0 tun writes, got %d", nBefore)
+	}
+
+	// Primary becomes ready; next frame flushes buffered + current.
+	s.primaryReady.Store(true)
+	secondary.push(frameMsg([]byte("p4")))
+	waitWritten(t, tunW, 4)
+
+	tunW.mu.Lock()
+	defer tunW.mu.Unlock()
+	want := [][]byte{[]byte("p1"), []byte("p2"), []byte("p3"), []byte("p4")}
+	for i, p := range want {
+		if !bytes.Equal(tunW.written[i], p) {
+			t.Errorf("write %d = %q, want %q", i, tunW.written[i], p)
+		}
+	}
+}
+
+// @sk-test dual-ws-channel#T4.2: buffer drops incoming once full (1080 pushed, only 1024 buffered) (AC-005)
+func TestSecondaryBufferDropsOnOverflow(t *testing.T) {
+	tunW := &mockTunWrite{}
+	secondary := newQueuedStreamConn()
+	s := &Session{
+		tunDev:        tunW,
+		logger:        zap.NewNop(),
+		tunnelTimeout: time.Second,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.setRunCtx(ctx)
+	s.SetSecondary(secondary)
+
+	frameMsg := func(payload []byte) []byte {
+		return encodeFrame(t, &framing.Frame{Type: framing.FrameTypeData, Payload: payload})
+	}
+
+	// Push far more than the 1024-packet cap while primary not ready.
+	for i := 0; i < 1500; i++ {
+		secondary.push(frameMsg([]byte{byte(i)}))
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// Ready + one more frame → flush the 1024 buffered packets + the final one.
+	s.primaryReady.Store(true)
+	secondary.push(frameMsg([]byte("end")))
+	waitWritten(t, tunW, 1024+1)
+
+	tunW.mu.Lock()
+	defer tunW.mu.Unlock()
+	// Buffered must be the first 1024 (byte(0..1023)); excess was dropped.
+	for i := 0; i < 1024; i++ {
+		if !bytes.Equal(tunW.written[i], []byte{byte(i)}) {
+			t.Fatalf("buffered write %d = %q, want byte(%d)", i, tunW.written[i], i)
+		}
+	}
+	if !bytes.Equal(tunW.written[1024], []byte("end")) {
+		t.Errorf("final write = %q, want %q", tunW.written[1024], "end")
+	}
+}
+
+// @sk-test dual-ws-channel#T4.2: secondary read decrypts with shared session cipher (AC-006)
+func TestSecondaryCryptoCrossChannel(t *testing.T) {
+	masterKey := bytes.Repeat([]byte{0x42}, 32)
+	salt := bytes.Repeat([]byte{0xaa}, 32)
+	sessionID := "abcdef0123456789abcdef0123456789"
+	cipher, err := crypto.NewSessionCipher(masterKey, salt, sessionID)
+	if err != nil {
+		t.Fatalf("new cipher: %v", err)
+	}
+
+	tunW := &mockTunWrite{}
+	secondary := newQueuedStreamConn()
+	plaintext := []byte("encrypted-on-secondary-channel")
+	enc, err := cipher.Encrypt(plaintext)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	secondary.push(encodeFrame(t, &framing.Frame{Type: framing.FrameTypeData, Payload: enc}))
+
+	s := &Session{
+		tunDev:        tunW,
+		logger:        zap.NewNop(),
+		cipher:        cipher,
+		tunnelTimeout: time.Second,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.setRunCtx(ctx)
+	s.primaryReady.Store(true)
+	s.SetSecondary(secondary)
+
+	waitWritten(t, tunW, 1)
+	tunW.mu.Lock()
+	defer tunW.mu.Unlock()
+	if !bytes.Equal(tunW.written[0], plaintext) {
+		t.Errorf("secondary decrypt = %q, want %q", tunW.written[0], plaintext)
 	}
 }
 

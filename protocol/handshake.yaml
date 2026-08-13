@@ -25,6 +25,13 @@ constants:
   - name: TransportTag
     type: byte
     value: 0x0B
+  # @sk-task dual-ws-channel#T1.1: secondary channel + session_id tags (AC-001)
+  - name: ChannelTag
+    type: byte
+    value: 0x0C
+  - name: SessionTag
+    type: byte
+    value: 0x0D
 
 client_hello:
   name: ClientHello
@@ -38,6 +45,11 @@ client_hello:
     - name: Mtu
       type: int
     - name: Transport
+      type: string
+    # @sk-task dual-ws-channel#T1.1: channel role (primary/secondary) + session_id binding (AC-001)
+    - name: Channel
+      type: string
+    - name: SessionId
       type: string
 
 server_hello:
