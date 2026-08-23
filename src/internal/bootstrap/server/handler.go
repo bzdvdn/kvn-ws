@@ -251,7 +251,11 @@ func (s *Server) handleSecondaryStream(ctx context.Context, stream tunnel.Stream
 		reject("session not active")
 		return
 	}
-	tunSess := ref.(*tunnel.Session)
+	tunSess, ok := ref.(*tunnel.Session)
+	if !ok {
+		reject("session type mismatch")
+		return
+	}
 	if mtu <= 0 {
 		mtu = handshake.DefaultMTU
 	}

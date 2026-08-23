@@ -600,6 +600,7 @@ type dualServSession struct {
 }
 
 func newDualChannelServer(t *testing.T) *dualChannelServer {
+	t.Helper()
 	return &dualChannelServer{
 		t:            t,
 		upgrader:     gorillaws.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
