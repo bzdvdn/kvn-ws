@@ -270,6 +270,11 @@ class KvnVpnService : VpnService() {
     @Volatile
     private var vpnEstablished = false
 
+    @Volatile
+    private var tearingDown = false
+
+    private var tunReaderJob: kotlinx.coroutines.Job? = null
+
     private var preResolvedServerIps: List<InetAddress>? = null
     private var tunReaderStarted = false
     // @sk-task android-latency-power-fix#T1.2: pre-allocated buffer for TUN reader (AC-002)
@@ -331,7 +336,7 @@ class KvnVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             killed = true
-            safeStop()
+            safeStop(force = true)
             return START_NOT_STICKY
         }
         try {
@@ -465,7 +470,7 @@ class KvnVpnService : VpnService() {
     // @sk-task kvn-android#RX-FIX: TUN established after ServerHello with assigned IP
     private fun establishTun(assignedIp: String, assignedIpv6: String) {
         if (assignedIp.isBlank()) {
-            safeStop()
+            safeStop(force = true)
             return
         }
         val builder = Builder()
@@ -507,7 +512,7 @@ class KvnVpnService : VpnService() {
         tunFd = builder.establish()
         tunFdRef = tunFd
         if (tunFd == null) {
-            safeStop()
+            safeStop(force = true)
             return
         }
 
@@ -643,7 +648,7 @@ class KvnVpnService : VpnService() {
             },
             onStateChange = onConnectionStateChange,
             onRetriesExhausted = {
-                safeStop()
+                safeStop(force = true)
             }
         )
 
@@ -652,7 +657,7 @@ class KvnVpnService : VpnService() {
 
         registerNetworkCallback()
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     // @sk-task kvn-android#T5.11: parse CIDR notation "x.x.x.x/prefix"
@@ -681,6 +686,9 @@ class KvnVpnService : VpnService() {
     private fun closeTun() {
         trafficBatchJob?.cancel()
         trafficBatchJob = null
+        // @sk-task android-vpn-teardown#T1: cancel reader job in addition to closing the fd (AC-010)
+        tunReaderJob?.cancel()
+        tunReaderJob = null
         tunInput?.close()
         tunOutput?.close()
         tunFd?.close()
@@ -710,9 +718,11 @@ class KvnVpnService : VpnService() {
 
 
 
-    // @sk-task kvn-android#T5.16: safe stop (AC-010)
-    private fun safeStop() {
-        if (config.killSwitchEnabled && !killed) {
+    // @sk-task android-vpn-teardown#T1: safe stop (AC-010)
+    // force=true bypasses the kill-switch "block on drop" early-return (user/teardown intent)
+    private fun safeStop(force: Boolean = false) {
+        if (tearingDown) return
+        if (config.killSwitchEnabled && !killed && !force) {
             transportClient?.disconnect()
             transportClient = null
             reconnectManager?.stop()
@@ -723,9 +733,25 @@ class KvnVpnService : VpnService() {
         stopSelf()
     }
 
+    // @sk-task android-vpn-teardown#T1: explicit teardown on OS revoke (settings toggle / another VPN) (AC-010)
+    override fun onRevoke() {
+        killed = true
+        safeStop(force = true)
+    }
+
     // @sk-task kvn-android#T2.1: service lifecycle stop (AC-006)
     // @sk-task doze-resilience#T2.1: release WakeLock on destroy (AC-001)
+    // @sk-task android-vpn-teardown#T1: drop foreground + guard reentrant teardown (AC-010)
     override fun onDestroy() {
+        if (tearingDown) {
+            super.onDestroy()
+            return
+        }
+        tearingDown = true
+        // @sk-task android-vpn-teardown#T1: remove ongoing notification/icon immediately (AC-010)
+        try {
+            stopForeground(true)
+        } catch (_: Exception) {}
         super.onDestroy()
         releaseWakeLock()
         unregisterScreenOnReceiver()
@@ -739,25 +765,28 @@ class KvnVpnService : VpnService() {
     }
 
     // @sk-task android-dns-cache#T1.2: fix reconnect — closeTun + reset tunReaderStarted (AC-003, AC-005)
+    // @sk-task android-vpn-teardown#T1: ignore state changes once teardown started (AC-010)
     private val onConnectionStateChange: OnStateChange = { state ->
-        stateCallback?.invoke(state)
-        onStateChange?.invoke(state)
-        updateNotification(state)
-        when (state) {
-            ConnectionState.CONNECTED -> {
-                performHandshake()
-            }
-            ConnectionState.DISCONNECTED -> {
-                closeTun()
-                tunReaderStarted = false
-
-                if (config.autoReconnect && !killed) {
-                    reconnectManager?.start()
-                } else {
-                    safeStop()
+        if (!tearingDown) {
+            stateCallback?.invoke(state)
+            onStateChange?.invoke(state)
+            updateNotification(state)
+            when (state) {
+                ConnectionState.CONNECTED -> {
+                    performHandshake()
                 }
+                ConnectionState.DISCONNECTED -> {
+                    closeTun()
+                    tunReaderStarted = false
+
+                    if (config.autoReconnect && !killed) {
+                        reconnectManager?.start()
+                    } else {
+                        safeStop()
+                    }
+                }
+                else -> {}
             }
-            else -> {}
         }
     }
 
@@ -908,7 +937,7 @@ class KvnVpnService : VpnService() {
             delay(HANDSHAKE_TIMEOUT_MS)
             if (!tunReaderStarted) {
                 errorCallback?.invoke("Handshake timeout: no server response within ${HANDSHAKE_TIMEOUT_MS/1000}s")
-                safeStop()
+                safeStop(force = true)
             }
         }
     }
@@ -959,7 +988,7 @@ class KvnVpnService : VpnService() {
                     }
                     // @sk-task android-latency-power-fix#T3.1: start batched traffic counter emission (AC-005)
                     startTrafficBatcher()
-                    serviceScope.launch { tunReader() }
+                    tunReaderJob = serviceScope.launch { tunReader() }
                 }
                 // @sk-task android-dual-ws#T1.3: open secondary channel once primary bound (AC-001, AC-002)
                 if (config.multiChannel && serverSessionId.isNotEmpty()) {
@@ -969,7 +998,7 @@ class KvnVpnService : VpnService() {
             FrameTypes.FRAME_TYPE_AUTH -> {
                 val err = HandshakeCodec.decodeAuthError(frame)
                 errorCallback?.invoke("Auth: ${err.reason}")
-                safeStop()
+                safeStop(force = true)
             }
             FrameTypes.FRAME_TYPE_DATA -> {
                 rxBytes.addAndGet(frame.payload.size.toLong())
@@ -986,7 +1015,7 @@ class KvnVpnService : VpnService() {
                 writeToTun(frame.payload)
             }
             FrameTypes.FRAME_TYPE_CLOSE -> {
-                safeStop()
+                safeStop(force = true)
             }
         }
     } catch (_: Exception) {

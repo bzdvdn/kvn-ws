@@ -438,29 +438,13 @@ export default function TabbedForm(props: TabbedFormProps) {
 
   const renderAdvanced = () => (
     <>
-      <div style={subTitleStyle}>Tuning</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>MTU</span>
-          <input style={inputStyle} type="number" value={serverConfig.mtu ?? 1400} onChange={(e) => props.onUpdateServer("mtu", parseInt(e.target.value) || 1400)} />
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Max Message Size</span>
-          <input style={inputStyle} type="number" value={serverConfig.max_message_size ?? 10485760} onChange={(e) => props.onUpdateServer("max_message_size", parseInt(e.target.value) || 10485760)} />
-        </div>
-        <div style={fieldStyle()}>
-          {/* @sk-task kvn-web-config-update#T2.2: proxy_connections tuning field (AC-005, AC-006) */}
-          <span style={labelStyle()}>Proxy Connections</span>
-          <input style={inputStyle} type="number" value={serverConfig.proxy_connections || 10} onChange={(e) => props.onUpdateServer("proxy_connections", parseInt(e.target.value) || 10)} />
-        </div>
-      </div>
-
       <div style={subTitleStyle}>Features</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
         {[
           { key: "ipv6", label: "IPv6 Support", desc: "Allow IPv6 traffic" },
           { key: "auto_reconnect", label: "Auto Reconnect", desc: "Exponential backoff" },
           { key: "multiplex", label: "Multiplex", desc: "Connection multiplexing" },
+          { key: "multi_channel", label: "Dual Channel", desc: "UDP on 2nd WS channel (VoIP/media)" },
           { key: "obfuscation", label: "Obfuscation", desc: "Anti-DPI" },
           { key: "crypto", label: "AES-256-GCM", desc: "Per-session encryption" },
           { key: "kill_switch", label: "Kill Switch", desc: "Block on disconnect" },
@@ -483,6 +467,23 @@ export default function TabbedForm(props: TabbedFormProps) {
               </label>
           );
         })}
+      </div>
+
+      <div style={subTitleStyle}>Tuning</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>MTU</span>
+          <input style={inputStyle} type="number" value={serverConfig.mtu ?? 1400} onChange={(e) => props.onUpdateServer("mtu", parseInt(e.target.value) || 1400)} />
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Max Message Size</span>
+          <input style={inputStyle} type="number" value={serverConfig.max_message_size ?? 10485760} onChange={(e) => props.onUpdateServer("max_message_size", parseInt(e.target.value) || 10485760)} />
+        </div>
+        <div style={fieldStyle()}>
+          {/* @sk-task kvn-web-config-update#T2.2: proxy_connections tuning field (AC-005, AC-006) */}
+          <span style={labelStyle()}>Proxy Connections</span>
+          <input style={inputStyle} type="number" value={serverConfig.proxy_connections || 10} onChange={(e) => props.onUpdateServer("proxy_connections", parseInt(e.target.value) || 10)} />
+        </div>
       </div>
 
       {serverConfig.obfuscation?.enabled && (
@@ -557,6 +558,14 @@ export default function TabbedForm(props: TabbedFormProps) {
         <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
           <input type="checkbox" checked={!!globalConfig.transparent} onChange={(e) => props.onUpdateGlobal("transparent", e.target.checked)} style={{ accentColor: colors.accent }} />
           <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>Transparent Proxy</div><div style={{ fontSize: 10, color: colors.textDim }}>iptables redirect (Linux)</div></div>
+        </label>
+      </div>
+
+      <div style={subTitleStyle}>Features</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!globalConfig.multi_channel} onChange={(e) => props.onUpdateGlobal("multi_channel", e.target.checked)} style={{ accentColor: colors.accent }} />
+          <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>Dual Channel</div><div style={{ fontSize: 10, color: colors.textDim }}>UDP on 2nd WS channel (VoIP/media)</div></div>
         </label>
       </div>
 

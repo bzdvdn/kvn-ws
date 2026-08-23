@@ -381,6 +381,26 @@ func TestMergeConfigLogLevelFallbackToGlobal(t *testing.T) {
 	}
 }
 
+// @sk-test dual-ws-channel#T4.1: server enables multi_channel, merged inherits it (AC-001)
+func TestMergeConfigMultiChannelServerEnables(t *testing.T) {
+	global := config.ClientConfig{}
+	server := config.ClientConfig{MultiChannel: true}
+	merged := mergeConfig(&global, &server)
+	if !merged.MultiChannel {
+		t.Errorf("merged multi_channel = %v, want true from server", merged.MultiChannel)
+	}
+}
+
+// @sk-test dual-ws-channel#T4.1: global multi_channel preserved when server does not set it (AC-006)
+func TestMergeConfigMultiChannelGlobalPreserved(t *testing.T) {
+	global := config.ClientConfig{MultiChannel: true}
+	server := config.ClientConfig{}
+	merged := mergeConfig(&global, &server)
+	if !merged.MultiChannel {
+		t.Errorf("merged multi_channel = %v, want global preserved true", merged.MultiChannel)
+	}
+}
+
 // @sk-test dns-upstreams-list#T4.1: TestDNSProxyCfgJSONRoundTrip (AC-008)
 func TestDNSProxyCfgJSONRoundTrip(t *testing.T) {
 	// new format: upstreams
@@ -413,5 +433,24 @@ func TestDNSProxyCfgJSONBackwardCompat(t *testing.T) {
 	}
 	if len(cfg.Upstreams) != 1 || cfg.Upstreams[0] != "1.1.1.1:53" {
 		t.Errorf("Upstreams = %v, want [1.1.1.1:53]", cfg.Upstreams)
+	}
+}
+
+// @sk-test dual-ws-channel#T4.1: ClientConfig multi_channel persists through JSON (config.yaml round-trip) (AC-001)
+func TestClientConfigMultiChannelJSONRoundTrip(t *testing.T) {
+	orig := config.ClientConfig{Server: "wss://example.com/tunnel", MultiChannel: true}
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !bytes.Contains(data, []byte("\"multi_channel\":true")) {
+		t.Errorf("marshalled JSON missing multi_channel: %s", data)
+	}
+	var decoded config.ClientConfig
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !decoded.MultiChannel {
+		t.Errorf("MultiChannel = %v, want true after round-trip", decoded.MultiChannel)
 	}
 }

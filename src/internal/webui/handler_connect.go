@@ -173,6 +173,9 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	if server.Multiplex {
 		merged.Multiplex = true
 	}
+	if server.MultiChannel {
+		merged.MultiChannel = true
+	}
 	if server.Transparent {
 		merged.Transparent = true
 	}

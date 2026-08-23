@@ -21,6 +21,7 @@ export interface ClientConfig {
   ipv6?: boolean;
   auto_reconnect?: boolean;
   multiplex?: boolean;
+  multi_channel?: boolean;
   max_message_size?: number;
   tunnel_timeout?: number;
   proxy_listen?: string;
