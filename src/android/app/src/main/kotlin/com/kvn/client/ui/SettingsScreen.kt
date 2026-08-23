@@ -54,6 +54,8 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
     var logLevel by remember(activeCfg) { mutableStateOf(activeCfg?.logLevel ?: "info") }
     var maxMessageSize by remember(activeCfg) { mutableStateOf((activeCfg?.maxMessageSize ?: 65535).toString()) }
     var multiplex by remember(activeCfg) { mutableStateOf(activeCfg?.multiplex ?: false) }
+    // @sk-task android-dual-ws#T1.1: dual channel toggle (AC-001)
+    var multiChannel by remember(activeCfg) { mutableStateOf(activeCfg?.multiChannel ?: false) }
     var minBackoffSec by remember(activeCfg) { mutableStateOf((activeCfg?.minBackoffSec ?: 1).toString()) }
     var maxBackoffSec by remember(activeCfg) { mutableStateOf((activeCfg?.maxBackoffSec ?: 30).toString()) }
     var tlsVerifyMode by remember(activeCfg) { mutableStateOf(activeCfg?.tlsVerifyMode ?: "verify") }
@@ -98,6 +100,7 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
             logLevel = logLevel,
             maxMessageSize = maxMessageSize.toIntOrNull() ?: 65535,
             multiplex = multiplex,
+            multiChannel = multiChannel,
             minBackoffSec = minBackoffSec.toIntOrNull() ?: 1,
             maxBackoffSec = maxBackoffSec.toIntOrNull() ?: 30,
             tlsVerifyMode = tlsVerifyMode,
@@ -306,6 +309,11 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Multiplex", modifier = Modifier.weight(1f))
                 Switch(checked = multiplex, onCheckedChange = { multiplex = it })
+            }
+            // @sk-task android-dual-ws#T1.1: dual channel toggle (AC-001)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Dual channel (UDP on 2nd WS)", modifier = Modifier.weight(1f))
+                Switch(checked = multiChannel, onCheckedChange = { multiChannel = it })
             }
             // @sk-task doze-resilience#T3.2: keep-awake toggle (AC-007)
             Row(verticalAlignment = Alignment.CenterVertically) {

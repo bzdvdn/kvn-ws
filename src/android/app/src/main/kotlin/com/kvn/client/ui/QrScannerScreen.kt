@@ -132,7 +132,9 @@ private data class WebConfig(
     val multiplex: Boolean = false,
     val max_message_size: Int = 65535,
     val name: String? = null,
-    val log: WebLogCfg? = null
+    val log: WebLogCfg? = null,
+    // @sk-task android-dual-ws#T1.1: web JSON field for dual WS channel (AC-002)
+    val multi_channel: Boolean = false
 )
 
 // @sk-task kvn-android#T5.2: QR code scanner screen with finder overlay (AC-007, RQ-011)
@@ -598,6 +600,7 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         autoReconnect = web.auto_reconnect ?: true,
         maxMessageSize = web.max_message_size,
         multiplex = web.multiplex,
+        multiChannel = web.multi_channel,
         logLevel = web.log?.level ?: "info",
         minBackoffSec = rc?.min_backoff_sec ?: 1,
         maxBackoffSec = rc?.max_backoff_sec ?: 30,
@@ -638,6 +641,7 @@ fun configToWebJson(config: ConnectionConfig): String {
     root.put("auto_reconnect", config.autoReconnect)
     root.put("max_message_size", config.maxMessageSize)
     root.put("multiplex", config.multiplex)
+    root.put("multi_channel", config.multiChannel)
     root.put("auth", JSONObject().apply { put("token", config.token) })
     root.put("tls", JSONObject().apply {
         put("verify_mode", config.tlsVerifyMode)

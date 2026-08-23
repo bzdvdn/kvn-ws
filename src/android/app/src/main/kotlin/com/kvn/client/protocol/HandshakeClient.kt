@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 
 // @sk-task kvn-android#T2.2: Kotlin handshake encode/decode (AC-004)
+// @sk-task android-dual-ws#T1.2: encode Channel/SessionId tags for secondary channel (AC-001)
 object HandshakeCodec {
 
     fun encodeClientHello(hello: ClientHello): Frame {
@@ -11,6 +12,8 @@ object HandshakeCodec {
         val flags: Byte = (if (hello.ipv6) FLAG_IPV6 else 0).toByte()
         val mtuFlags: Byte = (if (hello.mtu > 0) FLAG_MTU else 0).toByte()
         val transportBytes = hello.transport.toByteArray()
+        val channelBytes = hello.channel.toByteArray()
+        val sessionBytes = hello.sessionId.toByteArray()
 
         val baos = ByteArrayOutputStream()
         baos.write(hello.protoVersion.toInt())
@@ -27,6 +30,16 @@ object HandshakeCodec {
             baos.write(TRANSPORT_TAG.toInt())
             baos.write(transportBytes.size)
             baos.write(transportBytes)
+        }
+        if (channelBytes.isNotEmpty()) {
+            baos.write(CHANNEL_TAG.toInt())
+            baos.write(channelBytes.size)
+            baos.write(channelBytes)
+        }
+        if (sessionBytes.isNotEmpty()) {
+            baos.write(SESSION_TAG.toInt())
+            baos.write(sessionBytes.size)
+            baos.write(sessionBytes)
         }
 
         return Frame(FrameTypes.FRAME_TYPE_HELLO, FrameFlags.FRAME_FLAG_NONE, baos.toByteArray())

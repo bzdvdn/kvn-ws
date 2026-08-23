@@ -36,6 +36,8 @@ data class ConnectionConfig(
     val logLevel: String = "info",
     val maxMessageSize: Int = 65535,
     val multiplex: Boolean = false,
+    // @sk-task android-dual-ws#T1.1: second WS channel for UDP traffic (AC-002)
+    val multiChannel: Boolean = false,
     // Reconnect
     val minBackoffSec: Int = 1,
     val maxBackoffSec: Int = 30,

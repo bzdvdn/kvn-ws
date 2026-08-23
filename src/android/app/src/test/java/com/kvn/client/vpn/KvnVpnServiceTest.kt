@@ -240,6 +240,44 @@ class KvnVpnServiceTest {
         assertEquals(realIp, rewrittenDst)
     }
 
+    // @sk-test android-dual-ws#T4.2: isUdpPacket classifies IPv4/IPv6 UDP and non-UDP (AC-002)
+    @Test
+    fun testIsUdpPacketClassification() {
+        val udp4 = buildUdp4Packet(
+            payload = byteArrayOf(0x01),
+            srcIp = "10.0.0.2",
+            dstIp = "8.8.8.8",
+            srcPort = 12345,
+            dstPort = 53
+        )
+        assertTrue(callMethod(service, "isUdpPacket", udp4) as Boolean)
+
+        val tcp4 = buildTcpSynPacket(
+            srcIp = "10.0.0.2",
+            dstIp = "8.8.8.8",
+            srcPort = 40000,
+            dstPort = 443
+        )
+        assertFalse(callMethod(service, "isUdpPacket", tcp4) as Boolean)
+
+        // IPv6 UDP: version nibble 6, next-header at byte 6
+        val udp6 = buildUdp6Packet(payload = byteArrayOf(0x02))
+        assertTrue(callMethod(service, "isUdpPacket", udp6) as Boolean)
+
+        // Empty/garbage → false
+        assertFalse(callMethod(service, "isUdpPacket", ByteArray(0)) as Boolean)
+        assertFalse(callMethod(service, "isUdpPacket", "nonsense".toByteArray()) as Boolean)
+    }
+
+    // @sk-test android-dual-ws#T4.2: multi_channel config enables secondary path gate (AC-001)
+    @Test
+    fun testMultiChannelConfigField() {
+        val cfg = ConnectionConfig(multiChannel = true)
+        val field = ConnectionConfig::class.java.getDeclaredField("multiChannel")
+        field.isAccessible = true
+        assertEquals(true, field.get(cfg))
+    }
+
     // -- helpers --
 
     private fun setConfig(cfg: ConnectionConfig) {
@@ -414,6 +452,32 @@ class KvnVpnServiceTest {
         buf.putShort(0)
         // urgent ptr
         buf.putShort(0)
+        val out = ByteArray(buf.position())
+        buf.flip()
+        buf.get(out)
+        return out
+    }
+
+    private fun buildUdp6Packet(payload: ByteArray): ByteArray {
+        val payloadLen = 8 + payload.size
+        val totalLen = 40 + payloadLen
+        val buf = ByteBuffer.allocate(totalLen)
+        // IPv6 fixed header (40 bytes): [0]=ver/tc, [1..3]=flow, [4..5]=payload len, [6]=next hdr, [7]=hop
+        buf.put(0x60.toByte())        // byte 0: version 6
+        buf.put(0x00.toByte())        // byte 1: traffic class
+        buf.put(0x00.toByte())        // byte 2: flow label
+        buf.put(0x00.toByte())        // byte 3: flow label
+        buf.putShort(payloadLen.toShort()) // bytes 4-5: payload length
+        buf.put(17)                   // byte 6: next header = UDP
+        buf.put(64)                   // byte 7: hop limit
+        // src/dst IPv6 (16 bytes each)
+        buf.put(InetAddress.getByName("2001:db8::1").address)
+        buf.put(InetAddress.getByName("2001:db8::2").address)
+        buf.putShort(12345.toShort())
+        buf.putShort(53.toShort())
+        buf.putShort(payloadLen.toShort())
+        buf.putShort(0)
+        buf.put(payload)
         val out = ByteArray(buf.position())
         buf.flip()
         buf.get(out)

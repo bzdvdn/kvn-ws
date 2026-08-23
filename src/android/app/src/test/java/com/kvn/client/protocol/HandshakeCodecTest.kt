@@ -13,7 +13,9 @@ class HandshakeCodecTest {
             token = "test-token-123",
             mtu = 1400,
             ipv6 = true,
-            transport = "tcp"
+            transport = "tcp",
+            channel = "",
+            sessionId = ""
         )
         val frame = HandshakeCodec.encodeClientHello(hello)
 
@@ -50,6 +52,56 @@ class HandshakeCodecTest {
         val frame = HandshakeCodec.encodeAuthError("invalid token")
         val decoded = HandshakeCodec.decodeAuthError(frame)
         assertEquals("invalid token", decoded.reason)
+    }
+
+    // @sk-test android-dual-ws#T4.1: TestClientHelloSecondaryTags (AC-001)
+    @Test
+    fun testClientHelloSecondaryTags() {
+        val hello = ClientHello(
+            protoVersion = PROTO_VERSION,
+            token = "test-token-123",
+            mtu = 1400,
+            ipv6 = true,
+            transport = "tcp",
+            channel = "secondary",
+            sessionId = "abcdef1234567890abcdef1234567890"
+        )
+        val frame = HandshakeCodec.encodeClientHello(hello)
+        val data = frame.payload
+
+        val flags = data[1].toInt() and 0xFF
+        val tokenLen = ((data[2].toInt() and 0xFF) shl 8) or (data[3].toInt() and 0xFF)
+        var pos = 4 + tokenLen
+        if (flags and FLAG_MTU.toInt() != 0) pos += 2
+
+        val tags = mutableMapOf<Byte, String>()
+        while (pos + 2 <= data.size) {
+            val tag = data[pos]
+            val len = data[pos + 1].toInt() and 0xFF
+            if (pos + 2 + len > data.size) break
+            tags[tag] = String(data, pos + 2, len)
+            pos += 2 + len
+        }
+
+        assertEquals("secondary", tags[CHANNEL_TAG])
+        assertEquals("abcdef1234567890abcdef1234567890", tags[SESSION_TAG])
+    }
+
+    // @sk-test android-dual-ws#T4.1: TestClientHelloNoTagsBackwardCompat (AC-007)
+    @Test
+    fun testClientHelloNoTagsBackwardCompat() {
+        val hello = ClientHello(
+            protoVersion = PROTO_VERSION,
+            token = "tok",
+            mtu = 0,
+            ipv6 = false,
+            transport = "tcp",
+            channel = "",
+            sessionId = ""
+        )
+        val frame = HandshakeCodec.encodeClientHello(hello)
+        // token(2+3) + flags(1) + version(1) + transport tag(2+3) = 12 bytes, no channel/session
+        assertEquals(2 + 3 + 1 + 1 + 2 + 3, frame.payload.size)
     }
 
     private fun hexToBytes(hex: String): ByteArray {

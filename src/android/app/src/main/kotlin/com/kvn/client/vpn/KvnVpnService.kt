@@ -47,6 +47,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketAddress
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.crypto.SecretKey
 import javax.net.ssl.HostnameVerifier
@@ -70,6 +71,10 @@ class KvnVpnService : VpnService() {
     private var tunInput: InputStream? = null
     private var tunOutput: OutputStream? = null
     private var transportClient: TransportClient? = null
+    // @sk-task android-dual-ws#T1.3: secondary WS channel for UDP media (AC-002)
+    private var secondaryClient: WebSocketClient? = null
+    private val secondaryConnected = AtomicBoolean(false)
+    private var transportOkHttp: OkHttpClient? = null
     private var onStateChange: ((ConnectionState) -> Unit)? = null
     private var reconnectManager: ReconnectManager? = null
     private var cipher: AesGcmCipher? = null
@@ -178,6 +183,8 @@ class KvnVpnService : VpnService() {
             val raw = delegate.createSocket()
             // Always protect — safe when VPN is down, critical during reconnect races
             this@KvnVpnService.protect(raw)
+            // @sk-task android-dual-ws#T1.1: disable Nagle to match server SetNoDelay (AC-003)
+            raw.setTcpNoDelay(true)
             // @sk-task doze-resilience#T2.2: TCP keepalive on transport socket (AC-002)
             // @sk-task doze-resilience#T3.1: respect keepAwakeEnabled toggle (AC-007)
             if (config.keepAwakeEnabled) {
@@ -231,12 +238,14 @@ class KvnVpnService : VpnService() {
         override fun createSocket(host: String, port: Int): Socket {
             val raw = delegate.createSocket()
             this@KvnVpnService.protect(raw)
+            raw.setTcpNoDelay(true)
             raw.connect(java.net.InetSocketAddress(host, port))
             return raw
         }
         override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket {
             val raw = delegate.createSocket()
             this@KvnVpnService.protect(raw)
+            raw.setTcpNoDelay(true)
             raw.bind(java.net.InetSocketAddress(localHost, localPort))
             raw.connect(java.net.InetSocketAddress(host, port))
             return raw
@@ -244,12 +253,14 @@ class KvnVpnService : VpnService() {
         override fun createSocket(host: InetAddress, port: Int): Socket {
             val raw = delegate.createSocket()
             this@KvnVpnService.protect(raw)
+            raw.setTcpNoDelay(true)
             raw.connect(java.net.InetSocketAddress(host, port))
             return raw
         }
         override fun createSocket(addr: InetAddress, port: Int, localAddr: InetAddress, localPort: Int): Socket {
             val raw = delegate.createSocket()
             this@KvnVpnService.protect(raw)
+            raw.setTcpNoDelay(true)
             raw.bind(java.net.InetSocketAddress(localAddr, localPort))
             raw.connect(java.net.InetSocketAddress(addr, port))
             return raw
@@ -691,6 +702,10 @@ class KvnVpnService : VpnService() {
         tunReadBuffer = null
         cipher?.clear()
         serverSessionId = ""
+        // @sk-task android-dual-ws#T1.3: teardown secondary channel (AC-004)
+        secondaryClient?.disconnect()
+        secondaryClient = null
+        secondaryConnected.set(false)
     }
 
 
@@ -772,12 +787,14 @@ class KvnVpnService : VpnService() {
     // @sk-task kvn-android#T2.4: create transport client (AC-001)
     // @sk-task kvn-android#T3.1: extracted factory for reconnect (AC-005)
     // @sk-task kvn-android#T5.8: use TLS-configured OkHttp client (AC-009)
+    // @sk-task android-dual-ws#T1.3: same OkHttpClient for primary and secondary (AC-006)
     private fun createTransport(): TransportClient {
         val scheme = if (config.tlsVerifyMode == "none") "ws" else "wss"
         val url = "$scheme://${config.serverAddress}:${config.port}${config.serverPath}"
+        val okHttp = transportOkHttp ?: buildOkHttpClient().also { transportOkHttp = it }
 
         return WebSocketClient(
-            okHttpClient = buildOkHttpClient(),
+            okHttpClient = okHttp,
             url = url,
             onFrame = { frame -> handleFrame(frame) },
             onStateChange = onConnectionStateChange,
@@ -789,6 +806,89 @@ class KvnVpnService : VpnService() {
         )
     }
 
+    // @sk-task android-dual-ws#T1.3: establish secondary WS channel bound to primary session (AC-001, AC-002, AC-004)
+    private fun openSecondaryChannel() {
+        if (!config.multiChannel || serverSessionId.isEmpty()) return
+        if (secondaryConnected.get()) return
+        val scheme = if (config.tlsVerifyMode == "none") "ws" else "wss"
+        val url = "$scheme://${config.serverAddress}:${config.port}${config.serverPath}"
+
+        secondaryClient?.disconnect()
+        secondaryClient = WebSocketClient(
+            okHttpClient = transportOkHttp ?: buildOkHttpClient(),
+            url = url,
+            onFrame = { frame -> handleSecondaryFrame(frame) },
+            onStateChange = { state ->
+                // @sk-task android-dual-ws#T1.3: trigger secondary handshake after WS open (AC-001)
+                if (state == ConnectionState.CONNECTED && !secondaryConnected.get()) {
+                    performSecondaryHandshake()
+                }
+            },
+            onFailure = { t ->
+                // @sk-task android-dual-ws#T1.3: fallback — keep working on primary (AC-004)
+                AppLogger.w("Secondary", "secondary channel unavailable, continuing on primary: ${t.message}")
+                secondaryConnected.set(false)
+            },
+            paddingEnabled = config.obfuscationPaddingEnabled,
+            paddingSize = config.obfuscationPaddingSize
+        )
+        secondaryClient?.connect()
+    }
+
+    // @sk-task android-dual-ws#T1.3: send secondary ClientHello with session binding (AC-001)
+    private fun performSecondaryHandshake() {
+        val hello = ClientHello(
+            protoVersion = PROTO_VERSION,
+            token = config.token,
+            mtu = config.mtu,
+            ipv6 = config.ipv6Enabled,
+            transport = "tcp",
+            channel = "secondary",
+            sessionId = serverSessionId
+        )
+        secondaryClient?.send(HandshakeCodec.encodeClientHello(hello))
+    }
+
+    // @sk-task android-dual-ws#T1.3: handle frames arriving on the secondary channel (AC-001, AC-003)
+    private fun handleSecondaryFrame(frame: Frame) {
+        try {
+            when (frame.type) {
+                FrameTypes.FRAME_TYPE_HELLO -> {
+                    val serverHello = HandshakeCodec.decodeServerHello(frame)
+                    if (serverHello.sessionId != serverSessionId) {
+                        AppLogger.w("Secondary", "session id mismatch ${serverHello.sessionId} != $serverSessionId, dropping")
+                        return
+                    }
+                    secondaryConnected.set(true)
+                    AppLogger.i("Secondary", "secondary channel bound session=$serverSessionId")
+                }
+                FrameTypes.FRAME_TYPE_AUTH -> {
+                    val err = HandshakeCodec.decodeAuthError(frame)
+                    // @sk-task android-dual-ws#T1.3: rejected — fallback to primary (AC-004)
+                    AppLogger.w("Secondary", "secondary auth rejected: ${err.reason}, continuing on primary")
+                    secondaryConnected.set(false)
+                }
+                FrameTypes.FRAME_TYPE_DATA -> {
+                    rxBytes.addAndGet(frame.payload.size.toLong())
+                    val data = if (cryptoEnabled && cipher != null) {
+                        try { cipher!!.decrypt(frame.payload) } catch (_: Exception) { frame.payload }
+                    } else {
+                        frame.payload
+                    }
+                    writeToTun(data)
+                }
+                FrameTypes.FRAME_TYPE_CLOSE -> {
+                    // @sk-task android-dual-ws#T1.3: secondary closed — fallback to primary (AC-004)
+                    AppLogger.w("Secondary", "secondary channel closed, continuing on primary")
+                    secondaryConnected.set(false)
+                }
+                else -> {}
+            }
+        } catch (_: Exception) {
+            // swallow — OkHttp WebSocket closes on exception in onMessage
+        }
+    }
+
     // @sk-task kvn-android#T2.2: send ClientHello handshake (AC-001)
     private fun performHandshake() {
         val hello = ClientHello(
@@ -796,7 +896,9 @@ class KvnVpnService : VpnService() {
             token = config.token,
             mtu = config.mtu,
             ipv6 = config.ipv6Enabled,
-            transport = "tcp"
+            transport = "tcp",
+            channel = "",
+            sessionId = ""
         )
         val frame = HandshakeCodec.encodeClientHello(hello)
         transportClient?.send(frame)
@@ -859,6 +961,10 @@ class KvnVpnService : VpnService() {
                     startTrafficBatcher()
                     serviceScope.launch { tunReader() }
                 }
+                // @sk-task android-dual-ws#T1.3: open secondary channel once primary bound (AC-001, AC-002)
+                if (config.multiChannel && serverSessionId.isNotEmpty()) {
+                    openSecondaryChannel()
+                }
             }
             FrameTypes.FRAME_TYPE_AUTH -> {
                 val err = HandshakeCodec.decodeAuthError(frame)
@@ -916,7 +1022,12 @@ class KvnVpnService : VpnService() {
                         data
                     }
                     val frame = Frame(FrameTypes.FRAME_TYPE_DATA, FrameFlags.FRAME_FLAG_NONE, payload)
-                    transportClient?.send(frame)
+                    // @sk-task android-dual-ws#T1.3: route UDP → secondary, rest → primary (AC-002)
+                    if (secondaryConnected.get() && isUdpPacket(data)) {
+                        secondaryClient?.send(frame)
+                    } else {
+                        transportClient?.send(frame)
+                    }
                 }
             } catch (_: Exception) {
                 break
@@ -927,6 +1038,16 @@ class KvnVpnService : VpnService() {
 
 
     private val tunLock = Any()
+
+    // @sk-task android-dual-ws#T1.3: classify packet as UDP for secondary channel (AC-002)
+    private fun isUdpPacket(packet: ByteArray): Boolean {
+        if (packet.isEmpty()) return false
+        return when (packet[0].toInt() and 0xFF ushr 4) {
+            4 -> packet.size >= 10 && (packet[9].toInt() and 0xFF) == 17
+            6 -> packet.size >= 7 && (packet[6].toInt() and 0xFF) == 17
+            else -> false
+        }
+    }
 
     private fun writeToTun(data: ByteArray) {
         synchronized(tunLock) {
