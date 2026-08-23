@@ -73,6 +73,17 @@ fun formatBytes(bytes: Long): String {
     }
 }
 
+fun formatUptime(sec: Long): String {
+    val h = sec / 3600
+    val m = (sec % 3600) / 60
+    val s = sec % 60
+    return when {
+        h > 0 -> "%dh %02dm".format(h, m)
+        m > 0 -> "%dm %02ds".format(m, s)
+        else -> "%ds".format(s)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectScreen(vm: MainViewModel = viewModel()) {
@@ -85,6 +96,10 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     val rxBytes by vm.rxBytes.collectAsState()
     val txBytes by vm.txBytes.collectAsState()
     val errorMessage by vm.errorMessage.collectAsState()
+    // @sk-task android-ui-status#T1: dual-channel / reconnect / uptime state (AC-001)
+    val dualChannelActive by vm.dualChannelActive.collectAsState()
+    val reconnectAttempt by vm.reconnectAttempt.collectAsState()
+    val uptimeSec by vm.uptimeSec.collectAsState()
 
     var showQrScanner by remember { mutableStateOf(false) }
     var showExportQr by remember { mutableStateOf(false) }
@@ -416,7 +431,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                 ConnectionState.CONNECTED -> "Connected"
                 ConnectionState.CONNECTING -> "Connecting..."
                 ConnectionState.DISCONNECTING -> "Disconnecting..."
-                ConnectionState.RECONNECTING -> "Reconnecting..."
+                ConnectionState.RECONNECTING -> "Reconnecting (attempt $reconnectAttempt/10)..."
                 ConnectionState.DISCONNECTED -> "Disconnected"
             }
             val statusColor = when (state) {
@@ -437,6 +452,27 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+            }
+
+            // @sk-task android-ui-status#T1: dual-channel status chip (AC-001)
+            if (state == ConnectionState.CONNECTED && activeCfg?.multiChannel == true) {
+                val (chipColor, chipText) = if (dualChannelActive) {
+                    Color(0xFF4CAF50) to "Dual channel: active"
+                } else {
+                    Color(0xFFFFA726) to "Dual channel: fallback (primary)"
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(chipColor, CircleShape)
+                    )
+                    Text(
+                        text = chipText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = chipColor
+                    )
+                }
             }
 
             // Connection section
@@ -507,6 +543,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 enabled = true
             ) {
+                // @sk-task android-ui-status#T1: no spinner — Compose animation crashes on some builds (AC-001)
                 Text(if (state == ConnectionState.DISCONNECTED) "Connect" else "Disconnect")
             }
 
@@ -518,10 +555,25 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                 )
+                // @sk-task android-ui-status#T1: copy error to clipboard (AC-001)
+                TextButton(onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("kvn error", errorMessage))
+                    Toast.makeText(context, "Error copied to clipboard", Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy error", modifier = Modifier.size(16.dp))
+                    Text("Copy")
+                }
             }
 
             // Mini traffic panel
             if (state == ConnectionState.CONNECTED) {
+                Text(
+                    text = "Uptime: ${formatUptime(uptimeSec)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)

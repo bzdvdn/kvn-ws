@@ -6,15 +6,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.2.0] 2026-08-13
+## [1.2.0] 2026-08-24
 
 ### Added
 
-- **Dual WS channel (UDP на втором канале)** — клиент поднимает второй WebSocket-канал того же session_id для UDP-трафика (VoIP/медиа), вынося его из общего потока и снимая head-of-line blocking. Включается флагом `multi_channel: true` на клиенте; сервер принимает вторичный канал автоматически (без отдельной настройки). При недоступности вторичного канала клиент работает на primary (фоллбэк). Реализовано для Go-клиента (`src/internal/bootstrap/client/tun.go`) и Android (`KvnVpnService`, переключатель «Dual channel» + поле `multi_channel` в QR/web-конфиге). Handshake расширен опциональными тегами `ChannelTag=0x0C` / `SessionTag=0x0D`.
+- **Dual WS channel (UDP на втором канале)** — клиент поднимает второй WebSocket-канал того же session_id для UDP-трафика (VoIP/медиа), вынося его из общего потока и снимая head-of-line blocking. Включается флагом `multi_channel: true` на клиенте; сервер принимает вторичный канал автоматически (без отдельной настройки). При недоступности вторичного канала клиент работает на primary (фоллбэк). Реализовано для Go-клиента (`src/internal/bootstrap/client/tun.go`), Android (`KvnVpnService`, переключатель «Dual channel» + поле `multi_channel` в QR/web-конфиге) и kvn-web (переключатель Dual Channel на вкладках Advanced/Global). Handshake расширен опциональными тегами `ChannelTag=0x0C` / `SessionTag=0x0D`.
+- **kvn-web: настройка `multi_channel` в UI** — чекбокс «Dual Channel» в секции Features на вкладке Advanced (per-server) и Global; `mergeConfig` прокидывает значение в клиентский конфиг на коннекте.
+- **Android UI: статус соединения** — чип «Dual channel: active / fallback (primary)», uptime на панели трафика, счётчик попыток переподключения («Reconnecting (attempt N/10)»), кнопка «Copy» для ошибки, описания под переключателями в Settings, валидация MTU/Max Message Size.
 
 ### Changed
 
 - **Клиентский конфиг: новая опция `multi_channel`** (bool, default `false`). См. `docs/ru/config.md` / `docs/en/config.md`.
+- **Android release: автоинкремент `versionCode`** — каждый release-билд получает строго растущий `versionCode` (из счётчика git-коммитов, переопределяется через `-PversionCode=N`), поэтому APK обновляются поверх установленных без удаления.
+
+### Fixed
+
+- **Android: зависание VPN при disconnect** — переопределён `onRevoke()` (отключение через системные настройки/другой VPN), `safeStop(force)` обходит kill-switch early-return для пользовательских/аварийных остановок, `onDestroy` зовёт `stopForeground` и защищён от реентрантного teardown (`tearingDown`), `tunReaderJob` явно отменяется, `doStart` возвращает `START_NOT_STICKY`.
+- **Android: краши на некоторых сборках** — убраны Compose-анимации, вызывавшие `NoSuchMethodError` (`KeyFramesSpec`), добавлены keep-правила Compose для R8, WS-колбэки OkHttp (`WebSocketClient`, `onConnectionStateChange`) обёрнуты в `try/catch`, чтобы ошибка фрейма не роняла процесс.
+- **Android: краш-репорт** — перехватчик `Thread.setDefaultUncaughtExceptionHandler` пишет стек в файл и показывает его диалогом на следующем запуске (без adb).
 
 ### Compatibility
 

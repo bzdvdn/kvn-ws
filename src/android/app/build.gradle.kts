@@ -1,6 +1,20 @@
 // @sk-task kvn-android#T1.3: Android app module (AC-001)
 import java.util.Properties
 
+// @sk-task android-release-update#T1: strictly increasing versionCode so release APKs install as updates (AC-001)
+// Override per build: ./gradlew :app:assembleRelease -PversionCode=123
+val versionCodeInt: Int = try {
+    (project.findProperty("versionCode") as String?)?.toIntOrNull()
+        ?: run {
+            val p = ProcessBuilder("git", "rev-list", "--count", "HEAD").start()
+            val count = p.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 1
+            p.waitFor()
+            count
+        }
+} catch (_: Exception) {
+    1
+}
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -29,8 +43,8 @@ android {
         applicationId = "com.kvn.client"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = versionCodeInt
+        versionName = "1.2.0"
     }
 
     buildFeatures {

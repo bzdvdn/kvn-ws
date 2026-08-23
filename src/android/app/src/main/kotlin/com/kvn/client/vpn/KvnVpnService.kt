@@ -116,6 +116,8 @@ class KvnVpnService : VpnService() {
         private var stateCallback: ((ConnectionState) -> Unit)? = null
         private var trafficCallback: ((rx: Long, tx: Long) -> Unit)? = null
         private var errorCallback: ((String) -> Unit)? = null
+        // @sk-task android-ui-status#T1: dual-channel active state for UI (AC-001)
+        private var dualChannelCallback: ((Boolean) -> Unit)? = null
         private var killed = false // true when user explicitly disconnects
         private var tunFdRef: ParcelFileDescriptor? = null
         // @sk-task android-per-app-dns#T1.3: app-level settings (AC-003, AC-004, AC-005)
@@ -133,7 +135,8 @@ class KvnVpnService : VpnService() {
             dnsServers: List<String> = listOf("1.1.1.1", "8.8.8.8"),
             onStateChange: ((ConnectionState) -> Unit)? = null,
             onTrafficUpdate: ((rx: Long, tx: Long) -> Unit)? = null,
-            onError: ((String) -> Unit)? = null
+            onError: ((String) -> Unit)? = null,
+            onDualChannel: ((Boolean) -> Unit)? = null
         ) {
             config = cfg
             this.appIncludeList = appIncludeList
@@ -142,6 +145,7 @@ class KvnVpnService : VpnService() {
             stateCallback = onStateChange
             trafficCallback = onTrafficUpdate
             errorCallback = onError
+            dualChannelCallback = onDualChannel
             val intent = Intent(context, KvnVpnService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -714,6 +718,7 @@ class KvnVpnService : VpnService() {
         secondaryClient?.disconnect()
         secondaryClient = null
         secondaryConnected.set(false)
+        notifyDualChannel(false)
     }
 
 
@@ -767,6 +772,7 @@ class KvnVpnService : VpnService() {
     // @sk-task android-dns-cache#T1.2: fix reconnect — closeTun + reset tunReaderStarted (AC-003, AC-005)
     // @sk-task android-vpn-teardown#T1: ignore state changes once teardown started (AC-010)
     private val onConnectionStateChange: OnStateChange = { state ->
+        try {
         if (!tearingDown) {
             stateCallback?.invoke(state)
             onStateChange?.invoke(state)
@@ -787,6 +793,10 @@ class KvnVpnService : VpnService() {
                 }
                 else -> {}
             }
+        }
+        } catch (e: Exception) {
+            // @sk-task android-crash-fix#T1: never let a state-change exception crash the app (AC-001)
+            AppLogger.w("Vpn", "state change error: ${e.message}")
         }
     }
 
@@ -836,6 +846,11 @@ class KvnVpnService : VpnService() {
     }
 
     // @sk-task android-dual-ws#T1.3: establish secondary WS channel bound to primary session (AC-001, AC-002, AC-004)
+    // @sk-task android-ui-status#T1: notify UI when dual-channel state changes (AC-001)
+    private fun notifyDualChannel(active: Boolean) {
+        dualChannelCallback?.invoke(active)
+    }
+
     private fun openSecondaryChannel() {
         if (!config.multiChannel || serverSessionId.isEmpty()) return
         if (secondaryConnected.get()) return
@@ -857,6 +872,7 @@ class KvnVpnService : VpnService() {
                 // @sk-task android-dual-ws#T1.3: fallback — keep working on primary (AC-004)
                 AppLogger.w("Secondary", "secondary channel unavailable, continuing on primary: ${t.message}")
                 secondaryConnected.set(false)
+                notifyDualChannel(false)
             },
             paddingEnabled = config.obfuscationPaddingEnabled,
             paddingSize = config.obfuscationPaddingSize
@@ -889,6 +905,7 @@ class KvnVpnService : VpnService() {
                         return
                     }
                     secondaryConnected.set(true)
+                    notifyDualChannel(true)
                     AppLogger.i("Secondary", "secondary channel bound session=$serverSessionId")
                 }
                 FrameTypes.FRAME_TYPE_AUTH -> {
@@ -896,6 +913,7 @@ class KvnVpnService : VpnService() {
                     // @sk-task android-dual-ws#T1.3: rejected — fallback to primary (AC-004)
                     AppLogger.w("Secondary", "secondary auth rejected: ${err.reason}, continuing on primary")
                     secondaryConnected.set(false)
+                    notifyDualChannel(false)
                 }
                 FrameTypes.FRAME_TYPE_DATA -> {
                     rxBytes.addAndGet(frame.payload.size.toLong())
@@ -910,6 +928,7 @@ class KvnVpnService : VpnService() {
                     // @sk-task android-dual-ws#T1.3: secondary closed — fallback to primary (AC-004)
                     AppLogger.w("Secondary", "secondary channel closed, continuing on primary")
                     secondaryConnected.set(false)
+                    notifyDualChannel(false)
                 }
                 else -> {}
             }

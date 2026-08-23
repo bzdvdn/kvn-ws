@@ -2,6 +2,7 @@ package com.kvn.client.ui
 
 import android.app.Application
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kvn.client.config.AppConfig
@@ -11,6 +12,8 @@ import com.kvn.client.config.ServerEntry
 
 import com.kvn.client.transport.ConnectionState
 import com.kvn.client.vpn.KvnVpnService
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -24,6 +27,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // @sk-task kvn-android#T2.3: connection state (AC-001)
     private val _connectionState = MutableStateFlow(loadSavedState())
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    // @sk-task android-ui-status#T1: dual-channel active state (AC-001)
+    private val _dualChannelActive = MutableStateFlow(false)
+    val dualChannelActive: StateFlow<Boolean> = _dualChannelActive.asStateFlow()
+
+    // @sk-task android-ui-status#T1: reconnect attempt counter (AC-001)
+    private val _reconnectAttempt = MutableStateFlow(0)
+    val reconnectAttempt: StateFlow<Int> = _reconnectAttempt.asStateFlow()
+
+    // @sk-task android-ui-status#T1: uptime seconds while connected (AC-001)
+    private val _uptimeSec = MutableStateFlow(0L)
+    val uptimeSec: StateFlow<Long> = _uptimeSec.asStateFlow()
+
+    private var connectedAtMs = 0L
+    private var uptimeJob: Job? = null
+
+    init {
+        // @sk-task android-ui-status#T1: tick uptime while CONNECTED (AC-001)
+        viewModelScope.launch {
+            _connectionState.collect { state ->
+                if (state == ConnectionState.CONNECTED) {
+                    connectedAtMs = SystemClock.elapsedRealtime()
+                    _uptimeSec.value = 0L
+                    uptimeJob?.cancel()
+                    uptimeJob = viewModelScope.launch {
+                        while (true) {
+                            _uptimeSec.value = (SystemClock.elapsedRealtime() - connectedAtMs) / 1000
+                            delay(1000)
+                        }
+                    }
+                } else {
+                    uptimeJob?.cancel()
+                    uptimeJob = null
+                    _uptimeSec.value = 0L
+                }
+            }
+        }
+    }
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
@@ -198,6 +239,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             _rxBytes.value = 0L
             _txBytes.value = 0L
+            _dualChannelActive.value = false
+            _reconnectAttempt.value = 0
             _connectionState.value = ConnectionState.CONNECTING
             _errorMessage.value = null
             saveState(ConnectionState.CONNECTING)
@@ -209,6 +252,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 appExcludeList = config.appExcludeList,
                 dnsServers = config.dnsServers,
                 onStateChange = { state ->
+                    // @sk-task android-ui-status#T1: count reconnect attempts (AC-001)
+                    if (state == ConnectionState.RECONNECTING) _reconnectAttempt.value += 1
                     _connectionState.value = state
                     saveState(state)
                 },
@@ -219,6 +264,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 },
                 onError = { msg ->
                     _errorMessage.value = msg
+                },
+                onDualChannel = { active ->
+                    _dualChannelActive.value = active
                 }
             )
         }
@@ -229,6 +277,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         KvnVpnService.stop(getApplication())
         _connectionState.value = ConnectionState.DISCONNECTED
         _errorMessage.value = null
+        _dualChannelActive.value = false
+        _reconnectAttempt.value = 0
         saveState(ConnectionState.DISCONNECTED)
     }
 

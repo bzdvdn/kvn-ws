@@ -17,6 +17,10 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# Keep Compose (R8 breaks animation bridge methods otherwise — NoSuchMethodError KeyFramesSpec.at)
+-dontwarn androidx.compose.**
+-keep class androidx.compose.** { *; }
+
 # Keep ML Kit
 -keep class com.google.mlkit.** { *; }
 -dontwarn com.google.mlkit.**

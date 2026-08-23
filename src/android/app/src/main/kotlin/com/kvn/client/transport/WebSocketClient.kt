@@ -34,32 +34,38 @@ class WebSocketClient(
             .build()
 
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
+            // @sk-task android-crash-fix#T1: never let a callback exception kill the app (AC-001)
             override fun onOpen(ws: WebSocket, response: Response) {
                 connected.set(true)
-                onStateChange(ConnectionState.CONNECTED)
+                try { onStateChange(ConnectionState.CONNECTED) } catch (_: Exception) {}
             }
 
+            // @sk-task android-crash-fix#T1: frame parse errors are swallowed, not fatal (AC-001)
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
-                val data = bytes.toByteArray()
-                val frameData = if (paddingEnabled) unwrapPadding(data) else data
-                val frame = frameData.toFrame()
-                onFrame(frame)
+                try {
+                    val data = bytes.toByteArray()
+                    val frameData = if (paddingEnabled) unwrapPadding(data) else data
+                    val frame = frameData.toFrame()
+                    onFrame(frame)
+                } catch (e: Exception) {
+                    onFailure?.invoke(e)
+                }
             }
 
             override fun onClosing(ws: WebSocket, code: Int, reason: String) {
                 connected.set(false)
-                onStateChange(ConnectionState.DISCONNECTING)
+                try { onStateChange(ConnectionState.DISCONNECTING) } catch (_: Exception) {}
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 connected.set(false)
-                onStateChange(ConnectionState.DISCONNECTED)
+                try { onStateChange(ConnectionState.DISCONNECTED) } catch (_: Exception) {}
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 connected.set(false)
-                onFailure?.invoke(t)
-                onStateChange(ConnectionState.DISCONNECTED)
+                try { onFailure?.invoke(t) } catch (_: Exception) {}
+                try { onStateChange(ConnectionState.DISCONNECTED) } catch (_: Exception) {}
             }
         })
     }
@@ -108,7 +114,7 @@ class WebSocketClient(
         webSocket?.close(1000, "client disconnect")
         webSocket = null
         connected.set(false)
-        onStateChange(ConnectionState.DISCONNECTED)
+        try { onStateChange(ConnectionState.DISCONNECTED) } catch (_: Exception) {}
     }
 
     override fun isConnected(): Boolean = connected.get()

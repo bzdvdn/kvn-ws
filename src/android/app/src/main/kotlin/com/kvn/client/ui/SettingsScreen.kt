@@ -94,11 +94,11 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
             dnsServers = editDns.split(",").map { it.trim() }.filter { it.isNotBlank() },
             appIncludeList = editAppInclude.split(",").map { it.trim() }.filter { it.isNotBlank() },
             appExcludeList = editAppExclude.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            mtu = mtu.toIntOrNull() ?: 1500,
+            mtu = mtu.toIntOrNull()?.coerceIn(576, 65535) ?: 1500,
             ipv6Enabled = ipv6Enabled,
             autoReconnect = autoReconnect,
             logLevel = logLevel,
-            maxMessageSize = maxMessageSize.toIntOrNull() ?: 65535,
+            maxMessageSize = maxMessageSize.toIntOrNull()?.coerceIn(1024, 104_857_600) ?: 65535,
             multiplex = multiplex,
             multiChannel = multiChannel,
             minBackoffSec = minBackoffSec.toIntOrNull() ?: 1,
@@ -287,10 +287,24 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                 Text("IPv6", modifier = Modifier.weight(1f))
                 Switch(checked = ipv6Enabled, onCheckedChange = { ipv6Enabled = it })
             }
+            // @sk-task android-ui-status#T1: switch descriptions (AC-001)
+            Text(
+                text = "Allow IPv6 traffic",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Auto Reconnect", modifier = Modifier.weight(1f))
                 Switch(checked = autoReconnect, onCheckedChange = { autoReconnect = it })
             }
+            Text(
+                text = "Reconnect automatically on disconnect",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            // @sk-task android-ui-status#T1: Log Level as plain field — dropdown animation crashes on some builds (AC-001)
             OutlinedTextField(
                 value = logLevel,
                 onValueChange = { logLevel = it },
@@ -310,16 +324,34 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                 Text("Multiplex", modifier = Modifier.weight(1f))
                 Switch(checked = multiplex, onCheckedChange = { multiplex = it })
             }
+            Text(
+                text = "Connection multiplexing",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
             // @sk-task android-dual-ws#T1.1: dual channel toggle (AC-001)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Dual channel (UDP on 2nd WS)", modifier = Modifier.weight(1f))
                 Switch(checked = multiChannel, onCheckedChange = { multiChannel = it })
             }
+            Text(
+                text = "Separate WebSocket for UDP (VoIP/media) — server must support it",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
             // @sk-task doze-resilience#T3.2: keep-awake toggle (AC-007)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Keep awake on screen off", modifier = Modifier.weight(1f))
                 Switch(checked = keepAwakeEnabled, onCheckedChange = { keepAwakeEnabled = it })
             }
+            Text(
+                text = "Hold WakeLock/WifiLock while connected",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
         }
 
         // Reconnect section
@@ -538,6 +570,17 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
         Button(
             onClick = {
                 if (activeCfg != null) {
+                    // @sk-task android-ui-status#T1: validate MTU / Max Message Size before save (AC-001)
+                    val mtuVal = mtu.toIntOrNull()
+                    val mmsVal = maxMessageSize.toIntOrNull()
+                    if (mtuVal != null && mtuVal !in 576..65535) {
+                        Toast.makeText(context, "MTU must be 576–65535", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (mmsVal != null && mmsVal !in 1024..104_857_600) {
+                        Toast.makeText(context, "Max Message Size must be 1024–104857600", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
                     vm.saveCurrentServerConfig(buildServerConfig())
                     Toast.makeText(context, "Server config saved", Toast.LENGTH_SHORT).show()
                 }

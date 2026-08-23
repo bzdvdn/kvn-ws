@@ -23,13 +23,14 @@
 - Dual-stack IPv4/IPv6
 - QUIC transport с автоматическим fallback на TCP
 - MaxMessageSize защита от OOM в QUIC-транспорте
-- Web UI (`kvn-web`) — конфигурация, логи, импорт/экспорт/QR, статус соединения
+- Web UI (`kvn-web`) — конфигурация, логи, импорт/экспорт/QR, статус соединения, настройка Dual Channel (UDP на втором WS-канале) в Advanced/Global
+- Android-клиент — dual-channel (второй WS-канал для UDP/VoIP-медиа), статус соединения (active/fallback, uptime), автообновление release без удаления
 - Prometheus-метрики, сессионный менеджмент с BoltDB-персистентностью
 - CIDR ACL, rate limiting, per-token bandwidth management
 - Netlink API для управления маршрутами (без exec.Command)
 - SIGHUP hot-reload конфига
 - Graceful shutdown, health endpoints (/livez, /readyz, /health)
-- Кроссплатформенный клиент: Linux, macOS, Windows (Web UI)
+- Кроссплатформенный клиент: Linux, macOS, Windows (Web UI), Android (приложение)
 
 ## Quick start (30 sec)
 
