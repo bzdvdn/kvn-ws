@@ -111,6 +111,7 @@ logging:
 | `ipv6` | bool | `false` | Включить поддержку IPv6 |
 | `auto_reconnect` | bool | `true` | Автоматическое переподключение при разрыве |
 | `multiplex` | bool | `false` | Включить мультиплексирование WebSocket |
+| `multi_channel` | bool | `false` | Второй WebSocket-канал для UDP-трафика (VoIP/медиа): выносит UDP из общего потока, снимая head-of-line blocking. Обратно совместимо со старыми серверами/клиентами (без флага работает как одиночный канал) |
 | `crypto.enabled` | bool | `false` | Включить шифрование AES-256-GCM |
 | `crypto.key` | string | `""` | 256-битный мастер-ключ, 64 hex символа (должен совпадать с серверным) |
 | `proxy_listen` | string | `127.0.0.1:2310` | Адрес SOCKS5/HTTP прокси (только режим proxy) |

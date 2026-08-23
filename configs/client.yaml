@@ -23,6 +23,8 @@ log:
   level: info
 max_message_size: 10485760
 tunnel_timeout: 30
+# multi_channel: false  # второй WS-канал для UDP (VoIP/медиа): снимает head-of-line blocking
+
 proxy_max_concurrency: 1000
 crypto:
   enabled: false

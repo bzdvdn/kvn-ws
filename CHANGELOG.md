@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] 2026-08-13
+
+### Added
+
+- **Dual WS channel (UDP на втором канале)** — клиент поднимает второй WebSocket-канал того же session_id для UDP-трафика (VoIP/медиа), вынося его из общего потока и снимая head-of-line blocking. Включается флагом `multi_channel: true` на клиенте; сервер принимает вторичный канал автоматически (без отдельной настройки). При недоступности вторичного канала клиент работает на primary (фоллбэк). Реализовано для Go-клиента (`src/internal/bootstrap/client/tun.go`) и Android (`KvnVpnService`, переключатель «Dual channel» + поле `multi_channel` в QR/web-конфиге). Handshake расширен опциональными тегами `ChannelTag=0x0C` / `SessionTag=0x0D`.
+
+### Changed
+
+- **Клиентский конфиг: новая опция `multi_channel`** (bool, default `false`). См. `docs/ru/config.md` / `docs/en/config.md`.
+
+### Compatibility
+
+- **Обратная совместимость** — старые клиенты (без тегов канала) обслуживаются новым сервером как одиночный канал; новый клиент без `multi_channel` работает по старой схеме. Wire-протокол расширен, не сломан (AC-007).
+
 ## [1.1.4] 2026-08-09
 
 ### Fixed

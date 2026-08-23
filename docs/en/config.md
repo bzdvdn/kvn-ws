@@ -111,6 +111,7 @@ logging:
 | `ipv6` | bool | `false` | Enable IPv6 support |
 | `auto_reconnect` | bool | `true` | Automatically reconnect on disconnect |
 | `multiplex` | bool | `false` | Enable WebSocket multiplexing |
+| `multi_channel` | bool | `false` | Second WebSocket channel for UDP traffic (VoIP/media): routes UDP out of the shared stream to remove head-of-line blocking. Backward compatible with older servers/clients (without the flag it works as a single channel) |
 | `crypto.enabled` | bool | `false` | Enable app-layer AES-256-GCM encryption |
 | `crypto.key` | string | `""` | 256-bit master key as 64 hex chars (must match server) |
 | `proxy_listen` | string | `127.0.0.1:2310` | SOCKS5/HTTP proxy listen address (proxy mode only) |
