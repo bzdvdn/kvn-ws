@@ -484,7 +484,10 @@ func SetClientDefaults(cfg *ClientConfig) {
 		cfg.Routing.DNSRouting.TTL = 60
 	}
 	if cfg.DNSProxy.Listen == "" {
-		cfg.DNSProxy.Listen = "127.0.0.54:53"
+		// systemd-resolved (systemd >= 250, e.g. Ubuntu 24.04) eagerly binds both
+		// 127.0.0.53 and 127.0.0.54 for its own stub resolver at startup, so avoid
+		// that reserved pair here.
+		cfg.DNSProxy.Listen = "127.0.0.153:53"
 	}
 	if len(cfg.DNSProxy.Upstreams) == 0 {
 		cfg.DNSProxy.Upstreams = append([]string{}, DefaultDNSUpstreams...)

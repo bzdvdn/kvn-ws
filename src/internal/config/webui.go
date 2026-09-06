@@ -146,7 +146,7 @@ func defaultWebUIConfig() *WebUIConfig {
 			},
 			ProxyListen: "127.0.0.1:2310",
 			DNSProxy: DNSProxyCfg{
-				Listen:    "127.0.0.54:53",
+				Listen:    "127.0.0.153:53",
 				Upstreams: []string{"1.1.1.1:53"},
 			},
 			TLS: ClientTLSCfg{

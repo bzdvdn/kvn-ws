@@ -67,7 +67,7 @@ func NewFromConfig(cfg *config.ClientConfig) (*Client, error) {
 	}
 
 	if cfg.DNSProxy.Listen == "" {
-		cfg.DNSProxy.Listen = "127.0.0.54:53"
+		cfg.DNSProxy.Listen = "127.0.0.153:53"
 	}
 	if len(cfg.DNSProxy.Upstreams) == 0 {
 		cfg.DNSProxy.Upstreams = append([]string{}, config.DefaultDNSUpstreams...)

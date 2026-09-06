@@ -40,7 +40,7 @@ func New(port int) (*Server, error) {
 	}
 
 	// @sk-task kvn-web-redesign#T4.1: cleanup stale DNS from crashed sessions (AC-013)
-	dnsCleanupAddr := "127.0.0.54:53"
+	dnsCleanupAddr := "127.0.0.153:53"
 	if wc, loadErr := config.LoadWebUIConfig(filepath.Join(configDir, "config.yaml")); loadErr == nil && wc.ClientConfig.DNSProxy.Listen != "" {
 		dnsCleanupAddr = wc.ClientConfig.DNSProxy.Listen
 	}

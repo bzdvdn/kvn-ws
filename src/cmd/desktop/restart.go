@@ -12,7 +12,7 @@ func injectRestartButton(w webview.WebView, svc *ServiceManager) {
 	w.Bind("restartService", func() {
 		if err := svc.Restart(); err != nil {
 			w.Eval(fmt.Sprintf(
-				`console.error('restart failed: %s')`,
+				`window.kvnRestartFailed && window.kvnRestartFailed('%s')`,
 				escapeJS(err.Error()),
 			))
 			return
@@ -42,6 +42,12 @@ const restartButtonJS = `
       btn.disabled = true;
       btn.innerText = 'Restarting...';
       window.restartService();
+    };
+    window.kvnRestartFailed = function(msg) {
+      btn.disabled = false;
+      btn.innerText = 'Restart Service';
+      console.error('restart failed: ' + msg);
+      alert('Не удалось перезапустить службу kvn-web:\n' + msg);
     };
     document.body.appendChild(btn);
   }
