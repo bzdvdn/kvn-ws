@@ -65,7 +65,7 @@ const sectionLabel: React.CSSProperties = {
 // @sk-task win-tun#T5.2: wire tunSupported from context to TabbedForm (AC-011)
 function AppInner() {
   const {
-    servers, activeServer, serverConfig, globalConfig, status, logs, metrics, latestMetric,
+    servers, activeServer, connectedServer, serverConfig, globalConfig, status, logs, metrics, latestMetric,
     dirty, saving, toast, connect, disconnect, saveAll, addServer, deleteServer, selectServer,
     exportConfig, doImport, showToast, setFormValid, serverName, setServerName, tunSupported,
     updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
@@ -139,13 +139,18 @@ function AppInner() {
           <ServerCards
             servers={servers}
             activeServer={activeServer}
+            connectedServer={connectedServer}
             status={status}
             onSelect={selectServer}
             onAdd={addServer}
             onDelete={(name) => setDeleteTarget(name)}
             onCopyConfig={(name) => {
-              const srv = servers.find(s => s.name === name);
-              if (srv) navigator.clipboard.writeText(JSON.stringify(srv, null, 2)).then(() => showToast("Config copied")).catch(() => {});
+              // If copying the server currently open in the form, use the live (possibly
+              // unsaved) editor state so the clipboard reflects what's on screen.
+              const data = name === activeServer
+                ? { ...serverConfig, name: serverName }
+                : servers.find(s => s.name === name);
+              if (data) navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => showToast("Config copied")).catch(() => showToast("Copy failed"));
             }}
           />
 

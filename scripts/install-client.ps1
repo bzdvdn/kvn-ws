@@ -184,6 +184,7 @@ mode: proxy
 proxy_listen: ${ProxyListen}
 server: ${Server}
 transport: quic
+multi_channel: true
 obfuscation:
   enabled: true
   utls:

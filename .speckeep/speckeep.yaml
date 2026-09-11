@@ -18,6 +18,7 @@ agents:
     update_agents_md: true
     agents_file: AGENTS.md
     targets:
+        - claude
         - opencode
 templates:
     spec: spec.md

@@ -4,6 +4,7 @@ import type { Status, ServerEntry, ClientConfig, LogEntry, MetricSnapshot, Serve
 export interface AppState {
   servers: ServerEntry[];
   activeServer: string;
+  connectedServer: string;
   serverConfig: ClientConfig;
   globalConfig: ClientConfig;
   status: Status;
@@ -61,9 +62,15 @@ export function useApp(): AppState {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [servers, setServers] = useState<ServerEntry[]>([]);
   const [activeServer, setActiveServer] = useState("");
+  // The server actually connected/being connected to — distinct from `activeServer`,
+  // which just tracks which server's settings are open in the form. Browsing other
+  // servers in the list must not make them appear "connected".
+  const [connectedServer, setConnectedServer] = useState("");
   const [serverConfig, setServerConfig] = useState<ClientConfig>({});
   const [globalConfig, setGlobalConfig] = useState<ClientConfig>({});
   const [status, setStatus] = useState<Status>("disconnected");
+  const statusRef = useRef<Status>("disconnected");
+  statusRef.current = status;
   const [platform, setPlatform] = useState("");
   const [tunSupported, setTunSupported] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -100,6 +107,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveServer(target);
       const srv = data.servers.find((s) => s.name === target);
       setServerConfig({ ...srv });
+      // Don't clobber the "connected" indicator while a connection is actually live —
+      // only resync it from the backend's persisted active_server when we're not
+      // currently connected/connecting.
+      if (statusRef.current !== "connected" && statusRef.current !== "connecting") {
+        setConnectedServer(data.active_server || "");
+      }
     } catch (e) {
       showToast("Failed to load servers");
     }
@@ -187,24 +200,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ ...globalConfig, active_server: activeServer }),
     });
     const r = await fetch("/api/connect", { method: "POST" });
-    if (!r.ok) showToast("Connect failed");
+    if (!r.ok) {
+      showToast("Connect failed");
+    } else {
+      setConnectedServer(activeServer);
+    }
   }, [dirty, saveAll, globalConfig, activeServer, showToast]);
 
   const addServer = useCallback(async () => {
     const name = `server-${Date.now()}`;
-    await fetch("/api/servers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    await loadServers(name);
-    showToast(`Server "${name}" created`);
+    try {
+      const r = await fetch("/api/servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!r.ok) {
+        showToast(r.status === 409 ? "A server with that name already exists" : "Failed to create server");
+        return;
+      }
+      await loadServers(name);
+      showToast(`Server "${name}" created`);
+    } catch {
+      showToast("Failed to create server");
+    }
   }, [loadServers, showToast]);
 
   const deleteServer = useCallback(async (name: string) => {
-    await fetch(`/api/servers/${encodeURIComponent(name)}`, { method: "DELETE" });
-    await loadServers();
-    showToast(`Server "${name}" deleted`);
+    try {
+      const r = await fetch(`/api/servers/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (!r.ok) {
+        showToast("Failed to delete server");
+        return;
+      }
+      await loadServers();
+      showToast(`Server "${name}" deleted`);
+    } catch {
+      showToast("Failed to delete server");
+    }
   }, [loadServers, showToast]);
 
   const selectServer = useCallback((name: string) => {
@@ -222,11 +255,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const data = JSON.parse(json);
       const name = data.name || `imported-${Date.now()}`;
-      await fetch("/api/servers", {
+      const r = await fetch("/api/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, ...data }),
       });
+      if (!r.ok) {
+        showToast(r.status === 409 ? "A server with that name already exists" : "Import failed");
+        return;
+      }
       await loadServers(name);
       showToast(`Imported as "${name}"`);
     } catch {
@@ -352,7 +389,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [showToast]);
 
   const ctx: AppState = {
-    servers, activeServer, serverConfig, globalConfig, status, platform, tunSupported, logs, metrics, latestMetric, dirty, saving, toast,
+    servers, activeServer, connectedServer, serverConfig, globalConfig, status, platform, tunSupported, logs, metrics, latestMetric, dirty, saving, toast,
     connect, disconnect, saveAll, addServer, deleteServer, selectServer, exportConfig, doImport, showToast,
     updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
     addSourceRule, removeSourceRule, updateSourceRule, refreshSources,

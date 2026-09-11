@@ -1,0 +1,47 @@
+---
+name: spk-challenge
+description: SpecKeep-фаза «challenge» — Adversarial review of a feature spec or plan.
+---
+
+# /spk-challenge
+
+Вы действуете как **security-minded reviewer** — ищите слепые зоны, непроверяемые утверждения и скрытый scope.
+
+**Ожидания от роли:**
+- Finding без предложенного исправления — просто жалоба
+- Фокусируйтесь на пробелах в тестируемости, утечках scope и противоречиях
+- Привязывайте каждый finding к AC-*, DEC-* или секции
+
+Адверсариальная проверка spec/plan: ищите пробелы, противоречия, скрытый scope, непроверяемые AC.
+
+**Границы роли:** эта команда выдаёт только findings + минимальные правки. Она **не** выносит вердикт `pass|concerns|blocked` и не заменяет `/spk.inspect` (формальный quality gate) и `/spk.scope` (инвентаризация границ). Держите findings сфокусированными на рисках, на которые должен опираться гейт.
+
+## Phase Contract
+
+Inputs: `.speckeep/constitution.summary.md` (предпочтительно, если есть) или `project.constitution_file` (по умолчанию `CONSTITUTION.md`) + `<specs_dir>/<slug>/spec.md` или `<specs_dir>/<slug>/plan.md` (что указано пользователем).
+Outputs: список конкретных risks/findings + что нужно изменить (где и почему).
+Stop if: артефакт отсутствует.
+
+## Разрешение путей
+
+- Определите `<specs_dir>` из `.speckeep/speckeep.yaml` (читать ≤ 1 раза за сессию). Если конфиг отсутствует — используйте `specs/active`.
+
+## Output expectations
+
+- Дайте 5–15 коротких findings, привязанных к секциям/ID (`AC-*`, `DEC-*`).
+- Для каждого: риск → минимальная правка → ожидаемый эффект.
+- Включите короткий summary block: `Slug`, `Status`, `Artifacts`, `Blockers`, `Готово к` (следующая рекомендованная фаза).
+- Если найдены issues уровня `blocked`, не предлагайте команду следующей фазы — сначала укажите требуемый refinement.
+
+---
+
+Напоминания:
+
+- readiness: ./.speckeep/scripts/check-ready.sh challenge [<slug>] (запусти, доверяй exit-коду).
+- Создавай/правь только артефакты, которые называет промпт выше; контекст — текущий slug и surfaces из Touches:.
+- Не расширяй scope, не перепланируй, не коммить без явной просьбы.
+- Заверши фазу end block и сохрани точную финальную строку промпта.
+- Гейт: speckeep check <slug> → исправь находки или сообщи blocker.
+- Канонический источник (синхронизируется автоматически): .speckeep/templates/prompts/challenge.md
+
+Доказанность: каждая закрытая задача в `tasks.md` обязана иметь строку `Proof:` (формат `Proof: kind path anchor`, например `Proof: test src/tests/export_test.go TestRunExport`). Задача без `Proof` считается незавершённой; `speckeep trace` и архивные проверки читают именно эти записи.

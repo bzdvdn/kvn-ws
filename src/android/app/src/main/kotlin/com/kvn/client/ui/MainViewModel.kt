@@ -122,9 +122,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addServer(name: String, config: ConnectionConfig) {
         viewModelScope.launch {
             val current = savedAppConfig.value
+            val withoutExisting = current.servers.filter { it.name != name }
             val updated = current.copy(
                 activeServer = name,
-                servers = current.servers + ServerEntry(name, config)
+                servers = withoutExisting + ServerEntry(name, config)
             )
             appConfigStore.save(updated)
             _isDirty.value = false
@@ -137,9 +138,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val current = savedAppConfig.value
             val activeCfg = current.servers.find { it.name == current.activeServer }?.config
                 ?: return@launch
+            val withoutExisting = current.servers.filter { it.name != newName }
             val updated = current.copy(
                 activeServer = newName,
-                servers = current.servers + ServerEntry(newName, activeCfg)
+                servers = withoutExisting + ServerEntry(newName, activeCfg)
             )
             appConfigStore.save(updated)
             _isDirty.value = false

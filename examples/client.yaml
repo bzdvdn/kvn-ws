@@ -3,6 +3,7 @@
 <!-- @sk-task whitelist-obfuscation#T3.2: obfuscation block example (AC-005) -->
 server: wss://server:443/tunnel
 transport: quic
+multi_channel: true  # второй WS-канал для UDP (VoIP/медиа): снимает head-of-line blocking
 obfuscation:
   enabled: true
   utls:

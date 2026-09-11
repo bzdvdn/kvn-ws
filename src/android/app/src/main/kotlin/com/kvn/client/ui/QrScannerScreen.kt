@@ -119,8 +119,8 @@ private data class WebConfig(
     val server: String = "",
     val transport: String = "tcp",
     val obfuscation: WebObfuscationCfg? = null,
-    val auth: WebAuthCfg = WebAuthCfg(),
-    val tls: WebTlsCfg = WebTlsCfg(),
+    val auth: WebAuthCfg? = null,
+    val tls: WebTlsCfg? = null,
     val mtu: Int = 1400,
     val ipv6: Boolean = false,
     val auto_reconnect: Boolean? = true,
@@ -128,7 +128,7 @@ private data class WebConfig(
     val kill_switch: WebKillSwitchCfg? = null,
     val reconnect: WebReconnectCfg? = null,
     val mode: String = "tun",
-    val crypto: WebCryptoCfg = WebCryptoCfg(),
+    val crypto: WebCryptoCfg? = null,
     val multiplex: Boolean = false,
     val max_message_size: Int = 65535,
     val name: String? = null,
@@ -292,6 +292,7 @@ class QrCodeAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     private val processing = AtomicBoolean(false)
+    private val found = AtomicBoolean(false)
     private var started = false
     private var frameCount = 0
 
@@ -302,7 +303,7 @@ class QrCodeAnalyzer(
     private val mlScanner = BarcodeScanning.getClient(mlOptions)
 
     override fun analyze(imageProxy: ImageProxy) {
-        if (!processing.compareAndSet(false, true)) {
+        if (found.get() || !processing.compareAndSet(false, true)) {
             imageProxy.close()
             return
         }
@@ -323,6 +324,7 @@ class QrCodeAnalyzer(
             var text = decodeZxing(imageProxy)
             if (text != null) {
                 AppLogger.d("QrCodeAnalyzer", "ZXing decoded: ${text.take(80)}…")
+                found.set(true)
                 onResult(text)
                 processing.set(false)
                 imageProxy.close()
@@ -338,10 +340,9 @@ class QrCodeAnalyzer(
                         if (barcodes.isEmpty()) {
                             AppLogger.d("QrCodeAnalyzer", "ML Kit: no barcodes")
                         } else {
-                            for (b in barcodes) {
-                                AppLogger.d("QrCodeAnalyzer", "ML Kit decoded: ${b.rawValue?.take(80)}…")
-                                b.rawValue?.let { onResult(it) }
-                            }
+                            val b = barcodes.first()
+                            AppLogger.d("QrCodeAnalyzer", "ML Kit decoded: ${b.rawValue?.take(80)}…")
+                            b.rawValue?.let { found.set(true); onResult(it) }
                         }
                     }
                     .addOnFailureListener { e ->
@@ -362,10 +363,9 @@ class QrCodeAnalyzer(
                             if (barcodes.isEmpty()) {
                                 AppLogger.d("QrCodeAnalyzer", "ML Kit bitmap: no barcodes")
                             } else {
-                                for (b in barcodes) {
-                                    AppLogger.d("QrCodeAnalyzer", "ML Kit bitmap decoded: ${b.rawValue?.take(80)}…")
-                                    b.rawValue?.let { onResult(it) }
-                                }
+                                val b = barcodes.first()
+                                AppLogger.d("QrCodeAnalyzer", "ML Kit bitmap decoded: ${b.rawValue?.take(80)}…")
+                                b.rawValue?.let { found.set(true); onResult(it) }
                             }
                         }
                         .addOnFailureListener { e ->
@@ -555,7 +555,10 @@ fun parseQrConfig(raw: String): ConnectionConfig? {
     // Try kvn-web format
     try {
         val web = json.decodeFromString<WebConfig>(raw)
-        return webToAndroidConfig(web)
+        val cfg = webToAndroidConfig(web)
+        // @sk-task android-qr-fix#T1: reject unusable config (missing/empty server) as invalid QR (AC-001)
+        if (cfg.serverAddress.isBlank()) return null
+        return cfg
     } catch (e: Exception) {
         AppLogger.e("parseQrConfig", "web format failed: ${e.message}")
         AppLogger.d("parseQrConfig", "raw QR: ${raw.take(200)}")
@@ -593,7 +596,7 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         port = port,
         serverPath = path,
         transport = transport,
-        token = web.auth.token,
+        token = web.auth?.token ?: "",
         mode = web.mode,
         mtu = web.mtu,
         ipv6Enabled = web.ipv6,
@@ -604,9 +607,9 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         logLevel = web.log?.level ?: "info",
         minBackoffSec = rc?.min_backoff_sec ?: 1,
         maxBackoffSec = rc?.max_backoff_sec ?: 30,
-        tlsVerifyMode = web.tls.verify_mode,
-        tlsServerName = web.tls.server_name,
-        tlsSni = web.tls.sni ?: emptyList(),
+        tlsVerifyMode = web.tls?.verify_mode ?: "verify",
+        tlsServerName = web.tls?.server_name ?: "",
+        tlsSni = web.tls?.sni ?: emptyList(),
         routingDefaultRoute = routing?.default_route ?: "server",
         routingIncludeRanges = routing?.include_ranges ?: emptyList(),
         routingExcludeRanges = routing?.exclude_ranges ?: emptyList(),
@@ -615,8 +618,8 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         routingIncludeDomains = routing?.include_domains ?: emptyList(),
         routingExcludeDomains = routing?.exclude_domains ?: emptyList(),
         geoipUrl = routing?.geoip_url ?: "",
-        cryptoEnabled = web.crypto.enabled,
-        cryptoKey = web.crypto.key,
+        cryptoEnabled = web.crypto?.enabled ?: false,
+        cryptoKey = web.crypto?.key ?: "",
         killSwitchEnabled = ks?.enabled ?: false,
         obfuscationEnabled = ob?.enabled ?: false,
         obfuscationUtls = ob?.utls?.enabled ?: false,

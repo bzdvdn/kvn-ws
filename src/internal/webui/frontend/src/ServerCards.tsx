@@ -5,6 +5,7 @@ import { colors, borderRadius } from "./theme";
 interface ServerCardsProps {
   servers: ServerEntry[];
   activeServer: string;
+  connectedServer: string;
   status: Status;
   onSelect: (name: string) => void;
   onAdd: () => void;
@@ -108,11 +109,11 @@ function statusDot(st: string): React.CSSProperties {
 }
 
 // @sk-task kvn-web-redesign#T2.1: server card list with status dots and actions (AC-003, AC-004)
-export default function ServerCards({ servers, activeServer, status, onSelect, onAdd, onDelete, onCopyConfig }: ServerCardsProps) {
+export default function ServerCards({ servers, activeServer, connectedServer, status, onSelect, onAdd, onDelete, onCopyConfig }: ServerCardsProps) {
   const [open, setOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const active = servers.find((s) => s.name === activeServer);
+  const active = servers.find((s) => s.name === connectedServer) || servers.find((s) => s.name === activeServer);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -153,19 +154,20 @@ export default function ServerCards({ servers, activeServer, status, onSelect, o
             </div>
           )}
           {servers.map((srv) => {
-            const isActive = srv.name === activeServer;
-            const connStatus = isActive ? status : "disconnected";
+            const isSelected = srv.name === activeServer;
+            const isConnectedServer = srv.name === connectedServer;
+            const connStatus = isConnectedServer ? status : "disconnected";
             return (
               <div
                 key={srv.name}
                 style={{
                   ...styles.card,
-                  background: isActive ? "#1a1a3a" : "transparent",
-                  borderColor: isActive ? `${colors.accent}44` : "transparent",
+                  background: isSelected ? "#1a1a3a" : "transparent",
+                  borderColor: isConnectedServer ? `${colors.accent}44` : "transparent",
                 }}
                 onClick={() => handleSelect(srv.name)}
-                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "#1a1a3a"; e.currentTarget.style.borderColor = colors.cardBorder; }}
-                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}
+                onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "#1a1a3a"; e.currentTarget.style.borderColor = colors.cardBorder; }}
+                onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = isConnectedServer ? `${colors.accent}44` : "transparent"; }}
               >
                 <div style={statusDot(connStatus)} />
                 <div style={styles.cardInfo}>

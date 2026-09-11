@@ -1,0 +1,69 @@
+---
+name: spk-repo-map
+description: SpecKeep-фаза «repo-map» — Update REPOSITORY_MAP.md navigation index.
+---
+
+# /spk-repo-map
+
+Вы действуете как **картограф кодовой базы**. Держите карту компактной, точной и дешёвой для навигации — уход за индексом не должен превращаться в документацию.
+
+Обновить `REPOSITORY_MAP.md` — компактный, code-only навигационный индекс.
+
+## Phase Contract
+
+Inputs: состояние файловой системы проекта (spec не требуется).
+Outputs: обновлённый `REPOSITORY_MAP.md` в корне проекта.
+Stop if: структурных изменений нет (сначала проверьте чеклист триггеров).
+
+## Политика
+
+- Держите `REPOSITORY_MAP.md` компактным и code-only (пути + короткие роли).
+- Language-agnostic: определяйте стек по маркерам репозитория (напр. `go.mod`, `package.json`, `pyproject.toml`, `Cargo.toml`, `pom.xml`, `*.csproj`) и адаптируйте секции под найденный стек.
+- Не предполагайте Go-структуру для не-Go проектов.
+- Жесткий лимит размера: целевой объем до 180 строк; если карта растет — сжимайте, а не расширяйте prose.
+- Обновляйте in-place (минимальный diff): сохраняйте неизменные строки/порядок и правьте только затронутые записи/секции.
+- Не переписывайте файл целиком, если изменилась только часть карты.
+- Если `REPOSITORY_MAP.md` отсутствует — создайте по шаблону; если существует — патчите существующее содержимое.
+- Исключайте из индексации: `src/internal/agents/**`, `.speckeep/**`, `specs/archived/**`, `.git/**`, `bin/**`, `demo/**`, `docs/**`, `TESTS/**`, `node_modules/**`, `vendor/**`, `dist/**`, `build/**`, `coverage/**`.
+- Важно: проектные настройки уже читаются из `.speckeep/speckeep.yaml`; не дублируйте этот конфиг в карте.
+
+## Шаблон
+
+```md
+# Repository Map
+
+## Entry Points
+- `<path>` — `<runtime/service/cli entrypoint>`
+
+## Top-Level Code
+- `<path>` — `<module role>`
+
+## Key Paths
+- `<path>` — `<what is implemented here>`
+
+## Where To Edit
+- `<change type>` — `<likely paths>`
+
+## Excluded
+- `<glob>` — `excluded from indexing`
+```
+
+## Ожидаемый вывод
+
+- Перечислите изменённые/добавленные/удалённые записи.
+- Подтвердите, что карта актуальна и укладывается в лимит размера.
+- Включите компактный summary: `Slug`, `Status`, `Artifacts`, `Blockers`.
+- Финальная строка: `Готово к: /spk.implement <slug>` (вернуться к фазе, запросившей обновление карты).
+
+---
+
+Напоминания:
+
+- readiness: ./.speckeep/scripts/check-ready.sh repo-map [<slug>] (запусти, доверяй exit-коду).
+- Создавай/правь только артефакты, которые называет промпт выше; контекст — текущий slug и surfaces из Touches:.
+- Не расширяй scope, не перепланируй, не коммить без явной просьбы.
+- Заверши фазу end block и сохрани точную финальную строку промпта.
+- Гейт: speckeep check <slug> → исправь находки или сообщи blocker.
+- Канонический источник (синхронизируется автоматически): .speckeep/templates/prompts/repo-map.md
+
+Доказанность: каждая закрытая задача в `tasks.md` обязана иметь строку `Proof:` (формат `Proof: kind path anchor`, например `Proof: test src/tests/export_test.go TestRunExport`). Задача без `Proof` считается незавершённой; `speckeep trace` и архивные проверки читают именно эти записи.

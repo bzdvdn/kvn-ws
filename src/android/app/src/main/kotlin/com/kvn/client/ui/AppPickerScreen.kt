@@ -2,6 +2,7 @@ package com.kvn.client.ui
 
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.ImageView
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -42,7 +43,13 @@ fun AppPickerScreen(
     val apps by produceState<List<AppItem>>(initialValue = emptyList()) {
         value = withContext(Dispatchers.Default) {
             val pm = context.packageManager
-            val installed = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+            // @sk-task android-per-app-fix#T1: ApplicationInfoFlags.of() is API 33+ — gate for old devices (AC-001)
+            val installed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getInstalledApplications(0)
+            }
             installed.map { info ->
                 val label = pm.getApplicationLabel(info).toString()
                 AppItem(
