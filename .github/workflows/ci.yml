@@ -43,13 +43,13 @@ jobs:
       - name: Vet
         run: go vet ./src/...
       - name: Gosec
-        uses: securego/gosec@master
+        uses: securego/gosec@v2.29.0
         with:
           args: -exclude=G103 -exclude-dir=src/cmd/desktop ./...
       - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.64.8
           install-mode: goinstall
       - name: Build
         run: go build ./src/...

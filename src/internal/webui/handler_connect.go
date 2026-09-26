@@ -31,6 +31,11 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// @sk-task tun-connect-restart: release any leftover TUN from a previous
+	// session (disconnect timeout) before opening a new device, otherwise
+	// Open() fails with "tun device busy".
+	s.stopStaleClientLocked()
+
 	s.state.setStatus(StatusConnecting)
 	writeJSON(w, http.StatusOK, connectResponse{Status: StatusConnecting})
 
@@ -110,7 +115,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer close(doneCh)
 		defer metricCancel()
-		s.state.setStatus(StatusConnected)
+
+		// Only publish lifecycle status while this client is still the active
+		// one, so a late finisher from a previous session cannot overwrite the
+		// status of a newer connection.
+		setStatus := func(st Status) {
+			if s.state.Client() == cl {
+				s.state.setStatus(st)
+			}
+		}
+
+		setStatus(StatusConnected)
 		s.state.PushLog(LogEntry{Line: "connected to " + cfg.Server, Level: "info"})
 
 		// forward metrics from sender to state broadcast
@@ -126,11 +141,11 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		}()
 
 		if err := cl.Run(ctx); err != nil {
-			s.state.setStatus(StatusError)
+			setStatus(StatusError)
 			s.state.PushLog(LogEntry{Line: "client error: " + err.Error(), Level: "error"})
 			return
 		}
-		s.state.setStatus(StatusDisconnected)
+		setStatus(StatusDisconnected)
 	}()
 }
 
@@ -240,28 +255,47 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	return merged
 }
 
-func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
-	s.connectMu.Lock()
-	defer s.connectMu.Unlock()
-
+// @sk-task tun-connect-restart: cancel and force-release a client left over
+// from a previous session. Cancels the run context, force-closes the TUN device
+// so its OS handle is released, and waits (bounded) for the client goroutine to
+// exit. Must be called with connectMu held.
+func (s *Server) stopStaleClientLocked() {
+	cl := s.state.Client()
 	cancel := s.state.Cancel()
+	doneCh := s.state.DoneCh()
+	if cl == nil && cancel == nil && doneCh == nil {
+		return
+	}
+
 	if cancel != nil {
 		cancel()
 	}
-
-	doneCh := s.state.DoneCh()
+	if cl != nil {
+		cl.StopTun()
+	}
 	if doneCh != nil {
 		select {
 		case <-doneCh:
 		case <-time.After(3 * time.Second):
-			s.state.PushLog(LogEntry{Line: "disconnect: client shutdown timeout", Level: "warn"})
+			// Keep the client reference so the next Connect can retry the
+			// force-release instead of losing track of the held TUN device.
+			s.state.PushLog(LogEntry{Line: "previous client shutdown timeout, TUN force-released", Level: "warn"})
+			return
 		}
 	}
 
-	s.state.setStatus(StatusDisconnected)
 	s.state.setClient(nil)
 	s.state.SetCancel(nil)
 	s.state.SetDoneCh(nil)
+}
+
+func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+
+	s.stopStaleClientLocked()
+
+	s.state.setStatus(StatusDisconnected)
 	s.state.PushLog(LogEntry{Line: "disconnected", Level: "info"})
 
 	writeJSON(w, http.StatusOK, connectResponse{Status: StatusDisconnected})

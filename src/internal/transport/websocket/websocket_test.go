@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -534,7 +535,11 @@ func TestDialTCPNoDelay(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	tcpConn, ok := conn.Underlying().UnderlyingConn().(*net.TCPConn)
+	underlying := conn.Underlying().UnderlyingConn()
+	if w, ok := underlying.(interface{ Unwrap() net.Conn }); ok {
+		underlying = w.Unwrap()
+	}
+	tcpConn, ok := underlying.(*net.TCPConn)
 	if !ok {
 		t.Fatal("underlying conn is not *net.TCPConn")
 	}
@@ -1059,5 +1064,40 @@ func TestWSControlPlane(t *testing.T) {
 	// 4. Verify a data write still works after control plane operations
 	if err := conn.WriteMessage([]byte("test after control")); err != nil {
 		t.Fatalf("WriteMessage after control plane: %v", err)
+	}
+}
+
+// @sk-test dial-cancel: DialContext aborts a stalled handshake when ctx is cancelled
+func TestDialContextCancel(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	// Accept the TCP connection but never complete the WebSocket handshake.
+	go func() {
+		c, aErr := ln.Accept()
+		if aErr != nil {
+			return
+		}
+		defer c.Close()
+		time.Sleep(5 * time.Second)
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err = DialContext(ctx, "ws://"+ln.Addr().String(), nil, nopLogger)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected dial error after context cancellation")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("dial did not abort on cancellation: took %v", elapsed)
 	}
 }

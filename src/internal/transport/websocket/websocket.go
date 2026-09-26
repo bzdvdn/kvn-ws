@@ -334,7 +334,13 @@ func (c *WSConn) SetPingHandler(h func(string) error) {
 // @sk-task performance-and-polish#T2.2: TCP_NODELAY via NetDial (AC-002)
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 // @sk-task whitelist-obfuscation#T2.1: uTLS support via NetDialTLSContext (AC-001)
+// @sk-task dial-cancel: Dial delegates to DialContext with background context
 func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WSConfig) (*WSConn, error) {
+	return DialContext(context.Background(), serverURL, tlsConfig, logger, cfg...)
+}
+
+// @sk-task dial-cancel: DialContext aborts the handshake when ctx is cancelled
+func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WSConfig) (*WSConn, error) {
 	var wsCfg WSConfig
 	if len(cfg) > 0 {
 		wsCfg = cfg[0]
@@ -346,15 +352,15 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 		d.Subprotocols = []string{MultiplexSubprotocol}
 	}
 	if wsCfg.UTLS {
-		d.NetDialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return wtls.DialWithUTLS(ctx, network, addr, tlsConfig, wsCfg.UTLSFallback)
-		}
+		d.NetDialTLSContext = closeOnContextCancel(ctx, func(dialCtx context.Context, network, addr string) (net.Conn, error) {
+			return wtls.DialWithUTLS(dialCtx, network, addr, tlsConfig, wsCfg.UTLSFallback)
+		})
 	} else {
 		d.TLSClientConfig = tlsConfig
 	}
-	d.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	d.NetDialContext = closeOnContextCancel(ctx, func(dialCtx context.Context, network, addr string) (net.Conn, error) {
 		dialer := net.Dialer{}
-		conn, err := dialer.DialContext(ctx, network, addr)
+		conn, err := dialer.DialContext(dialCtx, network, addr)
 		if err != nil {
 			return conn, err
 		}
@@ -362,8 +368,8 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 			_ = tcpConn.SetNoDelay(true)
 		}
 		return conn, nil
-	}
-	conn, _, err := d.Dial(serverURL, nil)
+	})
+	conn, _, err := d.DialContext(ctx, serverURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -378,6 +384,37 @@ func Dial(serverURL string, tlsConfig *tls.Config, logger *zap.Logger, cfg ...WS
 	wc.startControlWriter()
 	return wc, nil
 }
+
+// closeOnContextCancel wraps a dial function so the returned connection is
+// closed as soon as ctx is cancelled. gorilla only applies the HandshakeTimeout
+// deadline to the connection, so without this a cancelled client would keep
+// waiting up to 10s for a stalled server response before aborting the dial.
+func closeOnContextCancel(ctx context.Context, dial func(context.Context, string, string) (net.Conn, error)) func(context.Context, string, string) (net.Conn, error) {
+	return func(dialCtx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dial(dialCtx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		wrap := &cancelOnContextConn{Conn: conn}
+		wrap.stop = context.AfterFunc(ctx, func() { _ = conn.Close() })
+		return wrap, nil
+	}
+}
+
+type cancelOnContextConn struct {
+	net.Conn
+	stop func() bool
+}
+
+func (c *cancelOnContextConn) Close() error {
+	if c.stop != nil {
+		c.stop()
+	}
+	return c.Conn.Close()
+}
+
+// Unwrap exposes the wrapped connection for type assertions (e.g. *net.TCPConn).
+func (c *cancelOnContextConn) Unwrap() net.Conn { return c.Conn }
 
 // @sk-task security-acl#T4: NewOriginChecker creates origin check function from whitelist
 // @sk-task post-hardening#T1.3: fix origin pattern matching — use glob/fnmatch instead of path.Match (AC-003)

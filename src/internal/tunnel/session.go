@@ -334,7 +334,10 @@ func (s *Session) wsToTun(ctx context.Context) error {
 				consecutiveTimeouts++
 				if consecutiveTimeouts >= 10 {
 					s.logger.Warn("too many consecutive timeouts, ending session",
-						zap.Int("count", consecutiveTimeouts), zap.Error(err))
+						zap.Int("count", consecutiveTimeouts),
+						zap.Duration("timeout", s.tunnelTimeout),
+						zap.String("session_id", s.sessionID),
+						zap.Error(err))
 					return err
 				}
 				s.logger.Debug("read timeout, continuing", zap.Error(err))

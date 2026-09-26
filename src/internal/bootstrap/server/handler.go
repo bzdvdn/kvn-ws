@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -22,6 +24,14 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
 )
+
+// @sk-task server-handshake-timeout: max time to wait for ClientHello after transport setup
+const handshakeReadTimeout = 30 * time.Second
+
+func isTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
 
 func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg websocket.WSConfig) {
 	if !isWebSocketRequest(r) {
@@ -68,9 +78,18 @@ func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
 
 // @sk-task quic-transport#T3.1: shared stream handler for WS and QUIC (AC-001)
 func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu int, remoteAddr string) {
+	// @sk-task server-handshake-timeout: bound the hello read so a stalled or
+	// half-open client cannot hold a handler forever; clear it before the
+	// session installs its own deadlines.
+	_ = stream.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
 	data, err := stream.ReadMessage()
+	_ = stream.SetReadDeadline(time.Time{})
 	if err != nil {
-		s.logger.Error("read client hello", zap.Error(err))
+		s.logger.Warn("read client hello",
+			zap.String("remote_addr", remoteAddr),
+			zap.Bool("timeout", isTimeout(err)),
+			zap.Error(err),
+		)
 		_ = stream.Close()
 		return
 	}

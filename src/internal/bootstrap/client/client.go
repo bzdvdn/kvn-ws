@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 
 	"github.com/spf13/pflag"
@@ -33,12 +34,42 @@ type Client struct {
 	logger    *zap.Logger
 	masterKey []byte
 
+	tunMu  sync.Mutex
+	tunDev tun.TunDevice
+
 	dnsSrv          *dnsproxy.Server
 	metricCollector *metricclient.Collector
 }
 
 func (c *Client) SetLogger(l *zap.Logger) {
 	c.logger = l
+}
+
+// StopTun forcibly closes the active TUN device (idempotent). It releases the
+// OS device immediately so a subsequent Connect can reopen it even when the
+// client goroutine from a previous session has not fully exited yet (e.g. the
+// disconnect handler timed out while Wintun close was still in flight).
+func (c *Client) StopTun() {
+	c.tunMu.Lock()
+	dev := c.tunDev
+	c.tunMu.Unlock()
+	if dev != nil {
+		_ = dev.Close()
+	}
+}
+
+func (c *Client) setTun(dev tun.TunDevice) {
+	c.tunMu.Lock()
+	c.tunDev = dev
+	c.tunMu.Unlock()
+}
+
+func (c *Client) clearTun(dev tun.TunDevice) {
+	c.tunMu.Lock()
+	if c.tunDev == dev {
+		c.tunDev = nil
+	}
+	c.tunMu.Unlock()
 }
 
 func (c *Client) SetMetricCollector(mc *metricclient.Collector) {
@@ -274,15 +305,19 @@ func (c *Client) Run(ctx context.Context) error {
 	if err := tunDev.Open(); err != nil {
 		return fmt.Errorf("open tun: %w", err)
 	}
+	c.setTun(tunDev)
 	// @sk-task relay-terminator#T9.3: TUN cleanup on graceful disconnect (AC-006)
-	defer func() { _ = tunDev.Close() }()
+	defer func() {
+		_ = tunDev.Close()
+		c.clearTun(tunDev)
+	}()
 
 	// Force-close TUN on context cancellation to unblock tunnel reads
 	// (tunDev.Read() does not take a context). This ensures that the session
 	// goroutines unblock, defers run, and resolv.conf / routes are cleaned up.
 	go func() {
 		<-ctx.Done()
-		_ = tunDev.Close()
+		c.StopTun()
 	}()
 
 	c.reconnectLoop(ctx, tunDev)
