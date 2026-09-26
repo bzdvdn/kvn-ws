@@ -7,7 +7,7 @@ description: SpecKeep-фаза «propose» — One-shot: turn an idea into spec 
 
 Ты действуешь как **product + tech lead в одном лице**: превращаешь сырую идею в готовую к реализации фичу за один проход — `spec.md` + `tasks.md` (и `plan.md`, только если изменение действительно нетривиально).
 
-Это **быстрая полоса** — заменяет последовательность `spec → plan → tasks`, когда изменение маленькое/низкорисковое. Если intent неоднозначен, идея разбивается на несколько фич или нужен серьёзный дизайн — ОСТАНОВИСЬ и откатись на `/spk.spec` (и `/spk.plan`).
+Это **быстрая полоса** — заменяет последовательность `spec → plan → tasks`, когда изменение маленькое/низкорисковое. Если intent неоднозначен, идея разбивается на несколько фич или нужен серьёзный дизайн — ОСТАНОВИСЬ и откатись на `/spk-spec` (и `/spk-plan`).
 
 Следуй базовым правилам в `AGENTS.md`.
 
@@ -20,7 +20,7 @@ description: SpecKeep-фаза «propose» — One-shot: turn an idea into spec 
 ## Workflow
 
 1. Прогони readiness проверку фазы: `./.speckeep/scripts/check-ready.sh propose [slug]`.
-2. Выведи slug (или прими `--slug`). Работай с ветки `feature/<slug>` — создай/переключись, если её нет (то же правило, что у `/spk.spec`).
+2. Выведи slug (или прими `--slug`). Работай с ветки `feature/<slug>` — создай/переключись, если её нет (то же правило, что у `/spk-spec`).
 3. Напиши `spec.md` по шаблону spec: `## Goal`, `## Requirements` (`RQ-*`), `## Acceptance Criteria` (`AC-*` с **Given / When / Then**), `## Assumptions`.
 4. Выбери полосу:
    - **express** (по умолчанию): без `plan.md` — сразу к задачам.
@@ -32,7 +32,7 @@ description: SpecKeep-фаза «propose» — One-shot: turn an idea into spec 
 
 - Минимальный контекст: только текущий slug и нужные repo surfaces; никаких full-repo сканов.
 - Используй `.speckeep/templates/spec.md` и `.speckeep/templates/tasks.md` как каркас; никогда не ищи форму в чужих slug.
-- Дисциплина размера: `spec.md` ≤ ~80 строк, `tasks.md` ≤ ~150 строк; переполнение обычно значит, что идея слишком большая для propose — остановись и возвращайся на `/spk.spec`.
+- Дисциплина размера: `spec.md` ≤ ~80 строк, `tasks.md` ≤ ~150 строк; переполнение обычно значит, что идея слишком большая для propose — остановись и возвращайся на `/spk-spec`.
 - Каждый `AC-*` маппится на ≥ 1 задачу; у каждой задачи есть `Touches:` и измеримый outcome.
 - Если модель данных меняется — создай `data-model.md`; иначе строка `Data model: no change` живёт в `tasks.md` → `Implementation Context` или в `plan.md`.
 - Конституция: AGENTS.md (`.speckeep/constitution.summary.md` предпочтительнее).
@@ -46,7 +46,7 @@ description: SpecKeep-фаза «propose» — One-shot: turn an idea into spec 
 - [ ] Каждый `AC-*` покрыт ≥ 1 задачей
 - [ ] `plan.md` существует только для нетривиальных изменений (express — полоса по умолчанию)
 
-Если хоть один пункт не прошёл: исправь и прогони заново. После **2 раундов** правок, которые всё ещё не проходят, остановись и вернись на `/spk.spec <slug>` (или задай один уточняющий вопрос) — не продавливай propose.
+Если хоть один пункт не прошёл: исправь и прогони заново. После **2 раундов** правок, которые всё ещё не проходят, остановись и вернись на `/spk-spec <slug>` (или задай один уточняющий вопрос) — не продавливай propose.
 
 ## Ожидания по выводу
 
@@ -58,9 +58,9 @@ description: SpecKeep-фаза «propose» — One-shot: turn an idea into spec 
   Status: propose
   Artifacts: <пути>
   Blockers: <none | причина>
-  Готово к: /spk.implement <slug>
+  Готово к: /spk-implement <slug>
   ```
-- Финальная строка: `Готово к: /spk.implement <slug>`
+- Финальная строка: `Готово к: /spk-implement <slug>`
 
 ---
 

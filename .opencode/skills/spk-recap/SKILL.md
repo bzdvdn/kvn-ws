@@ -20,7 +20,6 @@ description: SpecKeep-фаза «recap» — Project-level overview of all activ
 
 Напоминания:
 
-- readiness: ./.speckeep/scripts/check-ready.sh recap [<slug>] (запусти, доверяй exit-коду).
 - Создавай/правь только артефакты, которые называет промпт выше; контекст — текущий slug и surfaces из Touches:.
 - Не расширяй scope, не перепланируй, не коммить без явной просьбы.
 - Заверши фазу end block и сохрани точную финальную строку промпта.

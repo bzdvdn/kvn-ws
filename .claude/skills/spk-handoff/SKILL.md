@@ -23,16 +23,15 @@ Stop if: tasks.md отсутствует.
 
 - `Slug`, `Phase`, `What changed`, `Open tasks`, `Blockers`, `Next command`.
 - Финальная строка (определите фазу по состоянию; `workflow.verify` — по **Verify gate policy** в AGENTS.md):
-  - Если blocked: `Вернуться к: /spk.<phase> <slug>`
-  - Если готово к следующей фазе: `Готово к: /spk.<next> <slug>`
-  - Если всё готово и `workflow.verify: required`: `Готово к: /spk.verify <slug>`
+  - Если blocked: `Вернуться к: /spk-<phase> <slug>`
+  - Если готово к следующей фазе: `Готово к: /spk-<next> <slug>`
+  - Если всё готово и `workflow.verify: required`: `Готово к: /spk-verify <slug>`
   - Если всё готово и `workflow.verify` — `optional`/отсутствует: `Готово к: speckeep archive <slug> .`
 
 ---
 
 Напоминания:
 
-- readiness: ./.speckeep/scripts/check-ready.sh handoff [<slug>] (запусти, доверяй exit-коду).
 - Создавай/правь только артефакты, которые называет промпт выше; контекст — текущий slug и surfaces из Touches:.
 - Не расширяй scope, не перепланируй, не коммить без явной просьбы.
 - Заверши фазу end block и сохрани точную финальную строку промпта.

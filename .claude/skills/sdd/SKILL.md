@@ -15,7 +15,7 @@ description: SpecKeep — spec-driven development. Use when the user asks to pro
 2. Сначала прочитай .speckeep/constitution.summary.md (fallback: CONSTITUTION.md).
 3. Branch-first: работай с feature/<slug> (ветку создаёт/переключает только spec/propose).
 4. Держи контекст узким: текущий slug + surfaces из Touches:.
-5. Запускай readiness-скрипт: ./.speckeep/scripts/check-ready.sh <phase> <slug>, доверяй exit-коду.
+5. Readiness-скрипт ./.speckeep/scripts/check-ready.sh <phase> <slug> — только для гейтируемых фаз, доверяй exit-коду; у вспомогательных команд гейта нет.
 6. Каждую фазу завершай end block (Slug / Status / Artifacts / Blockers / Готово к) и сохраняй точную финальную строку промпта.
 
 ## Гейты (не пропускать)
@@ -35,6 +35,9 @@ description: SpecKeep — spec-driven development. Use when the user asks to pro
 - `/spk-implement` — Implement one feature from tasks
 - `/spk-verify` — Verify one implemented feature package
 - `/spk-converge` — Close a feature fast: re-check tasks/proofs, append follow-up tasks, repeat until converged
+
+## Вспомогательные команды (вне цепочки фаз, readiness-гейта нет)
+
 - `/spk-handoff` — Generate a session handoff document for one feature
 - `/spk-challenge` — Adversarial review of a feature spec or plan
 - `/spk-scope` — Quick scope boundary check for a feature
