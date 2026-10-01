@@ -310,17 +310,9 @@ func (s *Server) handleSecondaryStream(ctx context.Context, stream tunnel.Stream
 		zap.String("token", tokenName),
 	)
 	// The secondary read/write loops own the stream; block until the owning
-	// session terminates (ref removed after Run) or the request returns.
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if _, ok := s.tunnelSessRefs.Load(clientHello.SessionId); !ok {
-				return
-			}
-		}
+	// session terminates (Done closed after Run) or the request returns.
+	select {
+	case <-ctx.Done():
+	case <-tunSess.Done():
 	}
 }

@@ -81,9 +81,12 @@ type Session struct {
 	stream StreamConn
 	// @sk-task dual-ws-channel#T2.2: secondary channel for UDP traffic (AC-002)
 	// @sk-task dual-ws-channel#T3.3: buffering guards for late secondary bind (AC-005)
-	secondary        StreamConn
-	secondaryMu      sync.RWMutex
+	// @sk-task perf-secondary-lock#T1: lock-free secondary lookup on the hot path (AC-002)
+	secondary        atomic.Pointer[StreamConn]
+	runCtxMu         sync.RWMutex
 	loopOnce         sync.Once
+	done             chan struct{}
+	doneOnce         sync.Once
 	runCtx           context.Context
 	primaryReady     atomic.Bool
 	sm               *session.SessionManager
@@ -157,6 +160,7 @@ func NewSession(
 		clientIP:         clientIP,
 		clientIP6:        clientIP6,
 		dnsUpstreams:     dnsUpstreams,
+		done:             make(chan struct{}),
 	}
 }
 
@@ -171,13 +175,15 @@ func (s *Session) SetDemux(d *TunDemux) {
 // @sk-task dual-ws-channel#T2.2: bind secondary channel for UDP traffic (AC-002)
 // @sk-task dual-ws-channel#T3.1: late secondary bind — server binds after Run started (AC-001)
 func (s *Session) SetSecondary(sc StreamConn) {
-	s.secondaryMu.Lock()
-	s.secondary = sc
-	ctx := s.runCtx
-	s.secondaryMu.Unlock()
-	if ctx != nil {
+	s.secondary.Store(&sc)
+	if ctx := s.getRunCtx(); ctx != nil {
 		s.startSecondaryLoop()
 	}
+}
+
+// @sk-task perf-secondary-lock#T1: session end signal (closed when Run returns) (AC-003)
+func (s *Session) Done() <-chan struct{} {
+	return s.done
 }
 
 // @sk-task dual-ws-channel#T3.1: secondary loop runs independently of the primary errgroup (AC-004)
@@ -192,12 +198,10 @@ func (s *Session) startSecondaryLoop() {
 			if err := s.secondaryToTun(s.getRunCtx()); err != nil {
 				s.logger.Debug("secondary channel ended", zap.Error(err))
 			}
-			s.secondaryMu.Lock()
-			if s.secondary != nil {
-				_ = s.secondary.Close()
-				s.secondary = nil
+			if sc := s.secondary.Load(); sc != nil {
+				_ = (*sc).Close()
 			}
-			s.secondaryMu.Unlock()
+			s.secondary.Store(nil)
 		}()
 	})
 }
@@ -244,6 +248,7 @@ func (s *Session) Run(ctx context.Context) (err error) {
 			s.logger.Error("session recovered from panic", zap.Any("panic", r))
 		}
 	}()
+	defer s.doneOnce.Do(func() { close(s.done) })
 	s.startTunReader(ctx)
 	s.setRunCtx(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
@@ -273,14 +278,14 @@ func (s *Session) Run(ctx context.Context) (err error) {
 }
 
 func (s *Session) setRunCtx(ctx context.Context) {
-	s.secondaryMu.Lock()
+	s.runCtxMu.Lock()
 	s.runCtx = ctx
-	s.secondaryMu.Unlock()
+	s.runCtxMu.Unlock()
 }
 
 func (s *Session) getRunCtx() context.Context {
-	s.secondaryMu.RLock()
-	defer s.secondaryMu.RUnlock()
+	s.runCtxMu.RLock()
+	defer s.runCtxMu.RUnlock()
 	if s.runCtx != nil {
 		return s.runCtx
 	}
@@ -288,15 +293,15 @@ func (s *Session) getRunCtx() context.Context {
 }
 
 func (s *Session) hasSecondary() bool {
-	s.secondaryMu.RLock()
-	defer s.secondaryMu.RUnlock()
-	return s.secondary != nil
+	return s.secondary.Load() != nil
 }
 
 func (s *Session) getSecondary() StreamConn {
-	s.secondaryMu.RLock()
-	defer s.secondaryMu.RUnlock()
-	return s.secondary
+	sc := s.secondary.Load()
+	if sc == nil {
+		return nil
+	}
+	return *sc
 }
 
 // @sk-task fix-ping-drops#T2.1: treat read timeout as non-fatal, continue instead of aborting session

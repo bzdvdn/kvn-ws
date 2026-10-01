@@ -112,24 +112,36 @@ New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 Copy-Item -Path $binaryPath -Destination "$BinDir\$BinaryName" -Force
 Write-Ok "Installed to $BinDir\$BinaryName"
 
-# --- Download wintun.dll (required for TUN mode) ---
-Write-Step "Downloading wintun.dll..."
-$wintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
-$wintunZip = "$tmpDir\wintun.zip"
-try {
-    $wc = New-Object System.Net.WebClient
-    $wc.DownloadFile($wintunUrl, $wintunZip)
-    Expand-Archive -Path $wintunZip -DestinationPath "$tmpDir\wintun" -Force
-    $archDir = if ($arch -eq "amd64") { "amd64" } else { "arm64" }
-    $wintunDll = "$tmpDir\wintun\wintun\bin\$archDir\wintun.dll"
-    if (Test-Path $wintunDll) {
-        Copy-Item -Path $wintunDll -Destination "$BinDir\wintun.dll" -Force
-        Write-Ok "wintun.dll installed to $BinDir\wintun.dll"
+# --- Ensure wintun.dll (required for TUN mode) ---
+# Prefer the bundled copy from the release archive; only download as a fallback.
+$wintunTarget = "$BinDir\wintun.dll"
+if (Test-Path $wintunTarget) {
+    Write-Ok "wintun.dll already present at $wintunTarget (skip download)"
+} else {
+    $bundled = if ($arch -eq "arm64") { "$PSScriptRoot\arm64\wintun.dll" } else { "$PSScriptRoot\wintun.dll" }
+    if (Test-Path $bundled) {
+        Copy-Item -Path $bundled -Destination $wintunTarget -Force
+        Write-Ok "wintun.dll bundled -> $wintunTarget"
     } else {
-        Write-Warn "wintun.dll not found for architecture $arch; TUN mode will not work"
+        Write-Step "Downloading wintun.dll..."
+        $wintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
+        $wintunZip = "$tmpDir\wintun.zip"
+        try {
+            $wc = New-Object System.Net.WebClient
+            $wc.DownloadFile($wintunUrl, $wintunZip)
+            Expand-Archive -Path $wintunZip -DestinationPath "$tmpDir\wintun" -Force
+            $archDir = if ($arch -eq "amd64") { "amd64" } else { "arm64" }
+            $wintunDll = "$tmpDir\wintun\wintun\bin\$archDir\wintun.dll"
+            if (Test-Path $wintunDll) {
+                Copy-Item -Path $wintunDll -Destination $wintunTarget -Force
+                Write-Ok "wintun.dll installed to $wintunTarget"
+            } else {
+                Write-Warn "wintun.dll not found for architecture $arch; TUN mode will not work"
+            }
+        } catch {
+            Write-Warn "Could not download wintun.dll: $_; TUN mode will not work without it"
+        }
     }
-} catch {
-    Write-Warn "Could not download wintun.dll: $_; TUN mode will not work without it"
 }
 if ($Desktop) {
     $webBinaryPath = Join-Path (Split-Path $binaryPath -Parent) $WebBinaryName
@@ -190,14 +202,19 @@ if ($Desktop) {
     # Use PowerShell to start the process hidden (no console window).
     $action = New-ScheduledTaskAction -Execute "powershell.exe" `
         -Argument "-WindowStyle Hidden -Command ""Start-Process '$webExe' -ArgumentList '--no-browser --port $Port' -WindowStyle Hidden"""
-    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $triggers = @(
+        (New-ScheduledTaskTrigger -AtStartup),
+        (New-ScheduledTaskTrigger -AtLogOn)
+    )
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
         -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-    # Run as the installing user with Limited (non-admin) rights.
-    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERNAME" -RunLevel Limited
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
+    # kvn-web hosts the VPN client: creating the Wintun TUN adapter requires
+    # Administrator rights, so the task must run elevated (Highest), otherwise
+    # connect fails with "access denied".
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERNAME" -RunLevel Highest
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $triggers `
         -Settings $settings -Principal $principal -Force | Out-Null
-    Write-Ok "Scheduled task '$taskName' registered (runs at logon as $env:USERNAME)"
+    Write-Ok "Scheduled task '$taskName' registered (elevated, at startup + logon as $env:USERNAME)"
 }
 
 # --- Summary ---

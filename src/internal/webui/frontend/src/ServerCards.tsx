@@ -113,7 +113,13 @@ export default function ServerCards({ servers, activeServer, connectedServer, st
   const [open, setOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const active = servers.find((s) => s.name === connectedServer) || servers.find((s) => s.name === activeServer);
+  // A live connection is only implied by an actual connected/connecting status.
+  // `connectedServer` may be seeded from the persisted active_server while idle,
+  // so it must not drive the header label or the "connected" dot on its own.
+  const isLive: boolean = status === "connected" || status === "connecting";
+  // The header follows the server selected in the form (activeServer); fall back
+  // to the connected one only when no server is selected.
+  const active = servers.find((s) => s.name === activeServer) || servers.find((s) => s.name === connectedServer);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -155,7 +161,7 @@ export default function ServerCards({ servers, activeServer, connectedServer, st
           )}
           {servers.map((srv) => {
             const isSelected = srv.name === activeServer;
-            const isConnectedServer = srv.name === connectedServer;
+            const isConnectedServer = isLive && srv.name === connectedServer;
             const connStatus = isConnectedServer ? status : "disconnected";
             return (
               <div

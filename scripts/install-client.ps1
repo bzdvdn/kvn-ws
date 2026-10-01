@@ -146,24 +146,36 @@ $null = New-Item -ItemType Directory -Force -Path $InstallDir
 Move-Item -Force -Path $exePath -Destination "$InstallDir\kvn-client.exe"
 Write-Ok "Installed to $InstallDir\kvn-client.exe"
 
-# --- Download wintun.dll (required for TUN mode) ---
-Write-Step "Downloading wintun.dll..."
-$wintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
-$wintunZip = "$tmpDir\wintun.zip"
-try {
-    $wc = New-Object System.Net.WebClient
-    $wc.DownloadFile($wintunUrl, $wintunZip)
-    Expand-Archive -Path $wintunZip -DestinationPath "$tmpDir\wintun" -Force
-    $archDir = if ($arch -eq "amd64") { "amd64" } else { "arm64" }
-    $wintunDll = "$tmpDir\wintun\wintun\bin\$archDir\wintun.dll"
-    if (Test-Path $wintunDll) {
-        Copy-Item -Path $wintunDll -Destination "$InstallDir\wintun.dll" -Force
-        Write-Ok "wintun.dll installed to $InstallDir\wintun.dll"
+# --- Ensure wintun.dll (required for TUN mode) ---
+# Prefer the bundled copy from the release archive; only download as a fallback.
+$wintunTarget = "$InstallDir\wintun.dll"
+if (Test-Path $wintunTarget) {
+    Write-Ok "wintun.dll already present at $wintunTarget (skip download)"
+} else {
+    $bundled = if ($arch -eq "arm64") { "$PSScriptRoot\arm64\wintun.dll" } else { "$PSScriptRoot\wintun.dll" }
+    if (Test-Path $bundled) {
+        Copy-Item -Path $bundled -Destination $wintunTarget -Force
+        Write-Ok "wintun.dll bundled -> $wintunTarget"
     } else {
-        Write-Warn "wintun.dll not found for architecture $arch; TUN mode will not work"
+        Write-Step "Downloading wintun.dll..."
+        $wintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
+        $wintunZip = "$tmpDir\wintun.zip"
+        try {
+            $wc = New-Object System.Net.WebClient
+            $wc.DownloadFile($wintunUrl, $wintunZip)
+            Expand-Archive -Path $wintunZip -DestinationPath "$tmpDir\wintun" -Force
+            $archDir = if ($arch -eq "amd64") { "amd64" } else { "arm64" }
+            $wintunDll = "$tmpDir\wintun\wintun\bin\$archDir\wintun.dll"
+            if (Test-Path $wintunDll) {
+                Copy-Item -Path $wintunDll -Destination $wintunTarget -Force
+                Write-Ok "wintun.dll installed to $wintunTarget"
+            } else {
+                Write-Warn "wintun.dll not found for architecture $arch; TUN mode will not work"
+            }
+        } catch {
+            Write-Warn "Could not download wintun.dll: $_; TUN mode will not work without it"
+        }
     }
-} catch {
-    Write-Warn "Could not download wintun.dll: $_; TUN mode will not work without it"
 }
 
 # --- Add to PATH ---

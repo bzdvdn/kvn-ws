@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"strconv"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/tun"
@@ -59,7 +60,12 @@ func (t *tunDevice) Open() error {
 	guid := deterministicGUID("kvn-ws")
 	dev, err := tun.CreateTUNWithRequestedGUID("KVN", &guid, defaultMTU)
 	if err != nil {
-		return err
+		// @sk-task win-tun#T5.1: adapter may be momentarily busy (leftover instance tearing down) — retry once
+		time.Sleep(time.Second)
+		dev, err = tun.CreateTUNWithRequestedGUID("KVN", &guid, defaultMTU)
+		if err != nil {
+			return err
+		}
 	}
 	t.device = dev
 	name, err := dev.Name()

@@ -297,6 +297,9 @@ jobs:
             [ -d "$dir" ] || continue
             if echo "$dir" | grep -q windows; then
               cp scripts/install-web.ps1 "$dir/"
+              cp scripts/install-client.ps1 "$dir/"
+              # Bundled wintun.dll so Windows installers don't re-download it
+              cp third_party/wintun/wintun.dll "$dir/wintun.dll"
             else
               cp scripts/install-web.sh "$dir/"
               cp scripts/install-server.sh "$dir/"
@@ -315,6 +318,7 @@ jobs:
           cp scripts/install-web.sh dist/
           cp scripts/install-web.ps1 dist/
           cp scripts/install-client.ps1 dist/
+          cp third_party/wintun/wintun.dll dist/
       - name: Package archives
         run: |
           cd dist
