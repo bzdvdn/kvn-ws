@@ -90,27 +90,30 @@ type Session struct {
 	runCtx       context.Context
 	primaryReady atomic.Bool
 	// @sk-task secondary-batching#T2.1: batched secondary write mode (AC-001)
-	batchMode        atomic.Bool
-	sm               *session.SessionManager
-	sessionID        string
-	tokenName        string
-	prl              *ratelimit.SessionPacketLimiter
-	bwMgr            *session.TokenBandwidthManager
-	collectors       *metrics.Collectors
-	logger           *zap.Logger
-	cipher           *crypto.SessionCipher
-	proxyStreams     *proxy.SessionStreams
-	streamWriters    sync.Map // uint32 → *streamWriter, per-stream ordered writes
-	dialStreams      sync.Map // uint32 → *dialStream, dial in flight (client→target queue)
-	proxySem         chan struct{}
-	tunRouter        *routing.TunRouter
-	tunReaderCh      chan tunReadResult
-	demux            *TunDemux
-	tunnelTimeout    time.Duration
-	proxyConcurrency int
-	clientIP         net.IP
-	clientIP6        net.IP
-	dnsUpstreams     []string
+	batchMode atomic.Bool
+	// @sk-task secondary-batching-fix#T1.1: dedicated secondary writer — secondary stalls don't freeze primary (AC-002)
+	secondaryCh         chan []byte
+	secondaryWriterOnce sync.Once
+	sm                  *session.SessionManager
+	sessionID           string
+	tokenName           string
+	prl                 *ratelimit.SessionPacketLimiter
+	bwMgr               *session.TokenBandwidthManager
+	collectors          *metrics.Collectors
+	logger              *zap.Logger
+	cipher              *crypto.SessionCipher
+	proxyStreams        *proxy.SessionStreams
+	streamWriters       sync.Map // uint32 → *streamWriter, per-stream ordered writes
+	dialStreams         sync.Map // uint32 → *dialStream, dial in flight (client→target queue)
+	proxySem            chan struct{}
+	tunRouter           *routing.TunRouter
+	tunReaderCh         chan tunReadResult
+	demux               *TunDemux
+	tunnelTimeout       time.Duration
+	proxyConcurrency    int
+	clientIP            net.IP
+	clientIP6           net.IP
+	dnsUpstreams        []string
 
 	outgoingInterceptor OutgoingInterceptor
 }
@@ -163,6 +166,7 @@ func NewSession(
 		clientIP6:        clientIP6,
 		dnsUpstreams:     dnsUpstreams,
 		done:             make(chan struct{}),
+		secondaryCh:      make(chan []byte, 512),
 	}
 }
 
@@ -186,6 +190,74 @@ func (s *Session) SetSecondary(sc StreamConn) {
 // @sk-task perf-secondary-lock#T1: session end signal (closed when Run returns) (AC-003)
 func (s *Session) Done() <-chan struct{} {
 	return s.done
+}
+
+// @sk-task secondary-batching-fix#T1.1: batched secondary writer in its own goroutine (AC-002)
+// Runs independently of tunToWS so a slow/stuck secondary channel never blocks
+// the primary path. On write failure it stops and drops subsequent UDP rather
+// than freezing the tunnel.
+func (s *Session) startSecondaryWriter(ctx context.Context) {
+	const (
+		batchMaxBytes = 4096
+		batchHold     = 5 * time.Millisecond
+		writeTimeout  = time.Second
+	)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error("secondary writer recovered from panic", zap.Any("panic", r))
+			}
+		}()
+		var (
+			batch   []byte
+			timer   *time.Timer
+			timerCh <-chan time.Time
+		)
+		flush := func() error {
+			if len(batch) == 0 {
+				return nil
+			}
+			data := batch
+			batch = batch[:0]
+			if timer != nil {
+				timer.Stop()
+				timer = nil
+				timerCh = nil
+			}
+			target := s.getSecondary()
+			if target == nil {
+				return nil
+			}
+			if err := target.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+				return err
+			}
+			return target.WriteMessage(data)
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				_ = flush()
+				return
+			case <-timerCh:
+				if err := flush(); err != nil {
+					s.logger.Warn("secondary writer failed, dropping UDP", zap.Error(err))
+					return
+				}
+			case frame := <-s.secondaryCh:
+				batch = append(batch, frame...)
+				framing.ReturnBuffer(frame)
+				if len(batch) >= batchMaxBytes {
+					if err := flush(); err != nil {
+						s.logger.Warn("secondary writer failed, dropping UDP", zap.Error(err))
+						return
+					}
+				} else if timer == nil {
+					timer = time.NewTimer(batchHold)
+					timerCh = timer.C
+				}
+			}
+		}
+	}()
 }
 
 // @sk-task secondary-batching#T2.1: enable batched secondary writes (AC-001)
@@ -849,47 +921,13 @@ func (s *Session) secondaryToTun(ctx context.Context) error {
 
 // @sk-task fix-critical-leaks#T3.1: TUN reader — channel-based (AC-001)
 // @sk-task secondary-batching#T2.1: batched secondary writes (AC-002, AC-005)
+// @sk-task secondary-batching-fix#T1.1: secondary writes routed to a dedicated writer goroutine (AC-002)
 func (s *Session) tunToWS(ctx context.Context) error {
-	const (
-		batchMaxBytes = 4096
-		batchHold     = 5 * time.Millisecond
-	)
-	var (
-		secBatch   []byte
-		secTimer   *time.Timer
-		secTimerCh <-chan time.Time
-	)
-	flushSec := func() error {
-		if len(secBatch) == 0 {
-			return nil
-		}
-		data := secBatch
-		secBatch = secBatch[:0]
-		if secTimer != nil {
-			secTimer.Stop()
-			secTimer = nil
-			secTimerCh = nil
-		}
-		target := s.getSecondary()
-		if target == nil {
-			return nil
-		}
-		if err := target.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
-			return err
-		}
-		return target.WriteMessage(data)
-	}
 	for {
 		var r tunReadResult
 		select {
 		case <-ctx.Done():
-			_ = flushSec()
 			return ctx.Err()
-		case <-secTimerCh:
-			if err := flushSec(); err != nil {
-				return err
-			}
-			continue
 		case r = <-s.tunReaderCh:
 		}
 		if r.err != nil {
@@ -945,18 +983,15 @@ func (s *Session) tunToWS(ctx context.Context) error {
 			putTunReadBuf(r.buf)
 			return err
 		}
-		// @sk-task secondary-batching#T2.1: accumulate UDP frames on secondary, flush by size/time (AC-002, AC-005)
+		// @sk-task secondary-batching-fix#T1.1: hand frame to the dedicated writer; never block primary on a stuck secondary (AC-002)
 		if toSecondary && s.BatchEnabled() {
-			secBatch = append(secBatch, data...)
-			framing.ReturnBuffer(data)
-			if len(secBatch) >= batchMaxBytes {
-				if err := flushSec(); err != nil {
-					putTunReadBuf(r.buf)
-					return err
-				}
-			} else if secTimer == nil {
-				secTimer = time.NewTimer(batchHold)
-				secTimerCh = secTimer.C
+			s.secondaryWriterOnce.Do(func() { s.startSecondaryWriter(s.getRunCtx()) })
+			select {
+			case s.secondaryCh <- data:
+				// ownership transferred to the writer goroutine
+			default:
+				// writer busy/backlogged — drop the UDP packet instead of stalling
+				framing.ReturnBuffer(data)
 			}
 			putTunReadBuf(r.buf)
 			continue

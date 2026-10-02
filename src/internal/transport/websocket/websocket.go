@@ -366,6 +366,9 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 		}
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
 			_ = tcpConn.SetNoDelay(true)
+			// @sk-task ws-buffer-fix#T1.1: large socket buffers for window scaling on high-RTT links (AC-001)
+			_ = tcpConn.SetReadBuffer(4 * 1024 * 1024)
+			_ = tcpConn.SetWriteBuffer(4 * 1024 * 1024)
 		}
 		return conn, nil
 	})
@@ -489,6 +492,9 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	}
 	if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
 		_ = tcpConn.SetNoDelay(true)
+		// @sk-task ws-buffer-fix#T1.1: large socket buffers for window scaling on high-RTT links (AC-001)
+		_ = tcpConn.SetReadBuffer(4 * 1024 * 1024)
+		_ = tcpConn.SetWriteBuffer(4 * 1024 * 1024)
 	}
 	wsConn := &WSConn{
 		conn:      conn,

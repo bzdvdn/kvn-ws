@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.1] 2026-10-02
+
+### Fixed
+
+- **Фризы туннеля при активном secondary-батчинге** — запись батча во вторичный WS-канал шла в общем `tunToWS` на клиенте и сервере: если secondary-стрим упирался (заполненный send-buffer / медленный приёмник), `WriteMessage` блокировался до write-deadline и морозил primary (замирал Twitch/видео, лечилось только F5). Secondary-запись вынесена в отдельный goroutine (`startSecondaryWriter`): стоп вторички больше не блокирует primary, при неудаче UDP дропается вместо фриза.
+- **WSS (WebSocket/TCP): скорость одиночного потока ограничена окном внешнего TCP** — при 60 мс RTT и дефолтном окне ~64 КБ поток резался до ~8 Мбит/с (TCP-in-TCP). На WS-соединениях (клиент `dial` и сервер `accept`) установлены socket-буферы 4 МБ (`SO_RCVBUF`/`SO_SNDBUF`) — window scaling поднимает окно в мегабайты, и одиночный поток упирается уже в реальную ёмкость канала, а не в окно.
+
 ## [1.3.0] 2026-10-02
 
 ### Added
