@@ -380,7 +380,10 @@ jobs:
             if [ -f CHANGELOG.md ]; then
               echo "### Changelog"
               echo ""
-              grep -A 100 "^## \[${{ steps.tag.outputs.tag }}" CHANGELOG.md \
+              # CHANGELOG headers are "[1.3.1]" while tags are "v1.3.1" — strip the v prefix.
+              tag_no_v="${{ steps.tag.outputs.tag }}"
+              tag_no_v="${tag_no_v#v}"
+              grep -A 100 "^## \[${tag_no_v}" CHANGELOG.md \
                 | sed '/^## \[/q' | head -n -1 || true
             fi
             echo "EOFNOTES"
