@@ -278,12 +278,17 @@ func (s *Server) handleSecondaryStream(ctx context.Context, stream tunnel.Stream
 	if mtu <= 0 {
 		mtu = handshake.DefaultMTU
 	}
+	// @sk-task secondary-batching#T3.2: enable batching for clients that declare it (AC-001, AC-004)
+	if clientHello.BatchSupport {
+		tunSess.SetBatchMode(true)
+	}
 	serverHello, err := handshake.EncodeServerHello(&handshake.ServerHello{
 		SessionId:    sess.ID,
 		AssignedIp:   sess.AssignedIp,
 		AssignedIpv6: sess.AssignedIpv6,
 		Mtu:          mtu,
 		GatewayIp:    s.gatewayIP,
+		BatchSupport: clientHello.BatchSupport,
 	})
 	if err != nil {
 		s.logger.Error("encode secondary server hello", zap.Error(err))

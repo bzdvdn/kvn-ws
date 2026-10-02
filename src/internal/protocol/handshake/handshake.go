@@ -75,6 +75,10 @@ func EncodeClientHello(hello *ClientHello) (*framing.Frame, error) {
 		payload[pos+1] = byte(len(sessionBytes)) // #nosec G115 — checked above
 		copy(payload[pos+2:], sessionBytes)
 	}
+	// @sk-task secondary-batching#T1.2: batching capability tag (AC-001)
+	if hello.BatchSupport {
+		payload = append(payload, BatchTag, 1, 1)
+	}
 	return &framing.Frame{
 		Type:    framing.FrameTypeHello,
 		Flags:   framing.FrameFlagNone,
@@ -125,6 +129,9 @@ func DecodeClientHello(frame *framing.Frame) (*ClientHello, error) {
 		if tag == SessionTag {
 			hello.SessionId = string(data[pos+2 : pos+2+length])
 		}
+		if tag == BatchTag {
+			hello.BatchSupport = length >= 1 && data[pos+2] == 1
+		}
 		pos += 2 + length
 	}
 	return hello, nil
@@ -155,7 +162,7 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 	if count == 2 {
 		total += 1 + 1 + 16
 	}
-	hasMTU := hello.Mtu > 0 || len(hello.CryptoSalt) > 0
+	hasMTU := hello.Mtu > 0 || len(hello.CryptoSalt) > 0 || hello.BatchSupport
 	if hasMTU {
 		total += 2
 	}
@@ -220,6 +227,10 @@ func EncodeServerHello(hello *ServerHello) (*framing.Frame, error) {
 		payload[pos] = TransportTag
 		payload[pos+1] = byte(len(transportBytes)) // #nosec G115 — checked above
 		copy(payload[pos+2:], transportBytes)
+	}
+	// @sk-task secondary-batching#T1.2: batching capability tag (AC-001)
+	if hello.BatchSupport {
+		payload = append(payload, BatchTag, 1, 1)
 	}
 	return &framing.Frame{
 		Type:    framing.FrameTypeHello,
@@ -294,6 +305,8 @@ func DecodeServerHello(frame *framing.Frame) (*ServerHello, error) {
 			}
 		case TransportTag:
 			hello.Transport = string(data[pos : pos+length])
+		case BatchTag:
+			hello.BatchSupport = length >= 1 && data[pos] == 1
 		}
 		pos += length
 	}

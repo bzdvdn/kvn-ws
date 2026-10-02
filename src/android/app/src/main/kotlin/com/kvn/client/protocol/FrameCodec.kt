@@ -28,3 +28,19 @@ fun ByteArray.toFrame(): Frame {
     System.arraycopy(this, FRAME_HEADER_SIZE, payload, 0, length)
     return Frame(type, flags, payload)
 }
+
+// @sk-task secondary-batching#T5.2: decode every frame from one WS message (AC-003)
+// Safe for single-frame messages too (returns one frame).
+fun ByteArray.toFrames(): List<Frame> {
+    val result = mutableListOf<Frame>()
+    var pos = 0
+    while (pos + FRAME_HEADER_SIZE <= this.size) {
+        val length = ((this[pos + 2].toInt() and 0xFF) shl 8) or (this[pos + 3].toInt() and 0xFF)
+        if (pos + FRAME_HEADER_SIZE + length > this.size) break
+        val payload = ByteArray(length)
+        System.arraycopy(this, pos + FRAME_HEADER_SIZE, payload, 0, length)
+        result.add(Frame(this[pos], this[pos + 1], payload))
+        pos += FRAME_HEADER_SIZE + length
+    }
+    return result
+}

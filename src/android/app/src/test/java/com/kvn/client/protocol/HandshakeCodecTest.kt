@@ -15,7 +15,8 @@ class HandshakeCodecTest {
             ipv6 = true,
             transport = "tcp",
             channel = "",
-            sessionId = ""
+            sessionId = "",
+            batchSupport = false
         )
         val frame = HandshakeCodec.encodeClientHello(hello)
 
@@ -64,7 +65,8 @@ class HandshakeCodecTest {
             ipv6 = true,
             transport = "tcp",
             channel = "secondary",
-            sessionId = "abcdef1234567890abcdef1234567890"
+            sessionId = "abcdef1234567890abcdef1234567890",
+            batchSupport = true
         )
         val frame = HandshakeCodec.encodeClientHello(hello)
         val data = frame.payload
@@ -85,6 +87,8 @@ class HandshakeCodecTest {
 
         assertEquals("secondary", tags[CHANNEL_TAG])
         assertEquals("abcdef1234567890abcdef1234567890", tags[SESSION_TAG])
+        // @sk-test secondary-batching#T5.1: batch capability tag present (AC-001)
+        assertTrue(tags.containsKey(BATCH_TAG))
     }
 
     // @sk-test android-dual-ws#T4.1: TestClientHelloNoTagsBackwardCompat (AC-007)
@@ -97,11 +101,49 @@ class HandshakeCodecTest {
             ipv6 = false,
             transport = "tcp",
             channel = "",
-            sessionId = ""
+            sessionId = "",
+            batchSupport = false
         )
         val frame = HandshakeCodec.encodeClientHello(hello)
         // token(2+3) + flags(1) + version(1) + transport tag(2+3) = 12 bytes, no channel/session
         assertEquals(2 + 3 + 1 + 1 + 2 + 3, frame.payload.size)
+    }
+
+    // @sk-test secondary-batching#T5.1: TestClientHelloBatchTagRoundTrip (AC-001)
+    @Test
+    fun testClientHelloBatchSupportTag() {
+        val hello = ClientHello(
+            protoVersion = PROTO_VERSION,
+            token = "tok",
+            mtu = 1400,
+            ipv6 = false,
+            transport = "tcp",
+            channel = "secondary",
+            sessionId = "abcdef1234567890abcdef1234567890",
+            batchSupport = true
+        )
+        val frame = HandshakeCodec.encodeClientHello(hello)
+        val data = frame.payload
+        assertTrue(data.indexOf(BATCH_TAG) >= 0)
+    }
+
+    // @sk-test secondary-batching#T5.1: TestServerHelloBatchSupportDecode (AC-001)
+    @Test
+    fun testServerHelloBatchSupportDecode() {
+        val sessionId = "abcdef1234567890abcdef1234567890"
+        val sessionBytes = hexToBytes(sessionId)
+        val ip4 = byteArrayOf(10, 0, 0, 1)
+
+        val base = sessionBytes +
+                byteArrayOf(1) + byteArrayOf(4) + byteArrayOf(4) + ip4 +
+                byteArrayOf(0x05, 0xDC.toByte())
+
+        val withBatch = base + byteArrayOf(BATCH_TAG, 1, 1)
+        val batchFrame = Frame(FrameTypes.FRAME_TYPE_HELLO, FrameFlags.FRAME_FLAG_NONE, withBatch)
+        assertTrue(HandshakeCodec.decodeServerHello(batchFrame).batchSupport)
+
+        val noBatchFrame = Frame(FrameTypes.FRAME_TYPE_HELLO, FrameFlags.FRAME_FLAG_NONE, base)
+        assertFalse(HandshakeCodec.decodeServerHello(noBatchFrame).batchSupport)
     }
 
     private fun hexToBytes(hex: String): ByteArray {

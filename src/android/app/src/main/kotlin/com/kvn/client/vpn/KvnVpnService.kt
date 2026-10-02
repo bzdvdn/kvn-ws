@@ -19,6 +19,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
+import android.os.SystemClock
 import android.graphics.drawable.Icon
 import android.provider.Settings
 import com.kvn.client.config.ConnectionConfig
@@ -37,6 +38,7 @@ import com.kvn.client.transport.WebSocketClient
 import com.kvn.client.transport.reconnect.ReconnectManager
 import com.kvn.client.ui.MainActivity
 import kotlinx.coroutines.*
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.DatagramPacket
@@ -75,6 +77,12 @@ class KvnVpnService : VpnService() {
     private var secondaryClient: WebSocketClient? = null
     private val secondaryConnected = AtomicBoolean(false)
     private var transportOkHttp: OkHttpClient? = null
+    // @sk-task secondary-batching#T5.3: secondary batch mode (AC-001, AC-002)
+    @Volatile
+    private var secondaryBatchMode = false
+    private val secondaryBatchLock = Any()
+    private var secondaryBatchBuffer = ByteArrayOutputStream()
+    private var secondaryBatchLast = 0L
     private var onStateChange: ((ConnectionState) -> Unit)? = null
     private var reconnectManager: ReconnectManager? = null
     private var cipher: AesGcmCipher? = null
@@ -718,6 +726,8 @@ class KvnVpnService : VpnService() {
         secondaryClient?.disconnect()
         secondaryClient = null
         secondaryConnected.set(false)
+        secondaryBatchMode = false
+        synchronized(secondaryBatchLock) { secondaryBatchBuffer.reset() }
         notifyDualChannel(false)
     }
 
@@ -851,6 +861,41 @@ class KvnVpnService : VpnService() {
         dualChannelCallback?.invoke(active)
     }
 
+    // @sk-task secondary-batching#T5.3: accumulate encoded UDP frames and flush as one WS message (AC-002, AC-005)
+    private fun appendSecondaryBatch(encoded: ByteArray) {
+        synchronized(secondaryBatchLock) {
+            secondaryBatchBuffer.write(encoded, 0, encoded.size)
+            secondaryBatchLast = SystemClock.elapsedRealtime()
+            if (secondaryBatchBuffer.size() >= 4096) flushSecondaryBatchLocked()
+        }
+    }
+
+    private fun flushSecondaryBatchLocked() {
+        if (secondaryBatchBuffer.size() == 0) return
+        val payload = secondaryBatchBuffer.toByteArray()
+        secondaryBatchBuffer.reset()
+        secondaryClient?.sendRaw(payload)
+    }
+
+    private fun flushSecondaryBatch() {
+        synchronized(secondaryBatchLock) { flushSecondaryBatchLocked() }
+    }
+
+    // @sk-task secondary-batching#T5.3: timer flush keeps latency within the batch hold budget (AC-005)
+    private fun startSecondaryBatcher() {
+        serviceScope.launch {
+            while (isActive && secondaryConnected.get()) {
+                var due = false
+                synchronized(secondaryBatchLock) {
+                    due = secondaryBatchMode && secondaryBatchBuffer.size() > 0 &&
+                        SystemClock.elapsedRealtime() - secondaryBatchLast >= 5
+                }
+                if (due) flushSecondaryBatch()
+                delay(2)
+            }
+        }
+    }
+
     private fun openSecondaryChannel() {
         if (!config.multiChannel || serverSessionId.isEmpty()) return
         if (secondaryConnected.get()) return
@@ -889,7 +934,8 @@ class KvnVpnService : VpnService() {
             ipv6 = config.ipv6Enabled,
             transport = "tcp",
             channel = "secondary",
-            sessionId = serverSessionId
+            sessionId = serverSessionId,
+            batchSupport = true
         )
         secondaryClient?.send(HandshakeCodec.encodeClientHello(hello))
     }
@@ -905,8 +951,11 @@ class KvnVpnService : VpnService() {
                         return
                     }
                     secondaryConnected.set(true)
+                    // @sk-task secondary-batching#T5.3: enable batching only after server confirmation (AC-001)
+                    secondaryBatchMode = serverHello.batchSupport
                     notifyDualChannel(true)
-                    AppLogger.i("Secondary", "secondary channel bound session=$serverSessionId")
+                    AppLogger.i("Secondary", "secondary channel bound session=$serverSessionId batch=$secondaryBatchMode")
+                    if (secondaryBatchMode) startSecondaryBatcher()
                 }
                 FrameTypes.FRAME_TYPE_AUTH -> {
                     val err = HandshakeCodec.decodeAuthError(frame)
@@ -946,7 +995,8 @@ class KvnVpnService : VpnService() {
             ipv6 = config.ipv6Enabled,
             transport = "tcp",
             channel = "",
-            sessionId = ""
+            sessionId = "",
+            batchSupport = false
         )
         val frame = HandshakeCodec.encodeClientHello(hello)
         transportClient?.send(frame)
@@ -1072,8 +1122,14 @@ class KvnVpnService : VpnService() {
                     val frame = Frame(FrameTypes.FRAME_TYPE_DATA, FrameFlags.FRAME_FLAG_NONE, payload)
                     // @sk-task android-dual-ws#T1.3: route UDP → secondary, rest → primary (AC-002)
                     if (secondaryConnected.get() && isUdpPacket(data)) {
-                        secondaryClient?.send(frame)
+                        // @sk-task secondary-batching#T5.3: batch UDP on secondary (AC-002)
+                        if (secondaryBatchMode) {
+                            appendSecondaryBatch(frame.encode())
+                        } else {
+                            secondaryClient?.send(frame)
+                        }
                     } else {
+                        flushSecondaryBatch()
                         transportClient?.send(frame)
                     }
                 }

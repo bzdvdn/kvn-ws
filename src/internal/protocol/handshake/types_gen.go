@@ -13,6 +13,7 @@ const (
 	TransportTag = 0x0B
 	ChannelTag = 0x0C
 	SessionTag = 0x0D
+	BatchTag = 0x0E
 	ProtoVersion = 0x02
 	SessionIDLen = 16
 )
@@ -26,6 +27,7 @@ type ClientHello struct {
 	Transport string
 	Channel string
 	SessionId string
+	BatchSupport bool
 }
 // @sk-task kvn-android#T1.1: generated ServerHello (AC-004)
 type ServerHello struct {
@@ -36,6 +38,7 @@ type ServerHello struct {
 	CryptoSalt []byte
 	GatewayIp net.IP
 	Transport string
+	BatchSupport bool
 }
 // @sk-task kvn-android#T1.1: generated AuthError (AC-004)
 type AuthError struct {

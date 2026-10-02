@@ -591,22 +591,26 @@ type dualChannelServer struct {
 	sessions     map[string]*dualServSession
 	primaryGot   chan []byte
 	secondaryGot chan []byte
+	// secondaryMsgSizes records frames-per-message on the secondary (batching evidence).
+	secondaryMsgSizes chan int
 }
 
 type dualServSession struct {
-	sid    string
-	token  string
-	cipher *crypto.SessionCipher
+	sid            string
+	token          string
+	cipher         *crypto.SessionCipher
+	batchSupported bool
 }
 
 func newDualChannelServer(t *testing.T) *dualChannelServer {
 	t.Helper()
 	return &dualChannelServer{
-		t:            t,
-		upgrader:     gorillaws.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
-		sessions:     make(map[string]*dualServSession),
-		primaryGot:   make(chan []byte, 16),
-		secondaryGot: make(chan []byte, 16),
+		t:                 t,
+		upgrader:          gorillaws.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
+		sessions:          make(map[string]*dualServSession),
+		primaryGot:        make(chan []byte, 16),
+		secondaryGot:      make(chan []byte, 16),
+		secondaryMsgSizes: make(chan int, 64),
 	}
 }
 
@@ -649,10 +653,12 @@ func (s *dualChannelServer) handler(w http.ResponseWriter, r *http.Request) {
 			reject("token mismatch")
 			return
 		}
-		// AC-001: secondary binds by session_id; send back the same session id.
+		sess.batchSupported = hello.BatchSupport
+		// AC-001: secondary binds by session_id; echo batching capability back.
 		serverHello, _ := handshake.EncodeServerHello(&handshake.ServerHello{
-			SessionId:  sess.sid,
-			AssignedIp: net.ParseIP("10.10.0.10").To4(),
+			SessionId:    sess.sid,
+			AssignedIp:   net.ParseIP("10.10.0.10").To4(),
+			BatchSupport: sess.batchSupported,
 		})
 		shData, err := serverHello.Encode()
 		if err != nil {
@@ -671,40 +677,53 @@ func (s *dualChannelServer) handler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
-			var df framing.Frame
-			if err := df.Decode(data); err != nil {
-				continue
-			}
-			if df.Type != framing.FrameTypeData {
-				continue
-			}
-			plain, err := sess.cipher.Decrypt(df.Payload)
-			if err != nil {
+			// A WS message may carry a batch of frames (secondary batching).
+			frames := 0
+			for len(data) >= framing.FrameHeaderSize {
+				var df framing.Frame
+				if err := df.Decode(data); err != nil {
+					break
+				}
+				data = data[framing.FrameHeaderSize+int(df.Length):]
+				if df.Type != framing.FrameTypeData {
+					df.Release()
+					continue
+				}
+				plain, err := sess.cipher.Decrypt(df.Payload)
+				if err != nil {
+					df.Release()
+					continue
+				}
 				df.Release()
-				continue
+				frames++
+				select {
+				case s.secondaryGot <- plain:
+				default:
+				}
+				// AC-003: return UDP answer comes back over the secondary.
+				var inner []byte
+				if len(plain) > 20 {
+					inner = plain[20:]
+				}
+				reply := ipv4Packet(17 /*UDP*/, append([]byte("reply:"), inner...))
+				enc, err := sess.cipher.Encrypt(reply)
+				if err != nil {
+					continue
+				}
+				rf := framing.Frame{Type: framing.FrameTypeData, Payload: enc}
+				rData, err := rf.Encode()
+				if err != nil {
+					continue
+				}
+				_ = conn.WriteMessage(gorillaws.BinaryMessage, rData)
+				framing.ReturnBuffer(rData)
 			}
-			df.Release()
-			select {
-			case s.secondaryGot <- plain:
-			default:
+			if frames > 0 {
+				select {
+				case s.secondaryMsgSizes <- frames:
+				default:
+				}
 			}
-			// AC-003: return UDP answer comes back over the secondary.
-			var inner []byte
-			if len(plain) > 20 {
-				inner = plain[20:]
-			}
-			reply := ipv4Packet(17 /*UDP*/, append([]byte("reply:"), inner...))
-			enc, err := sess.cipher.Encrypt(reply)
-			if err != nil {
-				continue
-			}
-			rf := framing.Frame{Type: framing.FrameTypeData, Payload: enc}
-			rData, err := rf.Encode()
-			if err != nil {
-				continue
-			}
-			_ = conn.WriteMessage(gorillaws.BinaryMessage, rData)
-			framing.ReturnBuffer(rData)
 		}
 	}
 
@@ -974,5 +993,181 @@ func TestTunnelDualChannelForeignTokenAndPrimarySurvives(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("primary session did not survive foreign-token secondary rejection")
+	}
+}
+
+// dialDualAndSession opens primary+secondary channels and returns a runnable
+// client tunnel session bound to a fed TUN. batchSupport declares the client's
+// batching capability in the secondary hello.
+func dialDualAndSession(t *testing.T, srv *dualChannelServer, wsURL string, batchSupport bool) (primaryWS, secondaryWS *WSConnTest, sess *tunnel.Session, tun *queueTun) {
+	t.Helper()
+	dialer := gorillaws.Dialer{HandshakeTimeout: 5 * time.Second}
+
+	primaryConn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial primary: %v", err)
+	}
+	t.Cleanup(func() { _ = primaryConn.Close() })
+	primaryWS = &WSConnTest{conn: primaryConn}
+	primaryHello, _ := handshake.EncodeClientHello(&handshake.ClientHello{
+		ProtoVersion: handshake.ProtoVersion,
+		Token:        dualTestValidTok,
+	})
+	phData, _ := primaryHello.Encode()
+	_ = primaryWS.WriteMessage(phData)
+	framing.ReturnBuffer(phData)
+	resp, err := primaryWS.ReadMessage()
+	if err != nil {
+		t.Fatalf("primary read server hello: %v", err)
+	}
+	var pf framing.Frame
+	if err := pf.Decode(resp); err != nil {
+		t.Fatalf("primary decode hello: %v", err)
+	}
+	serverHello, err := handshake.DecodeServerHello(&pf)
+	if err != nil {
+		t.Fatalf("primary decode server hello: %v", err)
+	}
+
+	secondaryConn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial secondary: %v", err)
+	}
+	t.Cleanup(func() { _ = secondaryConn.Close() })
+	secondaryWS = &WSConnTest{conn: secondaryConn}
+	secHello, _ := handshake.EncodeClientHello(&handshake.ClientHello{
+		ProtoVersion: handshake.ProtoVersion,
+		Token:        dualTestValidTok,
+		Channel:      "secondary",
+		SessionId:    dualTestSession,
+		BatchSupport: batchSupport,
+	})
+	shData, _ := secHello.Encode()
+	_ = secondaryWS.WriteMessage(shData)
+	framing.ReturnBuffer(shData)
+	sresp, err := secondaryWS.ReadMessage()
+	if err != nil {
+		t.Fatalf("secondary read server hello: %v", err)
+	}
+	var sf framing.Frame
+	if err := sf.Decode(sresp); err != nil {
+		t.Fatalf("secondary decode hello: %v", err)
+	}
+	sServerHello, err := handshake.DecodeServerHello(&sf)
+	if err != nil {
+		t.Fatalf("secondary decode server hello: %v", err)
+	}
+	if sServerHello.BatchSupport != batchSupport {
+		t.Errorf("secondary ServerHello.BatchSupport = %v, want %v (AC-001)", sServerHello.BatchSupport, batchSupport)
+	}
+
+	cipher, err := crypto.NewSessionCipher([]byte(dualTestMasterKey), serverHello.CryptoSalt, dualTestSession)
+	if err != nil {
+		t.Fatalf("client cipher: %v", err)
+	}
+
+	tun = newQueueTun()
+	sess = tunnel.NewSession(tun, primaryWS, nil, dualTestSession, "", nil, nil, nil,
+		zap.NewNop(), cipher, nil, 5*time.Second, 1000, nil, nil, nil)
+	sess.SetSecondary(secondaryWS)
+	return primaryWS, secondaryWS, sess, tun
+}
+
+// @sk-test secondary-batching#T4.1: TestTunnelSecondaryBatching (AC-001, AC-002, AC-003, AC-005)
+// @sk-test secondary-batching#T4.1: batched UDP arrives as one WS message with >=2 frames (AC-002)
+func TestTunnelSecondaryBatching(t *testing.T) {
+	srv := newDualChannelServer(t)
+	server := httptest.NewServer(http.HandlerFunc(srv.handler))
+	defer server.Close()
+	wsURL := "ws://" + server.Listener.Addr().String() + "/tunnel"
+
+	_, _, clientSess, tun := dialDualAndSession(t, srv, wsURL, true)
+	clientSess.SetBatchMode(true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go func() { _ = clientSess.Run(ctx) }()
+
+	for i := 0; i < 3; i++ {
+		tun.feed(ipv4Packet(17, []byte("batch-payload")))
+	}
+
+	// AC-002/AC-005: the three UDP packets are flushed by the batch timer as one WS message.
+	select {
+	case n := <-srv.secondaryMsgSizes:
+		if n < 2 {
+			t.Errorf("secondary message carried %d frames, want >=2 (batched)", n)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no secondary message received (batching)")
+	}
+
+	// AC-003: every frame in the batch is delivered and decrypted.
+	for i := 0; i < 3; i++ {
+		select {
+		case got := <-srv.secondaryGot:
+			if len(got) < 20 || got[9] != 17 {
+				t.Errorf("secondary got proto %v, want UDP", got[9])
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("secondary received %d/3 packets", i)
+		}
+	}
+
+	// AC-003: replies come back to the client TUN over the secondary.
+	deadline := time.Now().Add(3 * time.Second)
+	var written [][]byte
+	for time.Now().Before(deadline) {
+		written = tun.writtenCopy()
+		if len(written) >= 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(written) < 3 {
+		t.Fatalf("client TUN got %d replies, want >=3", len(written))
+	}
+}
+
+// @sk-test secondary-batching#T4.2: TestTunnelSecondaryNoBatchBackwardCompat (AC-004)
+// @sk-test secondary-batching#T4.2: without the flag every message carries exactly one frame (AC-004)
+func TestTunnelSecondaryNoBatchBackwardCompat(t *testing.T) {
+	srv := newDualChannelServer(t)
+	server := httptest.NewServer(http.HandlerFunc(srv.handler))
+	defer server.Close()
+	wsURL := "ws://" + server.Listener.Addr().String() + "/tunnel"
+
+	_, _, clientSess, tun := dialDualAndSession(t, srv, wsURL, false)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go func() { _ = clientSess.Run(ctx) }()
+
+	for i := 0; i < 3; i++ {
+		tun.feed(ipv4Packet(17, []byte("legacy-payload")))
+	}
+
+	// AC-004: single-frame messages (no batching).
+	for i := 0; i < 3; i++ {
+		select {
+		case n := <-srv.secondaryMsgSizes:
+			if n != 1 {
+				t.Errorf("message %d carried %d frames, want 1 (no batching)", i, n)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("no secondary message %d received", i)
+		}
+	}
+
+	// AC-004: all packets still delivered.
+	for i := 0; i < 3; i++ {
+		select {
+		case got := <-srv.secondaryGot:
+			if len(got) < 20 || got[9] != 17 {
+				t.Errorf("secondary got proto %v, want UDP", got[9])
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("secondary received %d/3 packets", i)
+		}
 	}
 }

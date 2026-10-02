@@ -172,7 +172,65 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 		}
 	}()
 
-	// Shared resources — routing, DNS tracker, DNS proxy
+	routeSet, dnsTracker := c.setupProxyRouting()
+	if cleanup := c.startProxyDNS(ctx, routeSet, dnsTracker, slots, transparent); cleanup != nil {
+		defer cleanup()
+	}
+	c.initProxyManagers(slots)
+
+	listenAddr := c.proxyListenAddr(transparent)
+	pl := c.newProxyListener(ctx, listenAddr, slots, routeSet, dnsTracker)
+	if transparent {
+		pl.SetTransparent(true)
+		pl.SetLogFn(func(format string, args ...any) {
+			c.logger.Debug(fmt.Sprintf(format, args...))
+		})
+	}
+	if err := pl.Start(); err != nil {
+		c.logger.Warn("proxy start", zap.Error(err))
+		return
+	}
+
+	c.logger.Info("proxy session started",
+		zap.String("listen", pl.Addr().String()),
+		zap.Int("slots", len(slots)),
+	)
+
+	eg, gctx := errgroup.WithContext(ctx)
+
+	// Accept loop
+	eg.Go(func() error {
+		return pl.AcceptLoop()
+	})
+
+	// Read-loops — one per slot
+	for _, slot := range slots {
+		slot := slot
+		eg.Go(func() error {
+			return proxyReadLoop(gctx, slot.stream, slot.mgr, c)
+		})
+	}
+
+	// QUIC keepalive — one per session is enough, run on slot 0
+	if c.cfg.Transport == "quic" {
+		eg.Go(func() error {
+			return c.proxyKeepalive(gctx, slots[0].stream)
+		})
+	}
+
+	<-gctx.Done()
+	c.logger.Debug("proxy session stopping")
+	_ = pl.Close()
+	for _, slot := range slots {
+		_ = slot.stream.Close()
+	}
+	if err := eg.Wait(); err != nil {
+		c.logger.Debug("proxy session stopped", zap.Error(err))
+	}
+}
+
+// setupProxyRouting builds the shared rule set and DNS tracker for the session.
+func (c *Client) setupProxyRouting() (*routing.RuleSet, *dns.Tracker) {
 	var routeSet *routing.RuleSet
 	if c.cfg.Routing != nil {
 		rs, err := routing.NewRuleSet(c.cfg.Routing, c.logger)
@@ -187,78 +245,80 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 		dnsTracker = dns.NewTracker(time.Duration(c.cfg.Routing.DNSRouting.TTL) * time.Second)
 		routeSet.SetTracker(dnsTracker)
 	}
+	return routeSet, dnsTracker
+}
 
-	var dnsCtx context.Context
-	var dnsCancel context.CancelFunc
-	var dnsBackup interface{}
-	if transparent {
-		dnsBackup, _ = setupDNS()
+// startProxyDNS starts the DNS proxy in transparent mode and returns its cleanup.
+func (c *Client) startProxyDNS(ctx context.Context, routeSet *routing.RuleSet, dnsTracker *dns.Tracker, slots []*proxySlot, transparent bool) func() {
+	if !transparent {
+		return nil
+	}
+	dnsBackup, _ := setupDNS()
 
-		c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstreams...)
-		if dnsTracker != nil {
-			c.dnsSrv.SetTracker(dnsTracker)
+	c.dnsSrv = dnsproxy.New(c.cfg.DNSProxy.Listen, c.cfg.DNSProxy.Upstreams...)
+	if dnsTracker != nil {
+		c.dnsSrv.SetTracker(dnsTracker)
+	}
+	if dnsBackup != nil {
+		if bp, ok := dnsBackup.(interface{ Nameservers() []string }); ok {
+			c.dnsSrv.SetOrigResolvers(bp.Nameservers())
 		}
-		if dnsBackup != nil {
-			if bp, ok := dnsBackup.(interface{ Nameservers() []string }); ok {
-				c.dnsSrv.SetOrigResolvers(bp.Nameservers())
-			}
-		} else if len(c.cfg.DNSProxy.Upstreams) > 0 {
-			c.dnsSrv.SetOrigResolvers([]string{c.cfg.DNSProxy.Upstreams[0]})
-		}
-		if routeSet != nil {
-			c.dnsSrv.SetRouteFunc(func(domain string) bool {
-				return routeSet.MatchDomain(domain) == routing.RouteDirect
-			})
-		}
-
-		dnsCtx, dnsCancel = context.WithCancel(ctx)
-		dnsReady := make(chan error, 1)
-		go func() {
-			dnsReady <- c.dnsSrv.Run(dnsCtx)
-		}()
-		select {
-		case err := <-dnsReady:
-			c.logger.Warn("dns proxy failed to start, restoring dns", zap.Error(err))
-			dnsCancel()
-			c.dnsSrv = nil
-			if dnsBackup != nil {
-				restoreDNS(dnsBackup)
-				dnsBackup = nil
-			}
-		case <-time.After(100 * time.Millisecond):
-			applyDNS(dnsBackup, nil, c.cfg.DNSProxy.Listen, nil, "", nil)
-			// Use the first slot's stream for DNS responses
-			c.dnsSrv.SetStream(slots[0].stream)
-		}
-		defer func() {
-			if c.dnsSrv != nil {
-				c.dnsSrv.ClearStream()
-			}
-			if dnsCancel != nil {
-				dnsCancel()
-			}
-			if c.dnsSrv != nil {
-				_ = c.dnsSrv.Shutdown()
-				c.dnsSrv = nil
-			}
-			if dnsBackup != nil {
-				restoreDNS(dnsBackup)
-			}
-		}()
+	} else if len(c.cfg.DNSProxy.Upstreams) > 0 {
+		c.dnsSrv.SetOrigResolvers([]string{c.cfg.DNSProxy.Upstreams[0]})
+	}
+	if routeSet != nil {
+		c.dnsSrv.SetRouteFunc(func(domain string) bool {
+			return routeSet.MatchDomain(domain) == routing.RouteDirect
+		})
 	}
 
-	// Create one Manager per slot
-	for i, slot := range slots {
+	dnsCtx, dnsCancel := context.WithCancel(ctx)
+	dnsReady := make(chan error, 1)
+	go func() {
+		dnsReady <- c.dnsSrv.Run(dnsCtx)
+	}()
+	select {
+	case err := <-dnsReady:
+		c.logger.Warn("dns proxy failed to start, restoring dns", zap.Error(err))
+		dnsCancel()
+		c.dnsSrv = nil
+		if dnsBackup != nil {
+			restoreDNS(dnsBackup)
+			dnsBackup = nil
+		}
+	case <-time.After(100 * time.Millisecond):
+		applyDNS(dnsBackup, nil, c.cfg.DNSProxy.Listen, nil, "", nil)
+		// Use the first slot's stream for DNS responses
+		c.dnsSrv.SetStream(slots[0].stream)
+	}
+	return func() {
+		if c.dnsSrv != nil {
+			c.dnsSrv.ClearStream()
+		}
+		if dnsCancel != nil {
+			dnsCancel()
+		}
+		if c.dnsSrv != nil {
+			_ = c.dnsSrv.Shutdown()
+			c.dnsSrv = nil
+		}
+		if dnsBackup != nil {
+			restoreDNS(dnsBackup)
+		}
+	}
+}
+
+// initProxyManagers creates one proxy manager per slot.
+func (c *Client) initProxyManagers(slots []*proxySlot) {
+	for _, slot := range slots {
 		slot.mgr = proxy.NewManager(slot.stream, func(format string, args ...any) {
 			c.logger.Warn(fmt.Sprintf(format, args...))
 		})
-		slots[i] = slot
 	}
+}
 
-	var proxyAuth *proxy.ProxyAuth
-	if c.cfg.ProxyAuth != nil {
-		proxyAuth = &proxy.ProxyAuth{Username: c.cfg.ProxyAuth.Username, Password: c.cfg.ProxyAuth.Password}
-	}
+// proxyListenAddr returns the listener address, widening to all interfaces in transparent mode.
+func (c *Client) proxyListenAddr(transparent bool) string {
 	listenAddr := c.cfg.ProxyListen
 	if transparent {
 		_, port, err := net.SplitHostPort(listenAddr)
@@ -266,135 +326,24 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 			listenAddr = "0.0.0.0:" + port
 		}
 	}
+	return listenAddr
+}
 
-	// Round-robin across slots
+// newProxyListener builds the listener with routing and round-robin slot selection.
+func (c *Client) newProxyListener(ctx context.Context, listenAddr string, slots []*proxySlot, routeSet *routing.RuleSet, dnsTracker *dns.Tracker) *proxy.Listener {
+	var proxyAuth *proxy.ProxyAuth
+	if c.cfg.ProxyAuth != nil {
+		proxyAuth = &proxy.ProxyAuth{Username: c.cfg.ProxyAuth.Username, Password: c.cfg.ProxyAuth.Password}
+	}
+
 	var nextSlot atomic.Uint64
 	numSlots := uint64(len(slots))
 
-	pl := proxy.NewListener(listenAddr, proxyAuth, func(client net.Conn, dst string) {
+	return proxy.NewListener(listenAddr, proxyAuth, func(client net.Conn, dst string) {
 		c.logger.Debug("proxy onconn", zap.String("dst", dst))
-		if routeSet != nil {
-			host, _, err := net.SplitHostPort(dst)
-			if err != nil {
-				host = dst
-			}
-			if action := routeSet.MatchDomain(host); action == routing.RouteDirect {
-				c.logger.Info("proxy domain direct", zap.String("dst", dst), zap.String("ip", dst))
-				go func() {
-					defer func() { _ = client.Close() }()
-					target, err := net.Dial("tcp", dst)
-					if err != nil {
-						c.logger.Warn("route direct dial failed", zap.String("dst", dst), zap.Error(err))
-						return
-					}
-					defer func() { _ = target.Close() }()
-					gctx, cancel := context.WithCancel(ctx)
-					defer cancel()
-					go func() {
-						<-gctx.Done()
-						_ = target.Close()
-						_ = client.Close()
-					}()
-					eg, _ := errgroup.WithContext(gctx)
-					eg.Go(func() error {
-						_, err := io.Copy(target, client)
-						return err
-					})
-					eg.Go(func() error {
-						_, err := io.Copy(client, target)
-						return err
-					})
-					_ = eg.Wait()
-				}()
-				return
-			}
-			ipAddr := net.ParseIP(host)
-			var ipv4Only net.IP
-			if ipAddr == nil {
-				addrs, _ := net.DefaultResolver.LookupHost(ctx, host)
-				for _, a := range addrs {
-					if ip := net.ParseIP(a); ip != nil {
-						if ipv4Only == nil && ip.To4() != nil {
-							ipv4Only = ip
-						}
-						if ipAddr == nil {
-							ipAddr = ip
-						}
-					}
-				}
-				if len(addrs) > 0 {
-					var ips []netip.Addr
-					for _, a := range addrs {
-						if ip, err := netip.ParseAddr(a); err == nil {
-							ips = append(ips, ip)
-						}
-					}
-					if len(ips) > 0 && dnsTracker != nil {
-						dnsTracker.Track(host, ips)
-					}
-				}
-			}
-			var nip netip.Addr
-			if ipAddr != nil {
-				if v4 := ipAddr.To4(); v4 != nil {
-					nip, _ = netip.AddrFromSlice(v4)
-				} else {
-					nip, _ = netip.AddrFromSlice(ipAddr)
-				}
-			}
-			if nip.IsValid() && routeSet.Route(nip) == routing.RouteDirect {
-				c.logger.Info("proxy direct", zap.String("dst", dst), zap.String("ip", dst))
-				go func() {
-					defer func() { _ = client.Close() }()
-					target, err := net.Dial("tcp", dst)
-					if err != nil {
-						c.logger.Warn("route direct dial failed", zap.String("dst", dst), zap.Error(err))
-						return
-					}
-					defer func() { _ = target.Close() }()
-					gctx, cancel := context.WithCancel(ctx)
-					defer cancel()
-					go func() {
-						<-gctx.Done()
-						_ = target.Close()
-						_ = client.Close()
-					}()
-					eg, _ := errgroup.WithContext(gctx)
-					eg.Go(func() error {
-						_, err := io.Copy(target, client)
-						return err
-					})
-					eg.Go(func() error {
-						_, err := io.Copy(client, target)
-						return err
-					})
-					_ = eg.Wait()
-				}()
-				return
-			}
-
-			// Prefer IPv4 destination for tunneled connections: the server VPS has
-			// no IPv6 route to many CDNs (e.g. Telegram), so dialing an IPv6 literal
-			// or an IPv6-preferred hostname fails. Rewrite a domain dst to its IPv4
-			// literal so the server dials v4 immediately.
-			if ipv4Only != nil {
-				if _, port, err := net.SplitHostPort(dst); err == nil {
-					dst = net.JoinHostPort(ipv4Only.String(), port)
-				}
-			}
-
-			// @sk-task ipv4-prefer-tunnel#T3.3: log DNS resolution + family so slow
-			// or v6-only resolution is visible in kvn-client logs
-			var fam string
-			switch {
-			case ipv4Only != nil:
-				fam = "v4"
-			case ipAddr != nil:
-				fam = ipAddr.String()
-			default:
-				fam = "unresolved"
-			}
-			c.logger.Info("proxy resolv", zap.String("dst", dst), zap.String("resolved", fam), zap.String("host", host))
+		handled, dst := c.routeProxyConn(ctx, client, dst, routeSet, dnsTracker)
+		if handled {
+			return
 		}
 
 		// Pick a slot by round-robin
@@ -413,86 +362,147 @@ func (c *Client) runProxySessionMulti(ctx context.Context, slots []*proxySlot, t
 			slot.mgr.Remove(s.ID)
 		}()
 	}, c.cfg.ProxyMaxConcurrency)
+}
 
-	if transparent {
-		pl.SetTransparent(true)
-		pl.SetLogFn(func(format string, args ...any) {
-			c.logger.Debug(fmt.Sprintf(format, args...))
-		})
+// routeProxyConn applies direct routing for a proxied destination. It returns
+// whether the connection was handled directly and the final destination (which
+// may be rewritten to an IPv4 literal for tunneled connections).
+func (c *Client) routeProxyConn(ctx context.Context, client net.Conn, dst string, routeSet *routing.RuleSet, dnsTracker *dns.Tracker) (handled bool, finalDst string) {
+	if routeSet == nil {
+		return false, dst
+	}
+	host, _, err := net.SplitHostPort(dst)
+	if err != nil {
+		host = dst
+	}
+	if action := routeSet.MatchDomain(host); action == routing.RouteDirect {
+		c.logger.Info("proxy domain direct", zap.String("dst", dst), zap.String("ip", dst))
+		go c.proxyDirectPipe(ctx, client, dst)
+		return true, dst
 	}
 
-	if err := pl.Start(); err != nil {
-		c.logger.Warn("proxy start", zap.Error(err))
-		return
-	}
-
-	c.logger.Info("proxy session started",
-		zap.String("listen", pl.Addr().String()),
-		zap.Int("slots", len(slots)),
-	)
-
-	eg, gctx := errgroup.WithContext(ctx)
-
-	// Accept loop
-	eg.Go(func() error {
-		if err := pl.AcceptLoop(); err != nil {
-			return err
-		}
-		return nil
-	})
-
-	// Read-loops — one per slot
-	for _, slot := range slots {
-		slot := slot
-		eg.Go(func() error {
-			return proxyReadLoop(gctx, slot.stream, slot.mgr, c)
-		})
-	}
-
-	// QUIC keepalive — one per session is enough, run on slot 0
-	if c.cfg.Transport == "quic" {
-		eg.Go(func() error {
-			pingTicker := time.NewTicker(25 * time.Second)
-			defer pingTicker.Stop()
-			stream := slots[0].stream
-			for {
-				select {
-				case <-gctx.Done():
-					return nil
-				case <-pingTicker.C:
-					f := framing.Frame{
-						Type:  framing.FrameTypeProxy,
-						Flags: framing.FrameFlagNone,
-					}
-					_ = stream.SetWriteDeadline(time.Now().Add(10 * time.Second))
-					data, err := f.Encode()
-					if err != nil {
-						c.logger.Warn("keepalive encode error", zap.Error(err))
-						_ = stream.SetWriteDeadline(time.Time{})
-						continue
-					}
-					if err := stream.WriteMessage(data); err != nil {
-						framing.ReturnBuffer(data)
-						_ = stream.SetWriteDeadline(time.Time{})
-						c.logger.Warn("keepalive: connection lost", zap.Error(err))
-						return fmt.Errorf("keepalive: %w", err)
-					}
-					framing.ReturnBuffer(data)
-					_ = stream.SetWriteDeadline(time.Time{})
+	ipAddr := net.ParseIP(host)
+	var ipv4Only net.IP
+	if ipAddr == nil {
+		addrs, _ := net.DefaultResolver.LookupHost(ctx, host)
+		for _, a := range addrs {
+			if ip := net.ParseIP(a); ip != nil {
+				if ipv4Only == nil && ip.To4() != nil {
+					ipv4Only = ip
+				}
+				if ipAddr == nil {
+					ipAddr = ip
 				}
 			}
-		})
+		}
+		if len(addrs) > 0 {
+			var ips []netip.Addr
+			for _, a := range addrs {
+				if ip, err := netip.ParseAddr(a); err == nil {
+					ips = append(ips, ip)
+				}
+			}
+			if len(ips) > 0 && dnsTracker != nil {
+				dnsTracker.Track(host, ips)
+			}
+		}
+	}
+	var nip netip.Addr
+	if ipAddr != nil {
+		if v4 := ipAddr.To4(); v4 != nil {
+			nip, _ = netip.AddrFromSlice(v4)
+		} else {
+			nip, _ = netip.AddrFromSlice(ipAddr)
+		}
+	}
+	if nip.IsValid() && routeSet.Route(nip) == routing.RouteDirect {
+		c.logger.Info("proxy direct", zap.String("dst", dst), zap.String("ip", dst))
+		go c.proxyDirectPipe(ctx, client, dst)
+		return true, dst
 	}
 
-	<-gctx.Done()
-	c.logger.Debug("proxy session stopping")
-	_ = pl.Close()
-	for _, slot := range slots {
-		_ = slot.stream.Close()
+	// Prefer IPv4 destination for tunneled connections: the server VPS has
+	// no IPv6 route to many CDNs (e.g. Telegram), so dialing an IPv6 literal
+	// or an IPv6-preferred hostname fails. Rewrite a domain dst to its IPv4
+	// literal so the server dials v4 immediately.
+	if ipv4Only != nil {
+		if _, port, err := net.SplitHostPort(dst); err == nil {
+			dst = net.JoinHostPort(ipv4Only.String(), port)
+		}
 	}
 
-	if err := eg.Wait(); err != nil {
-		c.logger.Debug("proxy session stopped", zap.Error(err))
+	// @sk-task ipv4-prefer-tunnel#T3.3: log DNS resolution + family so slow
+	// or v6-only resolution is visible in kvn-client logs
+	var fam string
+	switch {
+	case ipv4Only != nil:
+		fam = "v4"
+	case ipAddr != nil:
+		fam = ipAddr.String()
+	default:
+		fam = "unresolved"
+	}
+	c.logger.Info("proxy resolv", zap.String("dst", dst), zap.String("resolved", fam), zap.String("host", host))
+	return false, dst
+}
+
+// proxyDirectPipe bridges a directly-routed client connection to its target.
+func (c *Client) proxyDirectPipe(ctx context.Context, client net.Conn, dst string) {
+	defer func() { _ = client.Close() }()
+	target, err := net.Dial("tcp", dst)
+	if err != nil {
+		c.logger.Warn("route direct dial failed", zap.String("dst", dst), zap.Error(err))
+		return
+	}
+	defer func() { _ = target.Close() }()
+	gctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		<-gctx.Done()
+		_ = target.Close()
+		_ = client.Close()
+	}()
+	eg, _ := errgroup.WithContext(gctx)
+	eg.Go(func() error {
+		_, err := io.Copy(target, client)
+		return err
+	})
+	eg.Go(func() error {
+		_, err := io.Copy(client, target)
+		return err
+	})
+	_ = eg.Wait()
+}
+
+// proxyKeepalive sends periodic QUIC proxy pings on the given stream.
+func (c *Client) proxyKeepalive(ctx context.Context, stream transport.StreamConn) error {
+	pingTicker := time.NewTicker(25 * time.Second)
+	defer pingTicker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-pingTicker.C:
+			f := framing.Frame{
+				Type:  framing.FrameTypeProxy,
+				Flags: framing.FrameFlagNone,
+			}
+			_ = stream.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			data, err := f.Encode()
+			if err != nil {
+				c.logger.Warn("keepalive encode error", zap.Error(err))
+				_ = stream.SetWriteDeadline(time.Time{})
+				continue
+			}
+			if err := stream.WriteMessage(data); err != nil {
+				framing.ReturnBuffer(data)
+				_ = stream.SetWriteDeadline(time.Time{})
+				c.logger.Warn("keepalive: connection lost", zap.Error(err))
+				return fmt.Errorf("keepalive: %w", err)
+			}
+			framing.ReturnBuffer(data)
+			_ = stream.SetWriteDeadline(time.Time{})
+		}
 	}
 }
 

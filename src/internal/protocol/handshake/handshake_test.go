@@ -421,3 +421,103 @@ func TestClientHelloNoTagsBackwardCompat(t *testing.T) {
 		t.Errorf("SessionId = %q, want empty", decoded.SessionId)
 	}
 }
+
+// @sk-test secondary-batching#T1.2: TestClientHelloBatchSupportRoundTrip (AC-001)
+// @sk-test secondary-batching#T1.2: BatchSupport tag round-trips on ClientHello (AC-001)
+func TestClientHelloBatchSupportRoundTrip(t *testing.T) {
+	for _, want := range []bool{true, false} {
+		original := &ClientHello{
+			ProtoVersion: ProtoVersion,
+			Token:        "test-token-123",
+			Channel:      "secondary",
+			SessionId:    "0102030405060708090a0b0c0d0e0f10",
+			BatchSupport: want,
+		}
+
+		frame, err := EncodeClientHello(original)
+		if err != nil {
+			t.Fatalf("EncodeClientHello: %v", err)
+		}
+
+		decoded, err := DecodeClientHello(frame)
+		if err != nil {
+			t.Fatalf("DecodeClientHello: %v", err)
+		}
+
+		if decoded.BatchSupport != want {
+			t.Errorf("BatchSupport = %v, want %v", decoded.BatchSupport, want)
+		}
+	}
+}
+
+// @sk-test secondary-batching#T1.2: TestClientHelloNoBatchTagBackwardCompat (AC-004)
+// @sk-test secondary-batching#T1.2: absence of BatchTag decodes as false (AC-004)
+func TestClientHelloNoBatchTagBackwardCompat(t *testing.T) {
+	original := &ClientHello{
+		ProtoVersion: ProtoVersion,
+		Token:        "test-token-123",
+	}
+
+	frame, err := EncodeClientHello(original)
+	if err != nil {
+		t.Fatalf("EncodeClientHello: %v", err)
+	}
+
+	decoded, err := DecodeClientHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeClientHello: %v", err)
+	}
+
+	if decoded.BatchSupport {
+		t.Errorf("BatchSupport = true, want false (no tag)")
+	}
+}
+
+// @sk-test secondary-batching#T1.2: TestServerHelloBatchSupportRoundTrip (AC-001)
+// @sk-test secondary-batching#T1.2: BatchSupport tag round-trips on ServerHello (AC-001)
+func TestServerHelloBatchSupportRoundTrip(t *testing.T) {
+	for _, want := range []bool{true, false} {
+		original := &ServerHello{
+			SessionId:    "0102030405060708090a0b0c0d0e0f10",
+			AssignedIp:   net.ParseIP("10.10.0.5").To4(),
+			BatchSupport: want,
+		}
+
+		frame, err := EncodeServerHello(original)
+		if err != nil {
+			t.Fatalf("EncodeServerHello: %v", err)
+		}
+
+		decoded, err := DecodeServerHello(frame)
+		if err != nil {
+			t.Fatalf("DecodeServerHello: %v", err)
+		}
+
+		if decoded.BatchSupport != want {
+			t.Errorf("BatchSupport = %v, want %v", decoded.BatchSupport, want)
+		}
+	}
+}
+
+// @sk-test secondary-batching#T1.2: TestServerHelloNoBatchTagBackwardCompat (AC-004)
+// @sk-test secondary-batching#T1.2: absence of BatchTag decodes as false (AC-004)
+func TestServerHelloNoBatchTagBackwardCompat(t *testing.T) {
+	original := &ServerHello{
+		SessionId:  "0102030405060708090a0b0c0d0e0f10",
+		AssignedIp: net.ParseIP("10.10.0.5").To4(),
+	}
+
+	frame, err := EncodeServerHello(original)
+	if err != nil {
+		t.Fatalf("EncodeServerHello: %v", err)
+	}
+
+	decoded, err := DecodeServerHello(frame)
+	if err != nil {
+		t.Fatalf("DecodeServerHello: %v", err)
+	}
+
+	if decoded.BatchSupport {
+		t.Errorf("BatchSupport = true, want false (no tag)")
+	}
+}

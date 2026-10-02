@@ -41,6 +41,12 @@ object HandshakeCodec {
             baos.write(sessionBytes.size)
             baos.write(sessionBytes)
         }
+        // @sk-task secondary-batching#T5.1: batching capability tag (AC-001)
+        if (hello.batchSupport) {
+            baos.write(BATCH_TAG.toInt())
+            baos.write(1)
+            baos.write(1)
+        }
 
         return Frame(FrameTypes.FRAME_TYPE_HELLO, FrameFlags.FRAME_FLAG_NONE, baos.toByteArray())
     }
@@ -82,6 +88,7 @@ object HandshakeCodec {
         var cryptoSalt = ByteArray(0)
         var gatewayIp = ""
         var transport = "tcp"
+        var batchSupport = false
 
         while (pos < data.size) {
             if (pos + 2 > data.size) break
@@ -95,11 +102,13 @@ object HandshakeCodec {
                     gatewayIp = InetAddress.getByAddress(data.copyOfRange(pos, pos + 4)).hostAddress ?: ""
                 }
                 TRANSPORT_TAG -> transport = String(data.copyOfRange(pos, pos + length))
+                // @sk-task secondary-batching#T5.1: batching capability tag (AC-001)
+                BATCH_TAG -> batchSupport = length >= 1 && data[pos] == 1.toByte()
             }
             pos += length
         }
 
-        return ServerHello(sid, assignedIp, assignedIpv6, mtu, cryptoSalt, gatewayIp, transport)
+        return ServerHello(sid, assignedIp, assignedIpv6, mtu, cryptoSalt, gatewayIp, transport, batchSupport)
     }
 
     fun encodeAuthError(reason: String): Frame {

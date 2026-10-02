@@ -2,7 +2,7 @@ package com.kvn.client.transport
 
 import com.kvn.client.protocol.Frame
 import com.kvn.client.protocol.encode
-import com.kvn.client.protocol.toFrame
+import com.kvn.client.protocol.toFrames
 import okhttp3.*
 import okio.Buffer
 import okio.ByteString
@@ -41,12 +41,14 @@ class WebSocketClient(
             }
 
             // @sk-task android-crash-fix#T1: frame parse errors are swallowed, not fatal (AC-001)
+            // @sk-task secondary-batching#T5.2: a WS message may carry a batch of frames (AC-003)
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
                 try {
                     val data = bytes.toByteArray()
                     val frameData = if (paddingEnabled) unwrapPadding(data) else data
-                    val frame = frameData.toFrame()
-                    onFrame(frame)
+                    for (frame in frameData.toFrames()) {
+                        onFrame(frame)
+                    }
                 } catch (e: Exception) {
                     onFailure?.invoke(e)
                 }
@@ -75,6 +77,15 @@ class WebSocketClient(
     override fun send(frame: Frame): Boolean {
         if (!connected.get()) return false
         val data = frame.encode()
+        val wireData = if (paddingEnabled) wrapPadding(data) else data
+        val b = Buffer()
+        b.write(wireData)
+        return webSocket?.send(b.readByteString()) ?: false
+    }
+
+    // @sk-task secondary-batching#T5.3: send raw bytes as one WS message (batched secondary) (AC-002)
+    fun sendRaw(data: ByteArray): Boolean {
+        if (!connected.get()) return false
         val wireData = if (paddingEnabled) wrapPadding(data) else data
         val b = Buffer()
         b.write(wireData)

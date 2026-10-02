@@ -70,6 +70,7 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `scripts/test-gate.sh` — gate test script
 - `scripts/test-proxy.sh` — proxy mode test script
 - `scripts/test-security.sh` — security/ACL test script
+- `scripts/speedtest.sh` — curl throughput check to a fixed target (run before/after VPN)
 - `scripts/test-stability.sh` — stability/soak test script
 - `scripts/install-server.sh` — server install script (systemd, TLS, config gen)
 - `scripts/install-client.sh` — Linux client install script (binary + config + systemd)

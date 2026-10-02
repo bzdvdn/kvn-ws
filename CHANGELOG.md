@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] 2026-10-02
+
+### Added
+
+- **`scripts/speedtest.sh` — замер пропускной способности к фиксированному endpoint** — curl-замер download/upload к Cloudflare speed (`speed.cloudflare.com/__down|__up`, размер `-s`, параллельные потоки `-p N`, свой endpoint через `SPEED_URL_BASE`). Запускается до VPN и после VPN к одному и тому же target для честного сравнения «напрямую vs через туннель». Выводит результат в Мбит/с. Нюанс: один поток ограничен TCP `window/RTT`, поэтому `-p N` (агрегат) — для upload (Cloudflare блокирует параллельные download 403).
+- **Батчинг вторичного WS-канала (secondary-batching)** — несколько UDP-пакетов (VoIP/медиа) накапливаются и отправляются одним WS-сообщением; включается обоюдным handshake-флагом `BatchTag=0x0E` (ClientHello/ServerHello). Снимает дилемму «скорость vs гладкость»: при `padding.size: 512` амплификация UDP падает с 3–8× до ~1.1× (без просадки скорости), а при `padding.size: 128` робовойс исчезает (крупные TCP-сегменты даёт батч, а не паддинг). Параметры батча: 4096 B / 5 мс. Реализовано на Go (клиент+сервер: `tunToWS` накопление/флаш, `secondaryToTun` цикл-декодер, `dialSecondaryChannel`/`handleSecondaryStream` пропагация флага) и Android (`FrameCodec.toFrames`, батчинг/разбор в `KvnVpnService`). Обратная совместимость: без обоюдного флага — прежний режим (1 пакет = 1 сообщение).
+
 ## [1.2.3] 2026-10-01
 
 ### Fixed

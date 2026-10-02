@@ -82,13 +82,15 @@ type Session struct {
 	// @sk-task dual-ws-channel#T2.2: secondary channel for UDP traffic (AC-002)
 	// @sk-task dual-ws-channel#T3.3: buffering guards for late secondary bind (AC-005)
 	// @sk-task perf-secondary-lock#T1: lock-free secondary lookup on the hot path (AC-002)
-	secondary        atomic.Pointer[StreamConn]
-	runCtxMu         sync.RWMutex
-	loopOnce         sync.Once
-	done             chan struct{}
-	doneOnce         sync.Once
-	runCtx           context.Context
-	primaryReady     atomic.Bool
+	secondary    atomic.Pointer[StreamConn]
+	runCtxMu     sync.RWMutex
+	loopOnce     sync.Once
+	done         chan struct{}
+	doneOnce     sync.Once
+	runCtx       context.Context
+	primaryReady atomic.Bool
+	// @sk-task secondary-batching#T2.1: batched secondary write mode (AC-001)
+	batchMode        atomic.Bool
 	sm               *session.SessionManager
 	sessionID        string
 	tokenName        string
@@ -184,6 +186,16 @@ func (s *Session) SetSecondary(sc StreamConn) {
 // @sk-task perf-secondary-lock#T1: session end signal (closed when Run returns) (AC-003)
 func (s *Session) Done() <-chan struct{} {
 	return s.done
+}
+
+// @sk-task secondary-batching#T2.1: enable batched secondary writes (AC-001)
+func (s *Session) SetBatchMode(on bool) {
+	s.batchMode.Store(on)
+}
+
+// @sk-task secondary-batching#T2.1: report batched secondary write mode (AC-001)
+func (s *Session) BatchEnabled() bool {
+	return s.batchMode.Load()
 }
 
 // @sk-task dual-ws-channel#T3.1: secondary loop runs independently of the primary errgroup (AC-004)
@@ -776,68 +788,108 @@ func (s *Session) secondaryToTun(ctx context.Context) error {
 			}
 			return err
 		}
-		var f framing.Frame
-		if err := f.Decode(data); err != nil {
-			return err
-		}
-		if f.Type == framing.FrameTypeClose {
-			f.Release()
-			return nil
-		}
-		if f.Type != framing.FrameTypeData {
-			f.Release()
-			continue
-		}
-		if s.cipher != nil {
-			decrypted, err := s.cipher.Decrypt(f.Payload)
-			if err != nil {
-				s.logger.Warn("secondary decrypt failed, dropping packet", zap.Error(err))
+		// @sk-task secondary-batching#T2.2: decode every frame in a batched WS message (AC-003)
+		for len(data) >= framing.FrameHeaderSize {
+			var f framing.Frame
+			if err := f.Decode(data); err != nil {
+				return err
+			}
+			data = data[framing.FrameHeaderSize+int(f.Length):]
+			if f.Type == framing.FrameTypeClose {
+				f.Release()
+				return nil
+			}
+			if f.Type != framing.FrameTypeData {
 				f.Release()
 				continue
 			}
-			f.Release()
-			f.Payload = decrypted
-		}
-		if !s.primaryReady.Load() {
-			if len(buffered) == 0 {
-				bufferStart = time.Now()
+			if s.cipher != nil {
+				decrypted, err := s.cipher.Decrypt(f.Payload)
+				if err != nil {
+					s.logger.Warn("secondary decrypt failed, dropping packet", zap.Error(err))
+					f.Release()
+					continue
+				}
+				f.Release()
+				f.Payload = decrypted
 			}
-			if len(buffered) < bufferMax && time.Since(bufferStart) <= bufferDuration {
-				payload := make([]byte, len(f.Payload))
-				copy(payload, f.Payload)
-				buffered = append(buffered, payload)
+			if !s.primaryReady.Load() {
+				if len(buffered) == 0 {
+					bufferStart = time.Now()
+				}
+				if len(buffered) < bufferMax && time.Since(bufferStart) <= bufferDuration {
+					payload := make([]byte, len(f.Payload))
+					copy(payload, f.Payload)
+					buffered = append(buffered, payload)
+					f.Release()
+					continue
+				}
+				// Buffer full or primary not ready in time: drop the new packet
+				// (kept buffered packets are flushed once primary becomes ready).
+				s.logger.Debug("secondary buffer full or timeout, dropping incoming",
+					zap.Int("buffered", len(buffered)),
+				)
 				f.Release()
 				continue
 			}
-			// Buffer full or primary not ready in time: drop the new packet
-			// (kept buffered packets are flushed once primary becomes ready).
-			s.logger.Debug("secondary buffer full or timeout, dropping incoming",
-				zap.Int("buffered", len(buffered)),
-			)
-			f.Release()
-			continue
-		}
-		if len(buffered) > 0 {
-			if err := flush(); err != nil {
+			if len(buffered) > 0 {
+				if err := flush(); err != nil {
+					f.Release()
+					return err
+				}
+			}
+			if _, err := s.tunDev.Write(f.Payload); err != nil {
 				f.Release()
 				return err
 			}
-		}
-		if _, err := s.tunDev.Write(f.Payload); err != nil {
 			f.Release()
-			return err
 		}
-		f.Release()
 	}
 }
 
 // @sk-task fix-critical-leaks#T3.1: TUN reader — channel-based (AC-001)
+// @sk-task secondary-batching#T2.1: batched secondary writes (AC-002, AC-005)
 func (s *Session) tunToWS(ctx context.Context) error {
+	const (
+		batchMaxBytes = 4096
+		batchHold     = 5 * time.Millisecond
+	)
+	var (
+		secBatch   []byte
+		secTimer   *time.Timer
+		secTimerCh <-chan time.Time
+	)
+	flushSec := func() error {
+		if len(secBatch) == 0 {
+			return nil
+		}
+		data := secBatch
+		secBatch = secBatch[:0]
+		if secTimer != nil {
+			secTimer.Stop()
+			secTimer = nil
+			secTimerCh = nil
+		}
+		target := s.getSecondary()
+		if target == nil {
+			return nil
+		}
+		if err := target.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
+			return err
+		}
+		return target.WriteMessage(data)
+	}
 	for {
 		var r tunReadResult
 		select {
 		case <-ctx.Done():
+			_ = flushSec()
 			return ctx.Err()
+		case <-secTimerCh:
+			if err := flushSec(); err != nil {
+				return err
+			}
+			continue
 		case r = <-s.tunReaderCh:
 		}
 		if r.err != nil {
@@ -869,8 +921,10 @@ func (s *Session) tunToWS(ctx context.Context) error {
 			}
 		}
 		target := s.stream
+		toSecondary := false
 		if secondary := s.getSecondary(); secondary != nil && parseIPProto(payload) {
 			target = secondary
+			toSecondary = true
 		}
 		if s.cipher != nil {
 			encrypted, err := s.cipher.Encrypt(payload)
@@ -890,6 +944,22 @@ func (s *Session) tunToWS(ctx context.Context) error {
 		if err != nil {
 			putTunReadBuf(r.buf)
 			return err
+		}
+		// @sk-task secondary-batching#T2.1: accumulate UDP frames on secondary, flush by size/time (AC-002, AC-005)
+		if toSecondary && s.BatchEnabled() {
+			secBatch = append(secBatch, data...)
+			framing.ReturnBuffer(data)
+			if len(secBatch) >= batchMaxBytes {
+				if err := flushSec(); err != nil {
+					putTunReadBuf(r.buf)
+					return err
+				}
+			} else if secTimer == nil {
+				secTimer = time.NewTimer(batchHold)
+				secTimerCh = secTimer.C
+			}
+			putTunReadBuf(r.buf)
+			continue
 		}
 		if err := target.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
 			framing.ReturnBuffer(data)

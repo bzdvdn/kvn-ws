@@ -32,6 +32,10 @@ constants:
   - name: SessionTag
     type: byte
     value: 0x0D
+  # @sk-task secondary-batching#T1.1: secondary channel batching capability tag (AC-001)
+  - name: BatchTag
+    type: byte
+    value: 0x0E
 
 client_hello:
   name: ClientHello
@@ -51,6 +55,9 @@ client_hello:
       type: string
     - name: SessionId
       type: string
+    # @sk-task secondary-batching#T1.1: batching capability declared by client (AC-001)
+    - name: BatchSupport
+      type: bool
 
 server_hello:
   name: ServerHello
@@ -69,6 +76,9 @@ server_hello:
       type: ip
     - name: Transport
       type: string
+    # @sk-task secondary-batching#T1.1: batching capability confirmed by server (AC-001)
+    - name: BatchSupport
+      type: bool
 
 auth_error:
   name: AuthError
