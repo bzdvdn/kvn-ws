@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.2] 2026-10-06
+
 ### Fixed
 
 - **TUN: исходящий UDP не уходил во вторичный канал** — в TUN-режиме `tunToWS` вызывал `tunRouter.RoutePacket`, который всегда писал в primary, минуя классификацию UDP→secondary (AC-002/RQ-003 работали только в proxy-режиме); сокетные счётчики показывали `secondary sent ~10 КБ` при `recv 260 МБ`. Send-функция роутера теперь делегируется в сессию (`router.SetTunnelSend` + `Session.sendViaTunnel`): UDP снова уходит во второй WS-канал (с батчингом), TCP — в primary.
