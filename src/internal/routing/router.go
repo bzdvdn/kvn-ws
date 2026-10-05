@@ -44,6 +44,15 @@ func (r *TunRouter) SetRuleSet(rs *RuleSet) {
 	r.ruleSet.Store(rs)
 }
 
+// SetTunnelSend replaces the tunnel send function. The client session uses this
+// to classify TUN packets by protocol (UDP → secondary, TCP → primary) while
+// still letting the router decide server vs direct routing.
+func (r *TunRouter) SetTunnelSend(fn func([]byte) error) {
+	if fn != nil {
+		r.tunnelSend = fn
+	}
+}
+
 // @sk-task routing-split-tunnel#T3.3: set dns override (AC-008)
 func (r *TunRouter) SetDNSOverride(enabled bool) {
 	r.dnsOverride = enabled

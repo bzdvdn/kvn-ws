@@ -33,7 +33,7 @@ kvn-ws uses YAML configuration files for both server and client.
 | `auth.tokens[].max_sessions` | int | `0` | Max sessions per token (0 = unlimited) |
 | `rate_limiting.auth_burst` | int | `5` | Auth rate-limiter burst size per IP |
 | `rate_limiting.auth_per_minute` | int | `1` | Auth rate-limiter requests per minute per IP |
-| `rate_limiting.packets_per_sec` | int | `1000` | Per-session packet rate limit |
+| `rate_limiting.packets_per_sec` | int | `40000` | Per-session packet rate limit |
 | `origin.whitelist` | []string | `[]` | Allowed Origin/Referer headers (empty = allow all) |
 | `origin.allow_empty` | bool | `true` | Allow requests without Origin header |
 | `admin.enabled` | bool | `false` | Enable Admin API |

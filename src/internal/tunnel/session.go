@@ -82,38 +82,42 @@ type Session struct {
 	// @sk-task dual-ws-channel#T2.2: secondary channel for UDP traffic (AC-002)
 	// @sk-task dual-ws-channel#T3.3: buffering guards for late secondary bind (AC-005)
 	// @sk-task perf-secondary-lock#T1: lock-free secondary lookup on the hot path (AC-002)
-	secondary    atomic.Pointer[StreamConn]
-	runCtxMu     sync.RWMutex
-	loopOnce     sync.Once
-	done         chan struct{}
-	doneOnce     sync.Once
-	runCtx       context.Context
-	primaryReady atomic.Bool
+	secondary           atomic.Pointer[StreamConn]
+	secondaryLoopActive atomic.Bool
+	secondaryGen        atomic.Uint64
+	runCtxMu            sync.RWMutex
+	done                chan struct{}
+	doneOnce            sync.Once
+	runCtx              context.Context
+	primaryReady        atomic.Bool
 	// @sk-task secondary-batching#T2.1: batched secondary write mode (AC-001)
 	batchMode atomic.Bool
 	// @sk-task secondary-batching-fix#T1.1: dedicated secondary writer — secondary stalls don't freeze primary (AC-002)
-	secondaryCh         chan []byte
-	secondaryWriterOnce sync.Once
-	sm                  *session.SessionManager
-	sessionID           string
-	tokenName           string
-	prl                 *ratelimit.SessionPacketLimiter
-	bwMgr               *session.TokenBandwidthManager
-	collectors          *metrics.Collectors
-	logger              *zap.Logger
-	cipher              *crypto.SessionCipher
-	proxyStreams        *proxy.SessionStreams
-	streamWriters       sync.Map // uint32 → *streamWriter, per-stream ordered writes
-	dialStreams         sync.Map // uint32 → *dialStream, dial in flight (client→target queue)
-	proxySem            chan struct{}
-	tunRouter           *routing.TunRouter
-	tunReaderCh         chan tunReadResult
-	demux               *TunDemux
-	tunnelTimeout       time.Duration
-	proxyConcurrency    int
-	clientIP            net.IP
-	clientIP6           net.IP
-	dnsUpstreams        []string
+	secondaryCh           chan []byte
+	secondaryWriterActive atomic.Bool
+	// onSecondaryLost is invoked when the secondary read-loop ends so the owner
+	// can re-establish the channel (dual-ws-channel AC-004).
+	onSecondaryLost  atomic.Pointer[func()]
+	sm               *session.SessionManager
+	sessionID        string
+	tokenName        string
+	prl              *ratelimit.SessionPacketLimiter
+	bwMgr            *session.TokenBandwidthManager
+	collectors       *metrics.Collectors
+	logger           *zap.Logger
+	cipher           *crypto.SessionCipher
+	proxyStreams     *proxy.SessionStreams
+	streamWriters    sync.Map // uint32 → *streamWriter, per-stream ordered writes
+	dialStreams      sync.Map // uint32 → *dialStream, dial in flight (client→target queue)
+	proxySem         chan struct{}
+	tunRouter        *routing.TunRouter
+	tunReaderCh      chan tunReadResult
+	demux            *TunDemux
+	tunnelTimeout    time.Duration
+	proxyConcurrency int
+	clientIP         net.IP
+	clientIP6        net.IP
+	dnsUpstreams     []string
 
 	outgoingInterceptor OutgoingInterceptor
 }
@@ -172,6 +176,75 @@ func NewSession(
 
 func (s *Session) SetTunRouter(tr *routing.TunRouter) {
 	s.tunRouter = tr
+	// @sk-task dual-ws-channel: in TUN mode the router sends packets itself, so
+	// route them through the session's stream classifier (UDP → secondary) to
+	// keep RQ-003/AC-002 working outside proxy mode.
+	if tr != nil {
+		tr.SetTunnelSend(s.sendViaTunnel)
+	}
+}
+
+// sendViaTunnel encrypts and frames one TUN packet and writes it to the
+// secondary channel when it is UDP and a secondary is bound (batching when the
+// server confirmed support), otherwise to the primary channel.
+func (s *Session) sendViaTunnel(packet []byte) error {
+	payload := packet
+	if s.cipher != nil {
+		encrypted, err := s.cipher.Encrypt(payload)
+		if err != nil {
+			return err
+		}
+		payload = encrypted
+	}
+	f := framing.Frame{
+		Type:    framing.FrameTypeData,
+		Flags:   framing.FrameFlagNone,
+		Payload: payload,
+	}
+	data, err := f.Encode()
+	if err != nil {
+		return err
+	}
+	target := s.stream
+	toSecondary := false
+	if secondary := s.getSecondary(); secondary != nil && parseIPProto(packet) {
+		target = secondary
+		toSecondary = true
+	}
+	if toSecondary && s.BatchEnabled() {
+		s.ensureSecondaryWriter()
+		select {
+		case s.secondaryCh <- data:
+			// ownership transferred to the writer goroutine
+			return nil
+		default:
+			// writer busy/backlogged — drop the UDP packet instead of stalling
+			framing.ReturnBuffer(data)
+			return nil
+		}
+	}
+	defer framing.ReturnBuffer(data)
+	if err := target.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
+		return err
+	}
+	return target.WriteMessage(data)
+}
+
+// SetOnSecondaryLost registers a callback invoked after the secondary read-loop
+// ends, so the client can re-establish the channel (dual-ws-channel AC-004).
+func (s *Session) SetOnSecondaryLost(fn func()) {
+	if fn == nil {
+		s.onSecondaryLost.Store(nil)
+		return
+	}
+	s.onSecondaryLost.Store(&fn)
+}
+
+func (s *Session) getOnSecondaryLost() func() {
+	if p := s.onSecondaryLost.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 func (s *Session) SetDemux(d *TunDemux) {
@@ -182,7 +255,8 @@ func (s *Session) SetDemux(d *TunDemux) {
 // @sk-task dual-ws-channel#T3.1: late secondary bind — server binds after Run started (AC-001)
 func (s *Session) SetSecondary(sc StreamConn) {
 	s.secondary.Store(&sc)
-	if ctx := s.getRunCtx(); ctx != nil {
+	s.secondaryGen.Add(1)
+	if s.hasRunCtx() {
 		s.startSecondaryLoop()
 	}
 }
@@ -203,6 +277,7 @@ func (s *Session) startSecondaryWriter(ctx context.Context) {
 		writeTimeout  = time.Second
 	)
 	go func() {
+		defer s.secondaryWriterActive.Store(false)
 		defer func() {
 			if r := recover(); r != nil {
 				s.logger.Error("secondary writer recovered from panic", zap.Any("panic", r))
@@ -270,10 +345,26 @@ func (s *Session) BatchEnabled() bool {
 	return s.batchMode.Load()
 }
 
+// ensureSecondaryWriter lazily starts the batched writer goroutine. The guard
+// is a flag (not sync.Once) so the writer can restart after a secondary
+// re-bind, not just once per session.
+func (s *Session) ensureSecondaryWriter() {
+	if s.secondaryWriterActive.CompareAndSwap(false, true) {
+		s.startSecondaryWriter(s.getRunCtx())
+	}
+}
+
 // @sk-task dual-ws-channel#T3.1: secondary loop runs independently of the primary errgroup (AC-004)
+// Restartable: when the secondary read-loop ends (error or gorilla panic on a
+// failed connection) the dead conn is torn down and the owner is asked to
+// re-bind instead of leaving a stuck dead conn / silent media loss.
 func (s *Session) startSecondaryLoop() {
-	s.loopOnce.Do(func() {
-		go func() {
+	if !s.secondaryLoopActive.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		gen := s.secondaryGen.Load()
+		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					s.logger.Error("secondaryToTun recovered from panic", zap.Any("panic", r))
@@ -282,12 +373,24 @@ func (s *Session) startSecondaryLoop() {
 			if err := s.secondaryToTun(s.getRunCtx()); err != nil {
 				s.logger.Debug("secondary channel ended", zap.Error(err))
 			}
+		}()
+
+		// Only tear down the binding this loop owned; if a newer secondary was
+		// bound meanwhile, leave it alone.
+		if s.secondaryGen.Load() == gen {
 			if sc := s.secondary.Load(); sc != nil {
 				_ = (*sc).Close()
+				s.secondary.Store(nil)
 			}
-			s.secondary.Store(nil)
-		}()
-	})
+		}
+		s.secondaryLoopActive.Store(false)
+
+		if ctx := s.getRunCtx(); ctx.Err() == nil {
+			if fn := s.getOnSecondaryLost(); fn != nil {
+				fn()
+			}
+		}
+	}()
 }
 
 func (s *Session) SetOutgoingInterceptor(fn OutgoingInterceptor) {
@@ -376,6 +479,12 @@ func (s *Session) getRunCtx() context.Context {
 	return context.Background()
 }
 
+func (s *Session) hasRunCtx() bool {
+	s.runCtxMu.RLock()
+	defer s.runCtxMu.RUnlock()
+	return s.runCtx != nil
+}
+
 func (s *Session) hasSecondary() bool {
 	return s.secondary.Load() != nil
 }
@@ -388,12 +497,13 @@ func (s *Session) getSecondary() StreamConn {
 	return *sc
 }
 
-// @sk-task fix-ping-drops#T2.1: treat read timeout as non-fatal, continue instead of aborting session
-// @sk-task relay-terminator#T8.4: timeout hardening — net.Error.Timeout() + max 10 consecutive (RQ-016)
 // @sk-task arch-refactoring#T3.3: decomposed wsToTun with handler methods (AC-005)
+// @sk-task dual-ws-channel follow-up: gorilla marks a WS conn corrupt after a
+// read timeout ("all future reads will return an error"), so continuing to read
+// spins to the 1000-read panic. Treat a timeout as fatal to detect a dead
+// primary in tunnelTimeout instead of black-holing traffic for up to 10x that.
 func (s *Session) wsToTun(ctx context.Context) error {
 	var lastRateLimitLog time.Time
-	var consecutiveTimeouts int
 	for {
 		select {
 		case <-ctx.Done():
@@ -420,21 +530,13 @@ func (s *Session) wsToTun(ctx context.Context) error {
 		if err != nil {
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
-				consecutiveTimeouts++
-				if consecutiveTimeouts >= 10 {
-					s.logger.Warn("too many consecutive timeouts, ending session",
-						zap.Int("count", consecutiveTimeouts),
-						zap.Duration("timeout", s.tunnelTimeout),
-						zap.String("session_id", s.sessionID),
-						zap.Error(err))
-					return err
-				}
-				s.logger.Debug("read timeout, continuing", zap.Error(err))
-				continue
+				s.logger.Warn("primary read timeout, ending session",
+					zap.Duration("timeout", s.tunnelTimeout),
+					zap.String("session_id", s.sessionID),
+					zap.Error(err))
 			}
 			return err
 		}
-		consecutiveTimeouts = 0
 		var f framing.Frame
 		if err := f.Decode(data); err != nil {
 			return err
@@ -850,13 +952,9 @@ func (s *Session) secondaryToTun(ctx context.Context) error {
 		if err != nil {
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
-				s.logger.Debug("secondary read timeout, continuing", zap.Error(err))
-				if len(buffered) > 0 && s.primaryReady.Load() {
-					if err := flush(); err != nil {
-						return err
-					}
-				}
-				continue
+				// gorilla corrupts the connection state after a read timeout and
+				// panics if read again; end the loop so the owner re-binds.
+				s.logger.Warn("secondary read timeout, re-binding channel", zap.Error(err))
 			}
 			return err
 		}
@@ -985,7 +1083,7 @@ func (s *Session) tunToWS(ctx context.Context) error {
 		}
 		// @sk-task secondary-batching-fix#T1.1: hand frame to the dedicated writer; never block primary on a stuck secondary (AC-002)
 		if toSecondary && s.BatchEnabled() {
-			s.secondaryWriterOnce.Do(func() { s.startSecondaryWriter(s.getRunCtx()) })
+			s.ensureSecondaryWriter()
 			select {
 			case s.secondaryCh <- data:
 				// ownership transferred to the writer goroutine

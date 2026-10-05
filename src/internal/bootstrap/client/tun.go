@@ -100,6 +100,11 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 	// @sk-task dns-response-tracker#T3.5: CleanupExcludeRoutes — remove kernel routes on disconnect
 	defer tunDev.CleanupExcludeRoutes()
 
+	// Session-scoped context: cancelled when this session ends (even though the
+	// outer reconnect context stays alive), so secondary re-bind attempts stop.
+	sessionCtx, sessionCancel := context.WithCancel(ctx)
+	defer sessionCancel()
+
 	serverHello, err := c.handshakeSession(stream)
 	if err != nil {
 		c.logger.Error("handshake", zap.Error(err))
@@ -125,10 +130,10 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 	if tunRouter != nil {
 		tunSess.SetTunRouter(tunRouter)
 	}
-	if cleanup := c.bindSecondaryChannel(ctx, tunSess, serverHello.SessionId); cleanup != nil {
+	if cleanup := c.bindSecondaryChannel(sessionCtx, tunSess, serverHello.SessionId); cleanup != nil {
 		defer cleanup()
 	}
-	if err := tunSess.Run(ctx); err != nil {
+	if err := tunSess.Run(sessionCtx); err != nil {
 		c.logger.Info("session ended", zap.Error(err))
 	}
 }
@@ -437,6 +442,40 @@ func (c *Client) bindSecondaryChannel(ctx context.Context, tunSess *tunnel.Sessi
 		zap.String("server", c.cfg.Server),
 		zap.Bool("batch", batchOK),
 	)
+	// @sk-task dual-ws-channel follow-up: re-establish the secondary channel if
+	// it drops mid-session instead of silently losing UDP media (AC-004).
+	tunSess.SetOnSecondaryLost(func() {
+		backoff := time.Second
+		for attempt := 1; attempt <= 5; attempt++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			conn, ok, derr := dialSecondaryChannel(ctx, c.cfg, c.logger, sessionID)
+			if derr == nil {
+				tunSess.SetSecondary(conn)
+				tunSess.SetBatchMode(ok)
+				c.logger.Info("secondary channel re-bound",
+					zap.String("session", sessionID),
+					zap.Int("attempt", attempt),
+					zap.Bool("batch", ok),
+				)
+				return
+			}
+			c.logger.Warn("secondary re-bind failed, continuing on primary",
+				zap.String("session", sessionID),
+				zap.Int("attempt", attempt),
+				zap.Error(derr),
+			)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+	})
 	return func() { _ = secondaryConn.Close() }
 }
 

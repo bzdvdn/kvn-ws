@@ -33,7 +33,7 @@ kvn-ws использует YAML-файлы конфигурации для се
 | `auth.tokens[].max_sessions` | int | `0` | Максимум сессий на токен (0 = безлимит) |
 | `rate_limiting.auth_burst` | int | `5` | Размер burst для rate-limiter аутентификации на IP |
 | `rate_limiting.auth_per_minute` | int | `1` | Лимит запросов аутентификации в минуту на IP |
-| `rate_limiting.packets_per_sec` | int | `1000` | Лимит пакетов в секунду на сессию |
+| `rate_limiting.packets_per_sec` | int | `40000` | Лимит пакетов в секунду на сессию |
 | `origin.whitelist` | []string | `[]` | Разрешённые Origin/Referer заголовки (пусто = все) |
 | `origin.allow_empty` | bool | `true` | Разрешить запросы без Origin-заголовка |
 | `admin.enabled` | bool | `false` | Включить Admin API |

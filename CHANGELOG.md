@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **TUN: исходящий UDP не уходил во вторичный канал** — в TUN-режиме `tunToWS` вызывал `tunRouter.RoutePacket`, который всегда писал в primary, минуя классификацию UDP→secondary (AC-002/RQ-003 работали только в proxy-режиме); сокетные счётчики показывали `secondary sent ~10 КБ` при `recv 260 МБ`. Send-функция роутера теперь делегируется в сессию (`router.SetTunnelSend` + `Session.sendViaTunnel`): UDP снова уходит во второй WS-канал (с батчингом), TCP — в primary.
+- **Вторичный канал отваливался навсегда после таймаута чтения** — `secondaryToTun` после `net.Error.Timeout()` делал `continue` и читал снова; gorilla помечает соединение сломанным после таймаута и паникует `repeated read on failed websocket connection`, а cleanup (`Close`/`Store(nil)`) при панике не выполнялся. Таймаут теперь завершает loop, мёртвый conn закрывается всегда (в т.ч. при панике), а клиент переподнимает канал с backoff через `Session.SetOnSecondaryLost` (`bootstrap/client/tun.go`); батч-writer перезапускается после ре-бинда (`sync.Once`/`loopOnce` делали восстановление невозможным).
+- **Мёртвый primary определялся до 10×`tunnel_timeout` (≈5 мин)** — `wsToTun` терпел до 10 последовательных таймаутов, хотя gorilla уже считает соединение испорченным с первого. Таймаут чтения теперь фатален: сессия закрывается за один `tunnel_timeout` и клиент переподключается.
+
+### Changed
+
+- **`rate_limiting.packets_per_sec` по умолчанию `40000`** — корневой `server.yaml` и docs (`ru`/`en`) приведены к значению из кода и `install-server.sh` (было `5000` в конфиге и `1000` в доках).
+
 ## [1.3.1] 2026-10-02
 
 ### Fixed
