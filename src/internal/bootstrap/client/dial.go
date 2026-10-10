@@ -12,6 +12,16 @@ import (
 
 // @sk-task transport-factory#T2.2: dialStream uses TransportFactory (AC-004)
 func dialStream(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger) (transport.StreamConn, error) {
+	return dialStreamWith(ctx, cfg, logger, false)
+}
+
+// @sk-task game-latency#T3.3: request unpadded framing for the secondary channel (AC-001)
+func realtimeUnpadded(cfg *config.ClientConfig) bool {
+	return cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil &&
+		cfg.Obfuscation.Padding.Enabled && cfg.Obfuscation.Padding.RealtimeUnpaddedEnabled()
+}
+
+func dialStreamWith(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger, requestNoPad bool) (transport.StreamConn, error) {
 	tlsCfg, err := clientTLSConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -34,6 +44,7 @@ func dialStream(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logge
 		UTLSFallback:      cfg.Obfuscation != nil && cfg.Obfuscation.UTLS != nil && cfg.Obfuscation.UTLS.Fallback,
 		PaddingEnabled:    paddingEnabled,
 		PaddingSize:       paddingSize,
+		RequestNoPad:      requestNoPad,
 		Obfuscation:       cfg.Obfuscation != nil && cfg.Obfuscation.Enabled,
 	}
 

@@ -9,6 +9,9 @@ import (
 	"github.com/spf13/viper"
 )
 
+// @sk-task game-latency#T1.1: canonical server tunnel MTU, aligned with client default and TUN (AC-003)
+const DefaultServerMTU = 1400
+
 // @sk-task foundation#T2.3: server config struct (AC-007)
 // @sk-task security-acl#T1: TokenCfg structured config
 // @sk-task performance-and-polish#T1.1: add Multiplex, MTU fields (AC-004, AC-006, AC-007)
@@ -221,6 +224,10 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 	if cfg.RateLimiting.PacketsPerSec == 0 {
 		cfg.RateLimiting.PacketsPerSec = 40000
+	}
+	// @sk-task game-latency#T1.1: consistent default tunnel MTU (AC-003)
+	if cfg.MTU <= 0 {
+		cfg.MTU = DefaultServerMTU
 	}
 	if cfg.Admin.Listen == "" {
 		cfg.Admin.Listen = "localhost:8443"

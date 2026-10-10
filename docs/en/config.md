@@ -49,6 +49,7 @@ kvn-ws uses YAML configuration files for both server and client.
 | `obfuscation.utls.fallback` | bool | `true` | Fallback to crypto/tls on uTLS error |
 | `obfuscation.padding.enabled` | bool | `false` | Enable WS padding (fixed-size frames) |
 | `obfuscation.padding.size` | int | `512` | Padding alignment size |
+| `obfuscation.padding.realtime_unpadded` | bool | `true` | Drop padding for real-time UDP (secondary channel); applied only when both peers support it |
 | `multiplex` | bool | `false` | Enable WebSocket multiplexing |
 | `mtu` | int | `1400` | TUN interface MTU |
 | `crypto.enabled` | bool | `false` | Enable app-layer AES-256-GCM encryption |
@@ -102,6 +103,7 @@ logging:
 | `obfuscation.utls.fallback` | bool | `true` | Fallback to crypto/tls on uTLS error |
 | `obfuscation.padding.enabled` | bool | `false` | Enable WS padding (fixed-size frames) |
 | `obfuscation.padding.size` | int | `512` | Padding alignment size |
+| `obfuscation.padding.realtime_unpadded` | bool | `true` | Drop padding for real-time UDP (secondary channel); applied only when both peers support it |
 | `auth.token` | string | — | Authentication token matching server config |
 | `tls.verify_mode` | string | `verify` | TLS verification mode: `verify`, `insecure` |
 | `tls.ca_file` | string | `""` | Custom CA certificate file (optional) |

@@ -187,6 +187,15 @@ func (c *Client) handshakeSession(stream tunnel.StreamConn) (*handshake.ServerHe
 	}
 }
 
+// @sk-task game-latency#T1.3: effective client MTU = min(config, advertised); 0 means unset (AC-003)
+func effectiveMTU(cfgMTU, advertisedMTU int) int {
+	mtu := cfgMTU
+	if advertisedMTU > 0 && (mtu == 0 || advertisedMTU < mtu) {
+		mtu = advertisedMTU
+	}
+	return mtu
+}
+
 // configureTun applies the assigned addresses, MTU, GSO and session cipher,
 // returning the session cipher plus physical-route info for bypass routes.
 func (c *Client) configureTun(tunDev tun.TunDevice, serverHello *handshake.ServerHello) (*tunConfig, error) {
@@ -207,9 +216,10 @@ func (c *Client) configureTun(tunDev tun.TunDevice, serverHello *handshake.Serve
 			return nil, fmt.Errorf("set tun ipv6: %w", err)
 		}
 	}
-	if c.cfg.MTU > 0 {
-		if err := tunDev.SetMTU(c.cfg.MTU); err != nil {
-			c.logger.Warn("set tun mtu", zap.Int("mtu", c.cfg.MTU), zap.Error(err))
+	// @sk-task game-latency#T1.3: clamp client MTU by the server-advertised MTU (AC-003)
+	if mtu := effectiveMTU(c.cfg.MTU, serverHello.Mtu); mtu > 0 {
+		if err := tunDev.SetMTU(mtu); err != nil {
+			c.logger.Warn("set tun mtu", zap.Int("mtu", mtu), zap.Error(err))
 		}
 	}
 	if err := tunDev.DisableGSO(); err != nil {
@@ -482,7 +492,8 @@ func (c *Client) bindSecondaryChannel(ctx context.Context, tunSess *tunnel.Sessi
 // @sk-task dual-ws-channel#T3.2: dial secondary stream and complete secondary handshake (AC-001, AC-004)
 // @sk-task secondary-batching#T3.1: declare batching capability and report server confirmation (AC-001)
 func dialSecondaryChannel(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger, sessionID string) (conn tunnel.StreamConn, batchOK bool, err error) {
-	stream, err := dialStream(ctx, cfg, logger)
+	// @sk-task game-latency#T3.3: secondary (UDP) channel requests unpadded framing (AC-001)
+	stream, err := dialStreamWith(ctx, cfg, logger, realtimeUnpadded(cfg))
 	if err != nil {
 		return nil, false, fmt.Errorf("dial secondary: %w", err)
 	}

@@ -93,7 +93,9 @@ type Session struct {
 	// @sk-task secondary-batching#T2.1: batched secondary write mode (AC-001)
 	batchMode atomic.Bool
 	// @sk-task secondary-batching-fix#T1.1: dedicated secondary writer — secondary stalls don't freeze primary (AC-002)
+	// @sk-task game-latency#T2.1: secondaryBatchHold=0 flushes real-time UDP immediately (AC-002)
 	secondaryCh           chan []byte
+	secondaryBatchHold    time.Duration
 	secondaryWriterActive atomic.Bool
 	// onSecondaryLost is invoked when the secondary read-loop ends so the owner
 	// can re-establish the channel (dual-ws-channel AC-004).
@@ -273,9 +275,11 @@ func (s *Session) Done() <-chan struct{} {
 func (s *Session) startSecondaryWriter(ctx context.Context) {
 	const (
 		batchMaxBytes = 4096
-		batchHold     = 5 * time.Millisecond
 		writeTimeout  = time.Second
 	)
+	// @sk-task game-latency#T2.1: a non-positive hold flushes real-time UDP without
+	// waiting, coalescing only frames already queued at that moment (AC-002).
+	hold := s.secondaryBatchHold
 	go func() {
 		defer s.secondaryWriterActive.Store(false)
 		defer func() {
@@ -308,6 +312,18 @@ func (s *Session) startSecondaryWriter(ctx context.Context) {
 			}
 			return target.WriteMessage(data)
 		}
+		// drain coalesces frames that are already queued, without blocking.
+		drain := func() {
+			for len(batch) < batchMaxBytes {
+				select {
+				case f := <-s.secondaryCh:
+					batch = append(batch, f...)
+					framing.ReturnBuffer(f)
+				default:
+					return
+				}
+			}
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -321,13 +337,21 @@ func (s *Session) startSecondaryWriter(ctx context.Context) {
 			case frame := <-s.secondaryCh:
 				batch = append(batch, frame...)
 				framing.ReturnBuffer(frame)
+				if hold <= 0 {
+					drain()
+					if err := flush(); err != nil {
+						s.logger.Warn("secondary writer failed, dropping UDP", zap.Error(err))
+						return
+					}
+					continue
+				}
 				if len(batch) >= batchMaxBytes {
 					if err := flush(); err != nil {
 						s.logger.Warn("secondary writer failed, dropping UDP", zap.Error(err))
 						return
 					}
 				} else if timer == nil {
-					timer = time.NewTimer(batchHold)
+					timer = time.NewTimer(hold)
 					timerCh = timer.C
 				}
 			}

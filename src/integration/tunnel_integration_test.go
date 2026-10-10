@@ -19,6 +19,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
+	wst "github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
 )
 
@@ -1169,5 +1170,74 @@ func TestTunnelSecondaryNoBatchBackwardCompat(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatalf("secondary received %d/3 packets", i)
 		}
+	}
+}
+
+// @sk-test game-latency#T4.1: primary stays padded, secondary negotiated unpadded (AC-001, AC-004)
+func TestPaddingNegotiationPrimaryPaddedSecondaryUnpadded(t *testing.T) {
+	primaryRaw := make(chan int, 1)
+	secondaryRaw := make(chan int, 1)
+
+	accept := func(w http.ResponseWriter, r *http.Request, out chan int) {
+		conn, err := wst.Accept(w, r, zap.NewNop(), wst.WSConfig{PaddingEnabled: true, PaddingSize: 512, AllowNoPad: true})
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, raw, err := conn.Underlying().ReadMessage()
+		if err != nil {
+			return
+		}
+		out <- len(raw)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/primary", func(w http.ResponseWriter, r *http.Request) { accept(w, r, primaryRaw) })
+	mux.HandleFunc("/secondary", func(w http.ResponseWriter, r *http.Request) { accept(w, r, secondaryRaw) })
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	base := "ws" + server.URL[len("http"):]
+
+	payload := []byte("hi")
+
+	// Primary: no unpadded request -> padded framing on the wire.
+	pc, err := wst.DialContext(context.Background(), base+"/primary", nil, zap.NewNop(),
+		wst.WSConfig{PaddingEnabled: true, PaddingSize: 512})
+	if err != nil {
+		t.Fatalf("primary dial: %v", err)
+	}
+	defer func() { _ = pc.Close() }()
+	if err := pc.WriteMessage(payload); err != nil {
+		t.Fatalf("primary write: %v", err)
+	}
+
+	// Secondary: unpadded requested and allowed -> raw frame equals the payload.
+	sc, err := wst.DialContext(context.Background(), base+"/secondary", nil, zap.NewNop(),
+		wst.WSConfig{PaddingEnabled: true, PaddingSize: 512, RequestNoPad: true})
+	if err != nil {
+		t.Fatalf("secondary dial: %v", err)
+	}
+	defer func() { _ = sc.Close() }()
+	if err := sc.WriteMessage(payload); err != nil {
+		t.Fatalf("secondary write: %v", err)
+	}
+
+	select {
+	case n := <-primaryRaw:
+		if n != 512 {
+			t.Errorf("primary raw frame = %d bytes, want 512 (padded)", n)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for primary raw frame")
+	}
+
+	select {
+	case n := <-secondaryRaw:
+		if n != len(payload) {
+			t.Errorf("secondary raw frame = %d bytes, want %d (unpadded)", n, len(payload))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for secondary raw frame")
 	}
 }

@@ -172,6 +172,15 @@ func New(configPath string) (*Server, error) {
 		return nil, fmt.Errorf("open tun: %w", err)
 	}
 
+	// @sk-task game-latency#T1.2: apply the configured tunnel MTU to the server TUN (AC-003)
+	if cfg.MTU > 0 {
+		if err := tunDev.SetMTU(cfg.MTU); err != nil {
+			logger.Warn("set tun mtu", zap.Int("mtu", cfg.MTU), zap.Error(err))
+		} else {
+			logger.Info("tun mtu set", zap.Int("mtu", cfg.MTU))
+		}
+	}
+
 	gatewayIP := net.ParseIP(cfg.Network.PoolIPv4.Gateway)
 	_, subnet, _ := net.ParseCIDR(cfg.Network.PoolIPv4.Subnet)
 	if err := tunDev.SetIP(gatewayIP, subnet); err != nil {
@@ -292,11 +301,14 @@ func (s *Server) buildMux() *http.ServeMux {
 			return
 		}
 		paddingEnabled := s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Padding != nil && s.cfg.Obfuscation.Padding.Enabled
+		// @sk-task game-latency#T3.4: honor unpadded requests for real-time (secondary) framing (AC-001)
+		allowNoPad := paddingEnabled && s.cfg.Obfuscation.Padding.RealtimeUnpaddedEnabled()
 		wsCfg := websocket.WSConfig{
 			Multiplex:      s.cfg.Multiplex,
 			MTU:            s.cfg.MTU,
 			PaddingEnabled: paddingEnabled,
 			PaddingSize:    paddingSizeOrDefault(s.cfg.Obfuscation),
+			AllowNoPad:     allowNoPad,
 		}
 		s.handleTunnel(w, r, wsCfg)
 	})
