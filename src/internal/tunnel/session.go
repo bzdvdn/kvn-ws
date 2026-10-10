@@ -177,7 +177,7 @@ func NewSession(
 		clientIP6:        clientIP6,
 		dnsUpstreams:     dnsUpstreams,
 		done:             make(chan struct{}),
-		secondaryCh:      make(chan []byte, 512),
+		secondaryCh:      make(chan []byte, 2048),
 	}
 }
 
@@ -492,7 +492,7 @@ func (s *Session) SetOutgoingInterceptor(fn OutgoingInterceptor) {
 
 // @sk-task fix-critical-leaks#T3.1: TUN reader — permanent goroutine (AC-001)
 func (s *Session) startTunReader(ctx context.Context) {
-	s.tunReaderCh = make(chan tunReadResult, 64)
+	s.tunReaderCh = make(chan tunReadResult, 512)
 	if s.demux != nil {
 		s.demux.Register(s.clientIP, s.clientIP6, s.tunReaderCh)
 		go func() {

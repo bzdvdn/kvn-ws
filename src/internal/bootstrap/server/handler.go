@@ -231,6 +231,17 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 		tunnelTimeout, 1000, assignedIP, assignedIPv6, s.cfg.DNSUpstreams)
 	// @sk-task quic-datagrams#T3.4: enable datagram path when the client requested it (AC-001)
 	tunSess.SetDatagrams(datagramsOK)
+	if datagramsOK {
+		s.logger.Info("datagram mode enabled",
+			zap.String("session", sess.ID),
+			zap.String("transport", clientHello.Transport),
+		)
+	} else {
+		s.logger.Debug("datagram mode disabled",
+			zap.String("session", sess.ID),
+			zap.String("transport", clientHello.Transport),
+		)
+	}
 	tunSess.SetDemux(s.tunDemux)
 	// @sk-task dual-ws-channel#T3.1: register session before Run for secondary binding (AC-001)
 	s.tunnelSessRefs.Store(sess.ID, tunSess)

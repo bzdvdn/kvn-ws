@@ -407,6 +407,8 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 	wc.paddingEnabled.Store(wsCfg.PaddingEnabled)
 	if wsCfg.RequestNoPad && resp != nil && strings.EqualFold(resp.Header.Get(noPadHeader), "1") {
 		wc.SetPadding(false)
+		// @sk-task game-latency: visibility for the unpadded-secondary negotiation (client side)
+		logger.Info("no-pad framing negotiated", zap.String("side", "client"), zap.String("url", serverURL))
 	}
 	wc.startControlWriter()
 	return wc, nil
@@ -536,6 +538,8 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	wsConn.paddingEnabled.Store(cfg.PaddingEnabled)
 	if allowNoPad {
 		wsConn.SetPadding(false)
+		// @sk-task game-latency: visibility for the unpadded-secondary negotiation (server side)
+		logger.Info("no-pad framing negotiated", zap.String("side", "server"), zap.String("remote", r.RemoteAddr))
 	}
 	wsConn.startControlWriter()
 	wsConn.SetPingHandler(func(appData string) error {
