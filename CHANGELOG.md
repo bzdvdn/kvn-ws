@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4.0] 2026-10-10
+
+### Added
+
+- **QUIC datagrams для real-time UDP (`udp_datagrams`)** — игровой/VoIP UDP на QUIC-транспорте уходит unreliable datagrams (RFC 9221): без ретрансмита и head-of-line blocking, при этом TCP/control остаются на stream. Включается по обоюдной capability — аддитивно, через уже существующее поле `Transport` в ClientHello/ServerHello (`quic` ↔ `quic-dgram`), без изменения формата фреймов и без правок Android. Флаг `udp_datagrams` (default `true`) на клиенте и сервере; настраивается в kvn-web (вкладки Advanced/Global). Старый peer или не-QUIC транспорт → UDP идёт по stream (без регресса). Пакет больше предела datagram frame → фоллбэк на stream; обфускация датаграмм использует тот же nonce, что и stream. Android/WS не затронуты.
+- **Real-time UDP без padding'а и задержки агрегации (`game-latency`)** — на вторичном (UDP) канале обфускационный padding отключается по обоюдной негоциации (WS upgrade-заголовок `X-KVN-NoPad`, req+resp; без подтверждения padding сохраняется — совместимо со старыми peer). Клиентский writer real-time UDP больше не удерживает пакет в агрегаторе (non-blocking drain вместо таймера 5 мс). Флаг `obfuscation.padding.realtime_unpadded` (default `true`).
+
+### Changed
+
+- **Согласованный MTU туннеля** — серверный TUN теперь получает сконфигурированный `mtu` (дефолт `1400`) и анонсирует фактическое значение в ServerHello; клиент использует `min(cfg.MTU, advertised)`. Устраняет рассогласование (было: TUN 1400 при анонсе 1500).
+- docs (`ru`/`en`) описывают `udp_datagrams` и `obfuscation.padding.realtime_unpadded`; в kvn-web добавлены переключатели «UDP Datagrams».
+- **Увеличены очереди UDP-путей** — `secondaryCh` 512→2048 и per-session TUN-read очередь 64→512: меньше дропов при всплесках игрового/медиа UDP.
+- **Логи негоциации** — `datagram mode enabled/disabled` (клиент+сервер) и `no-pad framing negotiated` (WS) для наглядной диагностики режима.
+
+### Fixed
+
+- **Вторичный канал не восстанавливался после обрыва (TUN UDP)** — перезапускаемый secondary-loop, переподключение канала с backoff и гарантированный teardown мёртвого соединения (в т.ч. при панике gorilla); детальнее в 1.3.2.
+- **TUN: исходящий UDP снова уходит во вторичный канал** — send-функция tun-роутера делегируется сессии (`Session.sendViaTunnel`), классификация UDP→secondary работает и в TUN-режиме; детальнее в 1.3.2.
+
 ## [1.3.2] 2026-10-06
 
 ### Fixed
