@@ -31,6 +31,7 @@ func (f *WSFactory) Dial(ctx context.Context, endpoint string) (transport.Stream
 		UTLSFallback:   f.tlsCfg.UTLSFallback,
 		PaddingEnabled: f.tlsCfg.PaddingEnabled,
 		PaddingSize:    f.tlsCfg.PaddingSize,
+		RequestNoPad:   f.tlsCfg.RequestNoPad,
 	}
 	conn, err := DialContext(ctx, endpoint, f.tlsCfg.TLS, f.tlsCfg.Logger, wsCfg)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -35,7 +36,14 @@ type WSConfig struct {
 	UTLSFallback   bool
 	PaddingEnabled bool
 	PaddingSize    int
+	// @sk-task game-latency#T3.2: unpadded-secondary negotiation via upgrade header (AC-001)
+	RequestNoPad bool // client: request the peer to disable padding
+	AllowNoPad   bool // server: honor an unpadded request
 }
+
+// noPadHeader negotiates unpadded framing on the secondary (UDP) channel.
+// Both peers must agree; absent header keeps padding on (backward compatible).
+const noPadHeader = "X-KVN-NoPad"
 
 type controlMsg struct {
 	msgType int
@@ -46,14 +54,20 @@ type controlMsg struct {
 // @sk-task production-readiness-hardening#T1.1: add logger DI (AC-006)
 // @sk-task performance-scope-p2#T3.2: control writer for ping/pong off wmu (AC-009)
 type WSConn struct {
-	conn      *websocket.Conn
-	cfg       WSConfig
-	logger    *zap.Logger
-	readMu    sync.Mutex
-	writeMu   sync.Mutex
-	stopCh    chan struct{}
-	closeOnce sync.Once
-	controlCh chan controlMsg
+	conn           *websocket.Conn
+	cfg            WSConfig
+	logger         *zap.Logger
+	readMu         sync.Mutex
+	writeMu        sync.Mutex
+	stopCh         chan struct{}
+	closeOnce      sync.Once
+	controlCh      chan controlMsg
+	paddingEnabled atomic.Bool
+}
+
+// @sk-task game-latency#T3.1: runtime padding toggle for the data phase (AC-001)
+func (c *WSConn) SetPadding(enabled bool) {
+	c.paddingEnabled.Store(enabled)
 }
 
 var batchBufPool = sync.Pool{
@@ -203,7 +217,7 @@ func (c *WSConn) ReadMessage() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.cfg.PaddingEnabled {
+	if c.paddingEnabled.Load() {
 		if len(msg) < 4 {
 			return nil, errors.New("padding frame too short")
 		}
@@ -222,7 +236,7 @@ func (c *WSConn) WriteMessage(data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	if c.cfg.PaddingEnabled {
+	if c.paddingEnabled.Load() {
 		payloadLen := len(data)
 		if payloadLen > math.MaxUint32 {
 			return io.ErrShortWrite
@@ -372,7 +386,13 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 		}
 		return conn, nil
 	})
-	conn, _, err := d.DialContext(ctx, serverURL, nil)
+	// @sk-task game-latency#T3.2: request unpadded framing; only honored if the
+	// server confirms with the same upgrade header (AC-001).
+	var reqHeader http.Header
+	if wsCfg.RequestNoPad {
+		reqHeader = http.Header{noPadHeader: []string{"1"}}
+	}
+	conn, resp, err := d.DialContext(ctx, serverURL, reqHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -383,6 +403,10 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 		logger:    logger,
 		stopCh:    make(chan struct{}),
 		controlCh: make(chan controlMsg, 8),
+	}
+	wc.paddingEnabled.Store(wsCfg.PaddingEnabled)
+	if wsCfg.RequestNoPad && resp != nil && strings.EqualFold(resp.Header.Get(noPadHeader), "1") {
+		wc.SetPadding(false)
 	}
 	wc.startControlWriter()
 	return wc, nil
@@ -486,7 +510,13 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	if cfg.Multiplex {
 		upgrader.Subprotocols = []string{MultiplexSubprotocol}
 	}
-	conn, err := upgrader.Upgrade(w, r, nil)
+	// @sk-task game-latency#T3.2: confirm unpadded framing when requested and allowed (AC-001)
+	allowNoPad := cfg.AllowNoPad && strings.EqualFold(r.Header.Get(noPadHeader), "1")
+	var respHeader http.Header
+	if allowNoPad {
+		respHeader = http.Header{noPadHeader: []string{"1"}}
+	}
+	conn, err := upgrader.Upgrade(w, r, respHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -502,6 +532,10 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 		logger:    logger,
 		stopCh:    make(chan struct{}),
 		controlCh: make(chan controlMsg, 8),
+	}
+	wsConn.paddingEnabled.Store(cfg.PaddingEnabled)
+	if allowNoPad {
+		wsConn.SetPadding(false)
 	}
 	wsConn.startControlWriter()
 	wsConn.SetPingHandler(func(appData string) error {

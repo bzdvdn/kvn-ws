@@ -1101,3 +1101,151 @@ func TestDialContextCancel(t *testing.T) {
 		t.Fatalf("dial did not abort on cancellation: took %v", elapsed)
 	}
 }
+
+// @sk-test game-latency#T3.5: unpadded secondary negotiated when both peers support it (AC-001)
+func TestNoPadNegotiationAccepted(t *testing.T) {
+	serverCh := make(chan *WSConn, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 512, AllowNoPad: true})
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			serverCh <- nil
+			return
+		}
+		serverCh <- conn
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	client, err := DialContext(context.Background(), wsURL, nil, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 512, RequestNoPad: true})
+	if err != nil {
+		t.Fatalf("DialContext: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	serverConn := <-serverCh
+	if serverConn == nil {
+		t.Fatal("server conn is nil")
+	}
+	defer func() { _ = serverConn.Close() }()
+
+	if client.paddingEnabled.Load() {
+		t.Error("client padding still enabled, want disabled after negotiation")
+	}
+	if serverConn.paddingEnabled.Load() {
+		t.Error("server padding still enabled, want disabled after negotiation")
+	}
+
+	payload := []byte("rtp-unpadded")
+	if err := client.WriteMessage(payload); err != nil {
+		t.Fatalf("client write: %v", err)
+	}
+	got, err := serverConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("server read: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("server got %q, want %q", got, payload)
+	}
+}
+
+// @sk-test game-latency#T3.5: without server confirmation both sides keep padding (AC-004)
+func TestNoPadNegotiationDenied(t *testing.T) {
+	serverCh := make(chan *WSConn, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 512, AllowNoPad: false})
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			serverCh <- nil
+			return
+		}
+		serverCh <- conn
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	client, err := DialContext(context.Background(), wsURL, nil, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 512, RequestNoPad: true})
+	if err != nil {
+		t.Fatalf("DialContext: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	serverConn := <-serverCh
+	if serverConn == nil {
+		t.Fatal("server conn is nil")
+	}
+	defer func() { _ = serverConn.Close() }()
+
+	if !client.paddingEnabled.Load() {
+		t.Error("client padding disabled without server confirmation, want enabled")
+	}
+	if !serverConn.paddingEnabled.Load() {
+		t.Error("server padding disabled, want enabled")
+	}
+
+	payload := []byte("kept-padded")
+	if err := client.WriteMessage(payload); err != nil {
+		t.Fatalf("client write: %v", err)
+	}
+	got, err := serverConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("server read: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("server got %q, want %q", got, payload)
+	}
+}
+
+// @sk-test game-latency#T4.2: a peer that never requests unpadded keeps padding (AC-004)
+func TestNoPadOldPeerKeepsPadding(t *testing.T) {
+	serverCh := make(chan *WSConn, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 512, AllowNoPad: true})
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			serverCh <- nil
+			return
+		}
+		serverCh <- conn
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	// Legacy client: no RequestNoPad.
+	client, err := DialContext(context.Background(), wsURL, nil, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 512})
+	if err != nil {
+		t.Fatalf("DialContext: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	serverConn := <-serverCh
+	if serverConn == nil {
+		t.Fatal("server conn is nil")
+	}
+	defer func() { _ = serverConn.Close() }()
+
+	if !client.paddingEnabled.Load() {
+		t.Error("client padding disabled, want enabled (no request)")
+	}
+	if !serverConn.paddingEnabled.Load() {
+		t.Error("server padding disabled without request, want enabled")
+	}
+
+	payload := []byte("old-peer")
+	if err := client.WriteMessage(payload); err != nil {
+		t.Fatalf("client write: %v", err)
+	}
+	got, err := serverConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("server read: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("server got %q, want %q", got, payload)
+	}
+}

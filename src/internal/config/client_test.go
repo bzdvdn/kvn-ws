@@ -16,6 +16,40 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
+// @sk-test game-latency#T1.4: server MTU defaults to DefaultServerMTU, explicit value kept (AC-003)
+func TestServerMTUDefault(t *testing.T) {
+	path := writeConfig(t, `
+listen: :443
+network:
+  pool_ipv4:
+    subnet: 10.10.0.0/24
+    gateway: 10.10.0.1
+`)
+	cfg, err := LoadServerConfig(path)
+	if err != nil {
+		t.Fatalf("LoadServerConfig: %v", err)
+	}
+	if cfg.MTU != DefaultServerMTU {
+		t.Errorf("MTU = %d, want default %d", cfg.MTU, DefaultServerMTU)
+	}
+
+	path2 := writeConfig(t, `
+listen: :443
+mtu: 1280
+network:
+  pool_ipv4:
+    subnet: 10.10.0.0/24
+    gateway: 10.10.0.1
+`)
+	cfg2, err := LoadServerConfig(path2)
+	if err != nil {
+		t.Fatalf("LoadServerConfig(custom): %v", err)
+	}
+	if cfg2.MTU != 1280 {
+		t.Errorf("MTU = %d, want 1280", cfg2.MTU)
+	}
+}
+
 // @sk-test transparent-proxy#T4.4: transparent config parsing (AC-001, AC-009)
 func TestTransparentConfig(t *testing.T) {
 	path := writeConfig(t, `

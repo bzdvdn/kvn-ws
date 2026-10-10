@@ -49,6 +49,7 @@ kvn-ws использует YAML-файлы конфигурации для се
 | `obfuscation.utls.fallback` | bool | `true` | При ошибке uTLS — crypto/tls |
 | `obfuscation.padding.enabled` | bool | `false` | Включить padding WS (фиксированный размер фреймов) |
 | `obfuscation.padding.size` | int | `512` | Размер выравнивания padding |
+| `obfuscation.padding.realtime_unpadded` | bool | `true` | Без padding для real-time UDP (вторичный канал); применяется только при обоюдной поддержке сторон |
 | `multiplex` | bool | `false` | Включить мультиплексирование WebSocket |
 | `mtu` | int | `1400` | MTU TUN-интерфейса |
 | `crypto.enabled` | bool | `false` | Включить шифрование AES-256-GCM |
@@ -102,6 +103,7 @@ logging:
 | `obfuscation.utls.fallback` | bool | `true` | При ошибке uTLS — crypto/tls |
 | `obfuscation.padding.enabled` | bool | `false` | Включить padding WS (фиксированный размер фреймов) |
 | `obfuscation.padding.size` | int | `512` | Размер выравнивания padding |
+| `obfuscation.padding.realtime_unpadded` | bool | `true` | Без padding для real-time UDP (вторичный канал); применяется только при обоюдной поддержке сторон |
 | `auth.token` | string | — | Токен аутентификации (должен совпадать с серверным) |
 | `tls.verify_mode` | string | `verify` | Режим проверки TLS: `verify`, `insecure` |
 | `tls.ca_file` | string | `""` | Файл CA-сертификата (опционально) |

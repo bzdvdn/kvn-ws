@@ -630,3 +630,110 @@ func TestServerDNSForwardUsesConfig(t *testing.T) {
 		t.Fatal("upstream received incomplete DNS query")
 	}
 }
+
+// @sk-test game-latency#T2.2: recorder StreamConn capturing writes + timestamps
+type recWriteStream struct {
+	mu     sync.Mutex
+	writes [][]byte
+	at     []time.Time
+}
+
+func (r *recWriteStream) WriteMessage(data []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	r.writes = append(r.writes, cp)
+	r.at = append(r.at, time.Now())
+	return nil
+}
+
+func (r *recWriteStream) ReadMessage() ([]byte, error)       { return nil, context.Canceled }
+func (r *recWriteStream) SetReadDeadline(t time.Time) error  { return nil }
+func (r *recWriteStream) SetWriteDeadline(t time.Time) error { return nil }
+func (r *recWriteStream) Close() error                       { return nil }
+
+func (r *recWriteStream) snapshot() (count int, writes [][]byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.writes), r.writes
+}
+
+// @sk-test game-latency#T2.2: single real-time UDP frame is flushed without the aggregation hold (AC-002)
+func TestSecondaryWriterNoHold(t *testing.T) {
+	rec := &recWriteStream{}
+	s := &Session{
+		logger:        zap.NewNop(),
+		secondaryCh:   make(chan []byte, 16),
+		tunnelTimeout: time.Second,
+	}
+	var sc StreamConn = rec
+	s.secondary.Store(&sc)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.startSecondaryWriter(ctx)
+
+	frame := []byte("udp-payload")
+	start := time.Now()
+	s.secondaryCh <- append([]byte(nil), frame...)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if n, _ := rec.snapshot(); n > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for secondary write")
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+	rec.mu.Lock()
+	latency := rec.at[0].Sub(start)
+	got := rec.writes[0]
+	rec.mu.Unlock()
+	if latency > 5*time.Millisecond {
+		t.Errorf("single UDP frame latency = %v, want < 5ms (no aggregation hold)", latency)
+	}
+	if !bytes.Equal(got, frame) {
+		t.Errorf("written = %q, want %q", got, frame)
+	}
+}
+
+// @sk-test game-latency#T2.2: frames already queued are coalesced into one write without a timer wait (AC-002)
+func TestSecondaryWriterCoalescesQueued(t *testing.T) {
+	rec := &recWriteStream{}
+	s := &Session{
+		logger:        zap.NewNop(),
+		secondaryCh:   make(chan []byte, 16),
+		tunnelTimeout: time.Second,
+	}
+	var sc StreamConn = rec
+	s.secondary.Store(&sc)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	s.secondaryCh <- []byte("aaa")
+	s.secondaryCh <- []byte("bbb")
+	s.secondaryCh <- []byte("ccc")
+	s.startSecondaryWriter(ctx)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		n, writes := rec.snapshot()
+		if n > 0 {
+			if n != 1 {
+				t.Fatalf("writes = %d, want 1 coalesced write", n)
+			}
+			if !bytes.Equal(writes[0], []byte("aaabbbccc")) {
+				t.Errorf("coalesced payload = %q, want %q", writes[0], "aaabbbccc")
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for secondary write")
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+}

@@ -156,6 +156,16 @@ type UTLSCfg struct {
 type PaddingCfg struct {
 	Enabled bool `json:"enabled" mapstructure:"enabled"`
 	Size    int  `json:"size" mapstructure:"size"`
+	// @sk-task game-latency#T3.4: drop padding for real-time (secondary/UDP) framing (AC-001)
+	RealtimeUnpadded *bool `json:"realtime_unpadded,omitempty" mapstructure:"realtime_unpadded"`
+}
+
+// @sk-task game-latency#T3.4: real-time unpadded mode defaults to enabled (AC-001)
+func (p *PaddingCfg) RealtimeUnpaddedEnabled() bool {
+	if p == nil || p.RealtimeUnpadded == nil {
+		return true
+	}
+	return *p.RealtimeUnpadded
 }
 
 // @sk-task production-gap#T1.1: explicit client TLS trust surface (AC-001)

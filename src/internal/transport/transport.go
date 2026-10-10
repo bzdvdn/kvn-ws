@@ -67,6 +67,8 @@ type FactoryConfig struct {
 	UTLSFallback   bool
 	PaddingEnabled bool
 	PaddingSize    int
+	// @sk-task game-latency#T3.2: request unpadded secondary framing (AC-001)
+	RequestNoPad bool
 
 	Obfuscation bool
 }
