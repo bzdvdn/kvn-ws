@@ -1,6 +1,7 @@
 package quic
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -123,4 +124,52 @@ func (c *QUICConn) Close() error {
 
 func (c *QUICConn) StreamID() quic.StreamID {
 	return c.stream.StreamID()
+}
+
+// @sk-task quic-datagrams#T1.1: unreliable datagram capability negotiated by QUIC (AC-001)
+func (c *QUICConn) SupportsDatagrams() bool {
+	return c.conn != nil && c.conn.ConnectionState().SupportsDatagrams
+}
+
+// @sk-task quic-datagrams#T1.1: send one unreliable datagram (AC-001)
+func (c *QUICConn) SendDatagram(payload []byte) error {
+	if c.conn == nil {
+		return errors.New("no quic connection")
+	}
+	return c.conn.SendDatagram(payload)
+}
+
+// @sk-task quic-datagrams#T1.1: receive one unreliable datagram (AC-001)
+func (c *QUICConn) ReceiveDatagram(ctx context.Context) ([]byte, error) {
+	if c.conn == nil {
+		return nil, errors.New("no quic connection")
+	}
+	return c.conn.ReceiveDatagram(ctx)
+}
+
+// @sk-task quic-datagrams#T1.2: report the peer's max datagram payload when a send is oversized (AC-001)
+func DatagramTooLarge(err error) (maxPayload int64, ok bool) {
+	var e *quic.DatagramTooLargeError
+	if errors.As(err, &e) {
+		return e.MaxDatagramPayloadSize, true
+	}
+	return 0, false
+}
+
+// @sk-task quic-datagrams#T2.1: transport marker for datagram-capability negotiation (AC-003)
+const DatagramTransport = "quic-dgram"
+
+// @sk-task quic-datagrams#T2.1: report whether a Transport value requests datagrams (AC-003)
+func DatagramCapable(transport string) bool {
+	return transport == DatagramTransport
+}
+
+// @sk-task quic-datagrams#T1.1: enable QUIC datagrams on a cloned config (AC-001)
+func withDatagrams(cfg *quic.Config) *quic.Config {
+	c := &quic.Config{}
+	if cfg != nil {
+		*c = *cfg
+	}
+	c.EnableDatagrams = true
+	return c
 }

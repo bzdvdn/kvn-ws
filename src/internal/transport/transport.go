@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"sync"
 	"time"
 
@@ -16,6 +17,13 @@ type StreamConn interface {
 	SetReadDeadline(t time.Time) error
 	SetWriteDeadline(t time.Time) error
 	Close() error
+}
+
+// @sk-task quic-datagrams#T1.1: optional unreliable-datagram capability on a StreamConn (AC-001)
+type DatagramConn interface {
+	SupportsDatagrams() bool
+	SendDatagram(payload []byte) error
+	ReceiveDatagram(ctx context.Context) ([]byte, error)
 }
 
 // @sk-task kvn-web-redesign#T4.1: CountingStreamConn wraps StreamConn to count bytes (AC-013)
@@ -38,6 +46,30 @@ func (c *CountingStreamConn) WriteMessage(data []byte) error {
 		c.AddTX(int64(len(data)))
 	}
 	return c.StreamConn.WriteMessage(data)
+}
+
+// @sk-task quic-datagrams#T3.1: forward datagram capability through the counting wrapper (AC-001)
+func (c *CountingStreamConn) SupportsDatagrams() bool {
+	if d, ok := c.StreamConn.(DatagramConn); ok {
+		return d.SupportsDatagrams()
+	}
+	return false
+}
+
+func (c *CountingStreamConn) SendDatagram(payload []byte) error {
+	d, ok := c.StreamConn.(DatagramConn)
+	if !ok {
+		return errors.New("datagrams unsupported")
+	}
+	return d.SendDatagram(payload)
+}
+
+func (c *CountingStreamConn) ReceiveDatagram(ctx context.Context) ([]byte, error) {
+	d, ok := c.StreamConn.(DatagramConn)
+	if !ok {
+		return nil, errors.New("datagrams unsupported")
+	}
+	return d.ReceiveDatagram(ctx)
 }
 
 // @sk-task transport-factory#T1.1: TransportFactory interface (AC-001)

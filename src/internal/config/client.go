@@ -52,6 +52,16 @@ type ClientConfig struct {
 	Relay               *RelayCfg       `json:"relay,omitempty" mapstructure:"relay"`
 	// @sk-task dual-ws-channel#T3.2: second WS channel for UDP traffic (AC-002)
 	MultiChannel bool `json:"multi_channel" mapstructure:"multi_channel"`
+	// @sk-task quic-datagrams#T3.4: unreliable QUIC datagrams for real-time UDP (AC-001)
+	UDPDatagrams *bool `json:"udp_datagrams,omitempty" mapstructure:"udp_datagrams"`
+}
+
+// @sk-task quic-datagrams#T3.4: datagram mode defaults to enabled (AC-001)
+func (c *ClientConfig) UDPDatagramsEnabled() bool {
+	if c.UDPDatagrams == nil {
+		return true
+	}
+	return *c.UDPDatagrams
 }
 
 // @sk-task client-relay-mode#T1.1: relay config struct (AC-003)

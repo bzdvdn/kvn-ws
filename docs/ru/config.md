@@ -112,6 +112,7 @@ logging:
 | `auto_reconnect` | bool | `true` | Автоматическое переподключение при разрыве |
 | `multiplex` | bool | `false` | Включить мультиплексирование WebSocket |
 | `multi_channel` | bool | `true` | Второй WebSocket-канал для UDP-трафика (VoIP/медиа): выносит UDP из общего потока, снимая head-of-line blocking (рекомендуется — включено в поставляемых конфигах). Обратно совместимо со старыми серверами/клиентами (без флага работает как одиночный канал) |
+| `udp_datagrams` | bool | `true` | Real-time UDP через unreliable QUIC datagrams (игры/VoIP) без ретрансмита и head-of-line blocking; включается только при обоюдной поддержке и `transport: quic`, иначе UDP идёт по stream |
 | `crypto.enabled` | bool | `false` | Включить шифрование AES-256-GCM |
 | `crypto.key` | string | `""` | 256-битный мастер-ключ, 64 hex символа (должен совпадать с серверным) |
 | `proxy_listen` | string | `127.0.0.1:2310` | Адрес SOCKS5/HTTP прокси (только режим proxy) |

@@ -37,6 +37,16 @@ type ServerConfig struct {
 	MTU          int             `mapstructure:"mtu"`
 	Crypto       CryptoCfg       `mapstructure:"crypto"`
 	DNSUpstreams []string        `mapstructure:"dns_upstreams"`
+	// @sk-task quic-datagrams#T3.4: unreliable QUIC datagrams for real-time UDP (AC-001)
+	UDPDatagrams *bool `mapstructure:"udp_datagrams"`
+}
+
+// @sk-task quic-datagrams#T3.4: datagram mode defaults to enabled (AC-001)
+func (c *ServerConfig) UDPDatagramsEnabled() bool {
+	if c.UDPDatagrams == nil {
+		return true
+	}
+	return *c.UDPDatagrams
 }
 
 type CryptoCfg struct {

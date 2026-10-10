@@ -29,7 +29,7 @@ func Dial(ctx context.Context, addr string, tlsConf *tls.Config, quicConf *quic.
 	dialCtx, cancel := context.WithTimeout(ctx, DefaultDialTimeout)
 	defer cancel()
 
-	conn, err := quic.DialAddr(dialCtx, dialAddr(addr), tlsConf, quicConf)
+	conn, err := quic.DialAddr(dialCtx, dialAddr(addr), tlsConf, withDatagrams(quicConf))
 	if err != nil {
 		return nil, err
 	}

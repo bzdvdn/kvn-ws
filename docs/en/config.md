@@ -112,6 +112,7 @@ logging:
 | `auto_reconnect` | bool | `true` | Automatically reconnect on disconnect |
 | `multiplex` | bool | `false` | Enable WebSocket multiplexing |
 | `multi_channel` | bool | `true` | Second WebSocket channel for UDP traffic (VoIP/media): routes UDP out of the shared stream to remove head-of-line blocking (recommended — enabled in the provided configs). Backward compatible with older servers/clients (without the flag it works as a single channel) |
+| `udp_datagrams` | bool | `true` | Real-time UDP over unreliable QUIC datagrams (games/VoIP) without retransmit or head-of-line blocking; enabled only when both peers support it and `transport: quic`, otherwise UDP uses the stream |
 | `crypto.enabled` | bool | `false` | Enable app-layer AES-256-GCM encryption |
 | `crypto.key` | string | `""` | 256-bit master key as 64 hex chars (must match server) |
 | `proxy_listen` | string | `127.0.0.1:2310` | SOCKS5/HTTP proxy listen address (proxy mode only) |

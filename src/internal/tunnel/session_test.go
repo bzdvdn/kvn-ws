@@ -630,3 +630,67 @@ func TestServerDNSForwardUsesConfig(t *testing.T) {
 		t.Fatal("upstream received incomplete DNS query")
 	}
 }
+
+// @sk-test quic-datagrams#T3.5: recorder implementing transport.DatagramConn
+type recDatagramStream struct {
+	mu        sync.Mutex
+	datagrams [][]byte
+}
+
+func (r *recDatagramStream) SupportsDatagrams() bool { return true }
+func (r *recDatagramStream) SendDatagram(p []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.datagrams = append(r.datagrams, append([]byte(nil), p...))
+	return nil
+}
+func (r *recDatagramStream) ReceiveDatagram(ctx context.Context) ([]byte, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func (r *recDatagramStream) ReadMessage() ([]byte, error)       { return nil, context.Canceled }
+func (r *recDatagramStream) WriteMessage([]byte) error          { return nil }
+func (r *recDatagramStream) SetReadDeadline(t time.Time) error  { return nil }
+func (r *recDatagramStream) SetWriteDeadline(t time.Time) error { return nil }
+func (r *recDatagramStream) Close() error                       { return nil }
+
+func (r *recDatagramStream) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.datagrams)
+}
+
+// @sk-test quic-datagrams#T3.5: UDP uses datagrams when enabled, TCP/disabled falls back to stream (AC-001)
+func TestSendDatagramSelection(t *testing.T) {
+	rec := &recDatagramStream{}
+	s := &Session{logger: zap.NewNop(), tunnelTimeout: time.Second}
+	s.datagramConn = rec
+
+	udp := make([]byte, 20)
+	udp[0] = 0x45
+	udp[9] = 17 // UDP
+	tcp := make([]byte, 20)
+	tcp[0] = 0x45
+	tcp[9] = 6 // TCP
+
+	// Disabled: nothing goes as a datagram.
+	s.SetDatagrams(false)
+	if handled, _ := s.sendDatagram(udp); handled {
+		t.Error("UDP handled as datagram while disabled")
+	}
+
+	// Enabled + UDP: datagram path.
+	s.SetDatagrams(true)
+	handled, err := s.sendDatagram(udp)
+	if !handled || err != nil {
+		t.Fatalf("UDP handled=%v err=%v, want true/nil", handled, err)
+	}
+	if rec.count() != 1 {
+		t.Fatalf("datagrams sent = %d, want 1", rec.count())
+	}
+
+	// Enabled + TCP: not a datagram.
+	if handled, _ := s.sendDatagram(tcp); handled {
+		t.Error("TCP handled as datagram, want stream fallback")
+	}
+}

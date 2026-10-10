@@ -22,6 +22,8 @@ export interface ClientConfig {
   auto_reconnect?: boolean;
   multiplex?: boolean;
   multi_channel?: boolean;
+  // @sk-task quic-datagrams#T4.3: QUIC datagrams for real-time UDP (AC-001)
+  udp_datagrams?: boolean;
   max_message_size?: number;
   tunnel_timeout?: number;
   proxy_listen?: string;
