@@ -22,7 +22,9 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/ratelimit"
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
+	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
@@ -99,7 +101,10 @@ type Session struct {
 	secondaryWriterActive atomic.Bool
 	// onSecondaryLost is invoked when the secondary read-loop ends so the owner
 	// can re-establish the channel (dual-ws-channel AC-004).
-	onSecondaryLost  atomic.Pointer[func()]
+	onSecondaryLost atomic.Pointer[func()]
+	// @sk-task quic-datagrams#T3.1: unreliable datagram path for real-time UDP (AC-001)
+	datagramConn     transport.DatagramConn
+	datagramsOn      atomic.Bool
 	sm               *session.SessionManager
 	sessionID        string
 	tokenName        string
@@ -190,6 +195,10 @@ func (s *Session) SetTunRouter(tr *routing.TunRouter) {
 // secondary channel when it is UDP and a secondary is bound (batching when the
 // server confirmed support), otherwise to the primary channel.
 func (s *Session) sendViaTunnel(packet []byte) error {
+	// @sk-task quic-datagrams#T3.1: real-time UDP prefers the unreliable datagram path (AC-001)
+	if handled, derr := s.sendDatagram(packet); handled {
+		return derr
+	}
 	payload := packet
 	if s.cipher != nil {
 		encrypted, err := s.cipher.Encrypt(payload)
@@ -247,6 +256,66 @@ func (s *Session) getOnSecondaryLost() func() {
 		return *p
 	}
 	return nil
+}
+
+// @sk-task quic-datagrams#T3.1: enable/disable the datagram path for real-time UDP (AC-001)
+func (s *Session) SetDatagrams(on bool) {
+	s.datagramsOn.Store(on)
+}
+
+// @sk-task quic-datagrams#T3.1: send one real-time UDP packet as an unreliable datagram.
+// Returns handled=false when the packet should use the framed stream path instead.
+func (s *Session) sendDatagram(packet []byte) (handled bool, err error) {
+	if !s.datagramsOn.Load() || s.datagramConn == nil || !s.datagramConn.SupportsDatagrams() || !parseIPProto(packet) {
+		return false, nil
+	}
+	payload := packet
+	if s.cipher != nil {
+		encrypted, cerr := s.cipher.Encrypt(payload)
+		if cerr != nil {
+			return false, cerr
+		}
+		payload = encrypted
+	}
+	if serr := s.datagramConn.SendDatagram(payload); serr != nil {
+		if _, tooLarge := quictp.DatagramTooLarge(serr); tooLarge {
+			// Oversized for a datagram frame: fall back to the reliable stream.
+			return false, nil
+		}
+		return true, serr
+	}
+	return true, nil
+}
+
+// @sk-task quic-datagrams#T3.2: read incoming datagrams into the TUN (AC-001, AC-002)
+func (s *Session) startDatagramReader(ctx context.Context) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error("datagram reader recovered from panic", zap.Any("panic", r))
+			}
+		}()
+		for {
+			payload, err := s.datagramConn.ReceiveDatagram(ctx)
+			if err != nil {
+				if ctx.Err() == nil {
+					s.logger.Debug("datagram reader ended", zap.Error(err))
+				}
+				return
+			}
+			if s.cipher != nil {
+				decrypted, derr := s.cipher.Decrypt(payload)
+				if derr != nil {
+					s.logger.Warn("datagram decrypt failed, dropping", zap.Error(derr))
+					continue
+				}
+				payload = decrypted
+			}
+			if _, werr := s.tunDev.Write(payload); werr != nil {
+				s.logger.Debug("datagram tun write failed", zap.Error(werr))
+			}
+		}
+	}()
 }
 
 func (s *Session) SetDemux(d *TunDemux) {
@@ -462,6 +531,13 @@ func (s *Session) Run(ctx context.Context) (err error) {
 	defer s.doneOnce.Do(func() { close(s.done) })
 	s.startTunReader(ctx)
 	s.setRunCtx(ctx)
+	// @sk-task quic-datagrams#T3.2: resolve datagram capability and start the reader (AC-001)
+	if dc, ok := s.stream.(transport.DatagramConn); ok {
+		s.datagramConn = dc
+	}
+	if s.datagramsOn.Load() && s.datagramConn != nil && s.datagramConn.SupportsDatagrams() {
+		s.startDatagramReader(ctx)
+	}
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() (err error) {
 		defer func() {
@@ -1079,6 +1155,14 @@ func (s *Session) tunToWS(ctx context.Context) error {
 			if delay > 0 {
 				time.Sleep(delay)
 			}
+		}
+		// @sk-task quic-datagrams#T3.1: real-time UDP prefers the unreliable datagram path (AC-001)
+		if handled, derr := s.sendDatagram(payload); handled {
+			if derr != nil {
+				s.logger.Debug("datagram send error", zap.Error(derr))
+			}
+			putTunReadBuf(r.buf)
+			continue
 		}
 		target := s.stream
 		toSecondary := false

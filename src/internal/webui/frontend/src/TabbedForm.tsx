@@ -445,6 +445,7 @@ export default function TabbedForm(props: TabbedFormProps) {
           { key: "auto_reconnect", label: "Auto Reconnect", desc: "Exponential backoff" },
           { key: "multiplex", label: "Multiplex", desc: "Connection multiplexing" },
           { key: "multi_channel", label: "Dual Channel", desc: "UDP on 2nd WS channel (VoIP/media)" },
+          { key: "udp_datagrams", label: "UDP Datagrams", desc: "QUIC unreliable UDP (games/VoIP)" },
           { key: "obfuscation", label: "Obfuscation", desc: "Anti-DPI" },
           { key: "crypto", label: "AES-256-GCM", desc: "Per-session encryption" },
           { key: "kill_switch", label: "Kill Switch", desc: "Block on disconnect" },
@@ -452,6 +453,7 @@ export default function TabbedForm(props: TabbedFormProps) {
           const checked = key === "obfuscation" ? (serverConfig.obfuscation?.enabled ?? false)
             : key === "crypto" ? (serverConfig.crypto?.enabled ?? false)
             : key === "kill_switch" ? (serverConfig.kill_switch?.enabled ?? false)
+            : key === "udp_datagrams" ? (serverConfig.udp_datagrams ?? true)
             : !!(serverConfig as any)[key];
           const onChange = key === "obfuscation" ? (v: boolean) => props.onNestServer("obfuscation", "enabled", v)
             : key === "crypto" ? (v: boolean) => props.onNestServer("crypto", "enabled", v)
@@ -566,6 +568,10 @@ export default function TabbedForm(props: TabbedFormProps) {
         <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
           <input type="checkbox" checked={!!globalConfig.multi_channel} onChange={(e) => props.onUpdateGlobal("multi_channel", e.target.checked)} style={{ accentColor: colors.accent }} />
           <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>Dual Channel</div><div style={{ fontSize: 10, color: colors.textDim }}>UDP on 2nd WS channel (VoIP/media)</div></div>
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
+          <input type="checkbox" checked={globalConfig.udp_datagrams ?? true} onChange={(e) => props.onUpdateGlobal("udp_datagrams", e.target.checked)} style={{ accentColor: colors.accent }} />
+          <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>UDP Datagrams</div><div style={{ fontSize: 10, color: colors.textDim }}>QUIC unreliable UDP (games/VoIP)</div></div>
         </label>
       </div>
 

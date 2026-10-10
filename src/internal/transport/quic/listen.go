@@ -16,7 +16,7 @@ type Listener struct {
 }
 
 func Listen(addr string, tlsConf *tls.Config, quicConf *quic.Config) (*Listener, error) {
-	ln, err := quic.ListenAddr(addr, tlsConf, quicConf)
+	ln, err := quic.ListenAddr(addr, tlsConf, withDatagrams(quicConf))
 	if err != nil {
 		return nil, err
 	}

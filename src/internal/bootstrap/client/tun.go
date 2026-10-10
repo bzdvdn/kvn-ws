@@ -19,6 +19,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
 )
@@ -127,6 +128,8 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 
 	tunSess := tunnel.NewSession(tunDev, stream, nil, serverHello.SessionId, "", nil, nil, nil, c.logger, tcfg.sessionCipher, nil,
 		time.Duration(c.cfg.TunnelTimeout)*time.Second, c.cfg.ProxyMaxConcurrency, nil, nil, nil)
+	// @sk-task quic-datagrams#T3.4: enable datagram path when the server confirmed it (AC-001)
+	tunSess.SetDatagrams(c.cfg.UDPDatagramsEnabled() && quictp.DatagramCapable(serverHello.Transport))
 	if tunRouter != nil {
 		tunSess.SetTunRouter(tunRouter)
 	}
@@ -140,11 +143,17 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 
 // handshakeSession exchanges the ClientHello and returns the ServerHello.
 func (c *Client) handshakeSession(stream tunnel.StreamConn) (*handshake.ServerHello, error) {
+	// @sk-task quic-datagrams#T2.1: request datagram capability on the QUIC transport (AC-003)
+	transport := c.cfg.Transport
+	if transport == "quic" && c.cfg.UDPDatagramsEnabled() {
+		transport = quictp.DatagramTransport
+	}
 	helloFrame, err := handshake.EncodeClientHello(&handshake.ClientHello{
 		ProtoVersion: handshake.ProtoVersion,
 		Ipv6:         c.cfg.IPv6,
 		Token:        c.cfg.Auth.Token,
 		Mtu:          c.cfg.MTU,
+		Transport:    transport,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode client hello: %w", err)

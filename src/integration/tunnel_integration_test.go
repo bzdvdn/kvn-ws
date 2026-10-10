@@ -3,8 +3,15 @@ package integration_test
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,11 +21,13 @@ import (
 	"time"
 
 	gorillaws "github.com/gorilla/websocket"
+	"github.com/quic-go/quic-go"
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/crypto"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	wst "github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
 )
@@ -1239,5 +1248,167 @@ func TestPaddingNegotiationPrimaryPaddedSecondaryUnpadded(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timeout waiting for secondary raw frame")
+	}
+}
+
+// @sk-test quic-datagrams#T4.1: self-signed cert for the loopback QUIC test
+func generateIntegrationCert(t *testing.T) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("CreateCertificate: %v", err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// @sk-test quic-datagrams#T4.1: real-time UDP datagrams and a TCP stream coexist over QUIC (AC-001, AC-002, AC-004)
+func TestQUICDatagramAndStreamIsolation(t *testing.T) {
+	cert := generateIntegrationCert(t)
+	serverTLS := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"kvn-ws"}}
+	ln, err := quictp.Listen("127.0.0.1:0", serverTLS, &quic.Config{})
+	if err != nil {
+		t.Fatalf("quic listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	streamMsg := make(chan []byte, 1)
+	dgramCount := make(chan int, 1)
+	go func() {
+		conn, err := ln.Accept(context.Background())
+		if err != nil {
+			return
+		}
+		msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		streamMsg <- msg
+		n := 0
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		for {
+			if _, err := conn.ReceiveDatagram(ctx); err != nil {
+				break
+			}
+			n++
+		}
+		dgramCount <- n
+	}()
+
+	clientTLS := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"kvn-ws"}}
+	client, err := quictp.Dial(context.Background(), ln.Addr(), clientTLS, &quic.Config{})
+	if err != nil {
+		t.Fatalf("quic dial: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if !client.SupportsDatagrams() {
+		t.Fatal("datagram support not negotiated")
+	}
+
+	if err := client.WriteMessage([]byte("stream-msg")); err != nil {
+		t.Fatalf("stream write: %v", err)
+	}
+	const total = 8
+	for i := 0; i < total; i++ {
+		if err := client.SendDatagram([]byte{byte(i)}); err != nil {
+			t.Fatalf("datagram %d: %v", i, err)
+		}
+	}
+
+	select {
+	case msg := <-streamMsg:
+		if string(msg) != "stream-msg" {
+			t.Errorf("stream message = %q, want %q", msg, "stream-msg")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream message not received")
+	}
+	select {
+	case n := <-dgramCount:
+		if n != total {
+			t.Errorf("datagrams received = %d, want %d", n, total)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("datagrams not received")
+	}
+}
+
+// @sk-test quic-datagrams#T4.1: unread/lost datagrams do not block the reliable stream (AC-002)
+func TestQUICDatagramLossDoesNotBlockStream(t *testing.T) {
+	cert := generateIntegrationCert(t)
+	serverTLS := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"kvn-ws"}}
+	ln, err := quictp.Listen("127.0.0.1:0", serverTLS, &quic.Config{})
+	if err != nil {
+		t.Fatalf("quic listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	go func() {
+		conn, err := ln.Accept(context.Background())
+		if err != nil {
+			return
+		}
+		// Echo stream messages; never drain datagrams so they are dropped.
+		for {
+			msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if err := conn.WriteMessage(msg); err != nil {
+				return
+			}
+		}
+	}()
+
+	clientTLS := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"kvn-ws"}}
+	client, err := quictp.Dial(context.Background(), ln.Addr(), clientTLS, &quic.Config{})
+	if err != nil {
+		t.Fatalf("quic dial: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	if !client.SupportsDatagrams() {
+		t.Fatal("datagram support not negotiated")
+	}
+
+	// Open the stream (server AcceptStream needs stream data).
+	if err := client.WriteMessage([]byte("open")); err != nil {
+		t.Fatalf("open write: %v", err)
+	}
+	if _, err := client.ReadMessage(); err != nil {
+		t.Fatalf("open echo: %v", err)
+	}
+
+	// Flood datagrams the server never reads (simulated loss).
+	for i := 0; i < 2000; i++ {
+		_ = client.SendDatagram([]byte{byte(i)})
+	}
+
+	// The reliable stream must still round-trip promptly.
+	start := time.Now()
+	if err := client.WriteMessage([]byte("ping")); err != nil {
+		t.Fatalf("ping write: %v", err)
+	}
+	echo, err := client.ReadMessage()
+	if err != nil {
+		t.Fatalf("ping echo: %v", err)
+	}
+	elapsed := time.Since(start)
+	if string(echo) != "ping" {
+		t.Errorf("stream echo = %q, want %q", echo, "ping")
+	}
+	if elapsed > time.Second {
+		t.Errorf("stream round-trip under datagram loss = %v, want < 1s", elapsed)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
+	quictp "github.com/bzdvdn/kvn-ws/src/internal/transport/quic"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunnel"
 )
@@ -167,6 +168,12 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	if mtu <= 0 {
 		mtu = handshake.DefaultMTU
 	}
+	// @sk-task quic-datagrams#T2.2: confirm datagram capability when the client requested it (AC-003)
+	datagramsOK := s.cfg.UDPDatagramsEnabled() && quictp.DatagramCapable(clientHello.Transport)
+	srvTransport := ""
+	if datagramsOK {
+		srvTransport = quictp.DatagramTransport
+	}
 	serverHello, err := handshake.EncodeServerHello(&handshake.ServerHello{
 		SessionId:    sess.ID,
 		AssignedIp:   assignedIP,
@@ -174,6 +181,7 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 		Mtu:          mtu,
 		CryptoSalt:   cryptoSalt,
 		GatewayIp:    s.gatewayIP,
+		Transport:    srvTransport,
 	})
 	if err != nil {
 		s.logger.Error("encode server hello", zap.Error(err))
@@ -221,6 +229,8 @@ func (s *Server) handleStream(ctx context.Context, stream tunnel.StreamConn, mtu
 	// @sk-task dns-upstreams-list#T3.2: pass DNSUpstreams from server config (AC-006)
 	tunSess := tunnel.NewSession(s.tunDev, stream, s.sm, sess.ID, tokenName, s.prl, s.bwMgr, s.collectors, s.logger, sessionCipher, sessionStreams,
 		tunnelTimeout, 1000, assignedIP, assignedIPv6, s.cfg.DNSUpstreams)
+	// @sk-task quic-datagrams#T3.4: enable datagram path when the client requested it (AC-001)
+	tunSess.SetDatagrams(datagramsOK)
 	tunSess.SetDemux(s.tunDemux)
 	// @sk-task dual-ws-channel#T3.1: register session before Run for secondary binding (AC-001)
 	s.tunnelSessRefs.Store(sess.ID, tunSess)

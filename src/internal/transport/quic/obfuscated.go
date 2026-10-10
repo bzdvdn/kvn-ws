@@ -1,6 +1,7 @@
 package quic
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	"math"
@@ -151,4 +152,29 @@ func (oc *ObfuscatedQUICConn) WriteMessage(data []byte) error {
 	_, err := oc.stream.Write(xorBuf)
 	putXorBuf(xorBuf)
 	return err
+}
+
+// @sk-task quic-datagrams#T3.3: obfuscate datagrams with the same nonce envelope as the stream (AC-001)
+func (oc *ObfuscatedQUICConn) SendDatagram(payload []byte) error {
+	if err := oc.initNonce(); err != nil {
+		return err
+	}
+	buf := getXorBuf(len(payload))
+	xorBytes(buf, payload, oc.nonce[:])
+	err := oc.QUICConn.SendDatagram(buf)
+	putXorBuf(buf)
+	return err
+}
+
+// @sk-task quic-datagrams#T3.3: de-obfuscate received datagrams (AC-001)
+func (oc *ObfuscatedQUICConn) ReceiveDatagram(ctx context.Context) ([]byte, error) {
+	if err := oc.initNonce(); err != nil {
+		return nil, err
+	}
+	payload, err := oc.QUICConn.ReceiveDatagram(ctx)
+	if err != nil {
+		return nil, err
+	}
+	xorBytes(payload, payload, oc.nonce[:])
+	return payload, nil
 }

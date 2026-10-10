@@ -191,6 +191,10 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	if server.MultiChannel {
 		merged.MultiChannel = true
 	}
+	// @sk-task quic-datagrams#T4.3: per-server udp_datagrams overrides global (AC-001)
+	if server.UDPDatagrams != nil {
+		merged.UDPDatagrams = server.UDPDatagrams
+	}
 	if server.Transparent {
 		merged.Transparent = true
 	}
