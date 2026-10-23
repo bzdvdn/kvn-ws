@@ -45,6 +45,7 @@ description: SpecKeep — spec-driven development. Use when the user asks to pro
 - `/spk-recap` — Project-level overview of all active features and their current phase
 - `/spk-hotfix` — Create emergency fix outside the standard phase chain
 - `/spk-repo-map` — Update REPOSITORY_MAP.md navigation index
+- `/spk-module-context` — Document a module: write/refresh CONTEXT.md for a folder (purpose, how it works, contracts)
 - `/spk-rollback` — Roll back completed tasks for a feature, returning them to unfinished state
 
 ## Ограничения

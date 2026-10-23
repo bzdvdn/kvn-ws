@@ -1,6 +1,6 @@
 # Repository Map — kvn-ws
 
-Go stack: `go.mod` at root, all source under `src/`.
+Go backend/CLI under `src/` (`go.mod` at root); Android/Kotlin app under `src/android/`; protocol codegen in `protocol/`.
 
 ## Entry Points
 - `src/cmd/client/main.go` — CLI entrypoint: KVN-over-WS client
@@ -13,19 +13,18 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `protocol/codegen/main.go` — protocol codegen: generates Go+Kotlin types from YAML
 - `src/android/app/src/main/kotlin/com/kvn/client/ui/MainActivity.kt` — Android app entrypoint (Jetpack Compose)
 - `src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt` — Android VpnService (TUN tunnel)
-- `src/android/app/src/main/kotlin/com/kvn/client/logger/` — Android logging system (AppLogger, LogEntry, LogViewerScreen)
 
 ## Top-Level Code
 - `src/internal/config/` — YAML config parsing (viper + env override)
 - `src/internal/logger/` — structured JSON logging (zap)
-- `src/internal/tun/` — TUN device (WireGuard tun, ip-link), cross-platform split (linux/stub)
+- `src/internal/tun/` — TUN device (WireGuard tun, ip-link), platform split (linux/windows/darwin + stub)
 - `src/internal/transport/` — shared transport abstraction (StreamConn interface)
 - `src/internal/transport/websocket/` — WS dial/accept, per-conn config, keepalive
 - `src/internal/transport/quic/` — QUIC dial/listen, ObfuscatedQUICConn (XOR nonce), WriteMessage
 - `src/internal/transport/tls/` — TLS config (mTLS, CA, verify mode, uTLS fingerprint)
 - `src/internal/transport/framing/` — binary frame protocol (encode/decode, buffer pool)
 - `src/internal/protocol/handshake/` — Client/Server Hello, MTU negotiation
-- `src/internal/protocol/auth/` — token/jwt/basic auth, session binding
+- `src/internal/protocol/auth/` — token auth (FindToken/ValidateToken), session binding
 - `src/internal/protocol/control/` — PING/PONG keepalive, session control
 - `src/internal/routing/` — packet routing engine (RuleSet, CIDR/IP/domain matchers, ordered rules)
 - `src/internal/dns/` — DNS resolver with in-memory TTL cache
@@ -53,6 +52,8 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `src/android/app/src/main/kotlin/com/kvn/client/protocol/` — Android frame codec + handshake (Frames.kt, FrameCodec.kt, HandshakeClient.kt)
 - `src/android/app/src/main/kotlin/com/kvn/client/config/` — Android ConnectionConfig model + QR serialization
 - `src/android/app/src/main/kotlin/com/kvn/client/crypto/` — Android AES-GCM cipher
+- `src/android/app/src/main/kotlin/com/kvn/client/dns/` — fake DNS resolver, fake IP pool, DNS cache/parser
+- `src/android/app/src/main/kotlin/com/kvn/client/logger/` — AppLogger, LogEntry, LogViewerScreen
 
 ## Key Paths
 - `configs/client.yaml` — client config template
@@ -67,6 +68,9 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `docker-compose.test.yml` — gate test compose
 - `scripts/build.sh` — native binary build to `bin/`
 - `scripts/build-web.sh` — web UI frontend build script
+- `scripts/build-android.sh` — Android APK build (protocol codegen + Gradle)
+- `scripts/generate-protocol.sh` — generate Go+Kotlin types from `protocol/*.yaml`
+- `scripts/check-protocol-sync.sh` — verify generated Go/Kotlin match YAML specs
 - `scripts/test-gate.sh` — gate test script
 - `scripts/test-proxy.sh` — proxy mode test script
 - `scripts/test-security.sh` — security/ACL test script
@@ -75,22 +79,31 @@ Go stack: `go.mod` at root, all source under `src/`.
 - `scripts/install-server.sh` — server install script (systemd, TLS, config gen)
 - `scripts/install-client.sh` — Linux client install script (binary + config + systemd)
 - `scripts/install-client.ps1` — Windows client install script (binary + config + scheduled task)
+- `scripts/install-relay.sh` — relay/terminator install script (systemd)
 - `scripts/install-web.sh` — Linux/macOS install script for kvn-web
 - `scripts/install-web.ps1` — Windows install script for kvn-web
 - `scripts/kvn-web.service` — systemd unit for kvn-web
-- `scripts/kvn-web.plist` — macOS launchd plist for kvn-web
+- `scripts/kvn-web.plist`, `scripts/com.kvn.web.plist` — macOS launchd plists (web UI)
+- `scripts/com.kvn.tun.plist` — macOS launchd plist for root TUN client
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline
+- `.golangci.yml` — golangci-lint configuration
+- `third_party/wintun/` — bundled Wintun DLL for Windows TUN
 - `examples/docker-compose.yml` — standalone docker-compose example
 - `examples/client.yaml` — standalone client config example
 - `examples/server.yaml` — standalone server config example
 - `examples/run.sh` — TLS gen + docker compose up script
 - `examples/relay-terminator/` — relay terminator docker-compose example (split-tunnel)
+- `run.sh` — TLS gen + docker compose up for root demo
+- `cleanup-transparent.sh` — remove transparent-proxy iptables rules
+- `client.yaml`, `server.yaml` — root run configs used by local binaries
 - `README.md` — root readme with badges, quickstart, doc links
 - `CHANGELOG.md` — version history (Keep a Changelog)
+- `roadmap.md` — product roadmap toward v1.0.0
+- `CONSTITUTION.md` — project constitution (SpecKeep)
 - `docs/en/` — English documentation
 - `docs/ru/` — Russian documentation (full translation)
 - `docs/openapi.yaml` — OpenAPI specification for admin API
-- `src/android/app/src/test/java/com/kvn/client/logger/` — Android logger unit tests
+- `src/android/app/src/test/java/com/kvn/client/` — Android unit tests (config/crypto/dns/logger/protocol/vpn)
 
 ## Where To Edit
 - Core tunnel logic — `src/internal/tun/`, `src/internal/tunnel/`, `src/internal/transport/{websocket,quic,framing}/*`, `src/internal/protocol/*`
@@ -111,7 +124,8 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Integration tests — `src/integration/`
 - Documentation — `docs/en/`, `docs/ru/`, `docs/openapi.yaml`
 - Examples — `examples/`
-- Build/CI/install — `scripts/`, `.github/workflows/`, `Dockerfile`, `Dockerfile.test`, `.dockerignore`
+- Build/CI/install — `scripts/`, `.github/workflows/`, `Dockerfile`, `Dockerfile.test`, `.dockerignore`, `.golangci.yml`
+- Protocol codegen — `protocol/*.yaml`, `protocol/codegen/`, `scripts/generate-protocol.sh`, `scripts/check-protocol-sync.sh`
 - Protocol changes — `protocol/*.yaml`, `protocol/codegen/` (edit YAML, not generated files)
 - Android UI/screens — `src/android/app/src/main/kotlin/com/kvn/client/ui/`
 - Android VPN service — `src/android/app/src/main/kotlin/com/kvn/client/vpn/`
@@ -119,15 +133,44 @@ Go stack: `go.mod` at root, all source under `src/`.
 - Android protocol/framing — `src/android/app/src/main/kotlin/com/kvn/client/protocol/`
 - Android crypto — `src/android/app/src/main/kotlin/com/kvn/client/crypto/`
 - Android config/QR — `src/android/app/src/main/kotlin/com/kvn/client/config/`
+- Android DNS/split tunnel — `src/android/app/src/main/kotlin/com/kvn/client/dns/`, `vpn/KvnVpnService.kt`
 - Android logging — `src/android/app/src/main/kotlin/com/kvn/client/logger/`
 - Load testing — `configs/loadtest.yaml`
 - Release — `CHANGELOG.md`, `README.md`
+
+## Modules & Context
+- `src/internal/webui/CONTEXT.md` — Web UI server: embedded React SPA, REST + SSE, AppState, client lifecycle
+- `src/internal/bootstrap/client/CONTEXT.md` — client bootstrap: dial/reconnect, TUN vs proxy, DNS/kill switch, cleanup
+- `src/internal/config/CONTEXT.md` — config types/loaders: client/server/relay/webui, env override, defaults, migrations
+- `src/internal/routing/CONTEXT.md` — split-tunnel rules: RuleSet, TunRouter, geoip/geosite resolver with cache
+- `src/internal/transport/CONTEXT.md` — transport abstraction: StreamConn/DatagramConn, factory registry, fallback
+- `src/internal/transport/framing/CONTEXT.md` — binary frame format, segmentation, buffer pools
+- `src/internal/transport/websocket/CONTEXT.md` — WS StreamConn: padding, uTLS, multiplex, keepalive, batching
+- `src/internal/transport/quic/CONTEXT.md` — QUIC StreamConn: length-prefix, datagrams, XOR obfuscation
+- `src/internal/transport/tls/CONTEXT.md` — TLS 1.3 configs, mTLS modes, uTLS dial, SNI selection
+- `src/internal/tun/CONTEXT.md` — platform TUN: IP/MTU/routes/DNS, Linux/Windows/macOS implementations
+- `src/internal/session/CONTEXT.md` — server sessions: IP pool, expiry, BoltDB persistence, bandwidth limits
+- `src/internal/dnsproxy/CONTEXT.md` — local DNS proxy: tunnel/direct routing, tracker, resolv.conf override
+- `src/internal/tunnel/CONTEXT.md` — session forwarding: ws↔TUN, proxy streams, DNS frames, secondary/datagrams
+- `src/internal/bootstrap/server/CONTEXT.md` — server bootstrap: TLS/QUIC listeners, handshake, sessions, health/metrics
+- `src/internal/bootstrap/relay/CONTEXT.md` — relay: bridge mode + terminator (pools, NAT, upstream, DNS interception)
+- `src/internal/proxy/CONTEXT.md` — local SOCKS5/HTTP/transparent listener + proxy stream multiplexing
+- `src/android/CONTEXT.md` — Android client: Compose UI, VpnService/TUN, WS transport, fake-DNS split tunnel
+- `src/internal/protocol/handshake/CONTEXT.md` — hello/auth wire format: ClientHello/ServerHello, TLV tags, compat
+- `src/internal/crypto/CONTEXT.md` — app-layer AES-256-GCM, session key derivation, master-key parsing
+- `src/internal/dns/CONTEXT.md` — DNS cache/resolver and IP→domain Tracker used by routing
+- `src/internal/metrics/client/CONTEXT.md` — client metric collector, ring buffer, speed sender for Web UI SSE
+- `src/internal/nat/CONTEXT.md` — server NAT: nftables with iptables fallback
+- `src/internal/systemproxy/CONTEXT.md` — system proxy env + platform managers (systemd/macOS/Windows)
+- `src/cmd/CONTEXT.md` — all binaries/entrypoints: flags, wiring, desktop wrapper, gate/soak tools
 
 ## Excluded
 - `.speckeep/**` — excluded from indexing
 - `specs/archived/**` — excluded from indexing
 - `specs/active/` — spec artifacts (read via spec files)
 - `bin/` — build output
+- `certs/` — generated local TLS material
+- `/client`, `/web`, `/desktop`, `*.exe` — local build outputs at repo root
 - `vendor/` — vendored deps (not used)
 - `src/internal/webui/frontend/node_modules/` — JS deps
 - `src/internal/webui/frontend/dist/` — frontend build output
