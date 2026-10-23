@@ -20,6 +20,7 @@ mtu: 1400
 ipv6: false
 max_message_size: 10485760
 tunnel_timeout: 30
+secondary_batch_hold_ms: 2
 proxy_max_concurrency: 1000
 proxy_connections: 10
 auto_reconnect: true

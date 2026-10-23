@@ -48,3 +48,8 @@ scripts:
     link_agents: link-agents.sh
     list_specs: list-specs.sh
     show_spec: show-spec.sh
+trace:
+    ignore:
+        - vendor/
+        - node_modules/
+        - dist/

@@ -48,3 +48,5 @@ routing:
   # dns_routing:
   #   enabled: true
   #   ttl: 60
+
+secondary_batch_hold_ms: 2

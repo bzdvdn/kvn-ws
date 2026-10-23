@@ -94,11 +94,13 @@ type Session struct {
 	primaryReady        atomic.Bool
 	// @sk-task secondary-batching#T2.1: batched secondary write mode (AC-001)
 	batchMode atomic.Bool
-	// @sk-task secondary-batching-fix#T1.1: dedicated secondary writer — secondary stalls don't freeze primary (AC-002)
-	// @sk-task game-latency#T2.1: secondaryBatchHold=0 flushes real-time UDP immediately (AC-002)
-	secondaryCh           chan []byte
-	secondaryBatchHold    time.Duration
-	secondaryWriterActive atomic.Bool
+	// @sk-task ws-media-queue-backpressure#T1.1: bounded per-channel writers (AC-001..AC-004)
+	secondaryBatchHold time.Duration
+	writersOnce        sync.Once
+	secondaryWriter    *queueWriter
+	primaryWriter      *queueWriter
+	writeErrCh         chan error
+	stats              sessionStats
 	// onSecondaryLost is invoked when the secondary read-loop ends so the owner
 	// can re-establish the channel (dual-ws-channel AC-004).
 	onSecondaryLost atomic.Pointer[func()]
@@ -159,26 +161,71 @@ func NewSession(
 		dnsUpstreams = []string{"1.1.1.1:53", "8.8.8.8:53"}
 	}
 	return &Session{
-		tunDev:           tunDev,
-		stream:           stream,
-		sm:               sm,
-		sessionID:        sessionID,
-		tokenName:        tokenName,
-		prl:              prl,
-		bwMgr:            bwMgr,
-		collectors:       collectors,
-		logger:           logger,
-		cipher:           cipher,
-		proxyStreams:     proxyStreams,
-		proxySem:         make(chan struct{}, proxyConcurrency),
-		tunnelTimeout:    tunnelTimeout,
-		proxyConcurrency: proxyConcurrency,
-		clientIP:         clientIP,
-		clientIP6:        clientIP6,
-		dnsUpstreams:     dnsUpstreams,
-		done:             make(chan struct{}),
-		secondaryCh:      make(chan []byte, 2048),
+		tunDev:             tunDev,
+		stream:             stream,
+		sm:                 sm,
+		sessionID:          sessionID,
+		tokenName:          tokenName,
+		prl:                prl,
+		bwMgr:              bwMgr,
+		collectors:         collectors,
+		logger:             logger,
+		cipher:             cipher,
+		proxyStreams:       proxyStreams,
+		proxySem:           make(chan struct{}, proxyConcurrency),
+		tunnelTimeout:      tunnelTimeout,
+		proxyConcurrency:   proxyConcurrency,
+		clientIP:           clientIP,
+		clientIP6:          clientIP6,
+		dnsUpstreams:       dnsUpstreams,
+		done:               make(chan struct{}),
+		writeErrCh:         make(chan error, 1),
+		secondaryBatchHold: time.Duration(defaultSecondaryBatchMs) * time.Millisecond,
 	}
+}
+
+// @sk-task ws-media-queue-backpressure#T1.2: session queue counters (AC-007)
+type sessionStats struct {
+	secondary     queueStats
+	primary       queueStats
+	framingErrors atomic.Uint64
+}
+
+// @sk-task ws-media-queue-backpressure#T1.2: snapshot for tests and debug logs
+func (s *Session) Stats() SessionStatsSnapshot {
+	return SessionStatsSnapshot{
+		Secondary:     s.stats.secondary.snapshot(),
+		Primary:       s.stats.primary.snapshot(),
+		FramingErrors: s.stats.framingErrors.Load(),
+	}
+}
+
+// @sk-task ws-media-queue-backpressure#T1.1: lazily create bounded writers
+func (s *Session) initWriters() {
+	s.writersOnce.Do(func() {
+		s.secondaryWriter = newQueueWriter(
+			"secondary", secondaryQueueCapacity, queueBatchMaxBytes, secondaryQueueMaxAge, secondaryWriteTimeout,
+			s.BatchEnabled, s.getSecondary, func() uint64 { return s.secondaryGen.Load() }, s.logger, &s.stats.secondary, nil,
+		)
+		s.secondaryWriter.setHold(s.secondaryBatchHold)
+		s.primaryWriter = newQueueWriter(
+			"primary", primaryQueueCapacity, 0, 0, s.tunnelTimeout,
+			func() bool { return false }, func() StreamConn { return s.stream }, nil, s.logger, &s.stats.primary, s.reportWriteError,
+		)
+	})
+}
+
+// @sk-task ws-media-queue-backpressure#T2.2: configure secondary batching window
+func (s *Session) SetSecondaryBatchHold(hold time.Duration) {
+	if hold < 0 {
+		hold = 0
+	}
+	if hold > maxSecondaryBatchMs*time.Millisecond {
+		hold = maxSecondaryBatchMs * time.Millisecond
+	}
+	s.secondaryBatchHold = hold
+	s.initWriters()
+	s.secondaryWriter.setHold(hold)
 }
 
 func (s *Session) SetTunRouter(tr *routing.TunRouter) {
@@ -191,10 +238,9 @@ func (s *Session) SetTunRouter(tr *routing.TunRouter) {
 	}
 }
 
-// sendViaTunnel encrypts and frames one TUN packet and writes it to the
-// secondary channel when it is UDP and a secondary is bound (batching when the
-// server confirmed support), otherwise to the primary channel.
-func (s *Session) sendViaTunnel(packet []byte) error {
+// @sk-task ws-media-queue-backpressure#T3.1: dispatch TUN packets without
+// blocking on a channel write (AC-004)
+func (s *Session) dispatchPacket(packet []byte) error {
 	// @sk-task quic-datagrams#T3.1: real-time UDP prefers the unreliable datagram path (AC-001)
 	if handled, derr := s.sendDatagram(packet); handled {
 		return derr
@@ -216,29 +262,22 @@ func (s *Session) sendViaTunnel(packet []byte) error {
 	if err != nil {
 		return err
 	}
-	target := s.stream
-	toSecondary := false
-	if secondary := s.getSecondary(); secondary != nil && parseIPProto(packet) {
-		target = secondary
-		toSecondary = true
+	s.initWriters()
+	if s.getSecondary() != nil && parseIPProto(packet) {
+		s.secondaryWriter.ensure(s.getRunCtx())
+		s.secondaryWriter.enqueue(data, s.secondaryGen.Load())
+		return nil
 	}
-	if toSecondary && s.BatchEnabled() {
-		s.ensureSecondaryWriter()
-		select {
-		case s.secondaryCh <- data:
-			// ownership transferred to the writer goroutine
-			return nil
-		default:
-			// writer busy/backlogged — drop the UDP packet instead of stalling
-			framing.ReturnBuffer(data)
-			return nil
-		}
-	}
-	defer framing.ReturnBuffer(data)
-	if err := target.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
-		return err
-	}
-	return target.WriteMessage(data)
+	s.primaryWriter.ensure(s.getRunCtx())
+	s.primaryWriter.enqueue(data, 0)
+	return nil
+}
+
+// @sk-task ws-media-queue-backpressure#T3.1: router callback using bounded writers
+// sendViaTunnel keeps the router callback contract while using the bounded
+// primary/secondary writers.
+func (s *Session) sendViaTunnel(packet []byte) error {
+	return s.dispatchPacket(packet)
 }
 
 // SetOnSecondaryLost registers a callback invoked after the secondary read-loop
@@ -325,8 +364,11 @@ func (s *Session) SetDemux(d *TunDemux) {
 // @sk-task dual-ws-channel#T2.2: bind secondary channel for UDP traffic (AC-002)
 // @sk-task dual-ws-channel#T3.1: late secondary bind — server binds after Run started (AC-001)
 func (s *Session) SetSecondary(sc StreamConn) {
-	s.secondary.Store(&sc)
+	s.initWriters()
 	s.secondaryGen.Add(1)
+	s.secondary.Store(nil)
+	s.secondaryWriter.clear()
+	s.secondary.Store(&sc)
 	if s.hasRunCtx() {
 		s.startSecondaryLoop()
 	}
@@ -337,97 +379,6 @@ func (s *Session) Done() <-chan struct{} {
 	return s.done
 }
 
-// @sk-task secondary-batching-fix#T1.1: batched secondary writer in its own goroutine (AC-002)
-// Runs independently of tunToWS so a slow/stuck secondary channel never blocks
-// the primary path. On write failure it stops and drops subsequent UDP rather
-// than freezing the tunnel.
-func (s *Session) startSecondaryWriter(ctx context.Context) {
-	const (
-		batchMaxBytes = 4096
-		writeTimeout  = time.Second
-	)
-	// @sk-task game-latency#T2.1: a non-positive hold flushes real-time UDP without
-	// waiting, coalescing only frames already queued at that moment (AC-002).
-	hold := s.secondaryBatchHold
-	go func() {
-		defer s.secondaryWriterActive.Store(false)
-		defer func() {
-			if r := recover(); r != nil {
-				s.logger.Error("secondary writer recovered from panic", zap.Any("panic", r))
-			}
-		}()
-		var (
-			batch   []byte
-			timer   *time.Timer
-			timerCh <-chan time.Time
-		)
-		flush := func() error {
-			if len(batch) == 0 {
-				return nil
-			}
-			data := batch
-			batch = batch[:0]
-			if timer != nil {
-				timer.Stop()
-				timer = nil
-				timerCh = nil
-			}
-			target := s.getSecondary()
-			if target == nil {
-				return nil
-			}
-			if err := target.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-				return err
-			}
-			return target.WriteMessage(data)
-		}
-		// drain coalesces frames that are already queued, without blocking.
-		drain := func() {
-			for len(batch) < batchMaxBytes {
-				select {
-				case f := <-s.secondaryCh:
-					batch = append(batch, f...)
-					framing.ReturnBuffer(f)
-				default:
-					return
-				}
-			}
-		}
-		for {
-			select {
-			case <-ctx.Done():
-				_ = flush()
-				return
-			case <-timerCh:
-				if err := flush(); err != nil {
-					s.logger.Warn("secondary writer failed, dropping UDP", zap.Error(err))
-					return
-				}
-			case frame := <-s.secondaryCh:
-				batch = append(batch, frame...)
-				framing.ReturnBuffer(frame)
-				if hold <= 0 {
-					drain()
-					if err := flush(); err != nil {
-						s.logger.Warn("secondary writer failed, dropping UDP", zap.Error(err))
-						return
-					}
-					continue
-				}
-				if len(batch) >= batchMaxBytes {
-					if err := flush(); err != nil {
-						s.logger.Warn("secondary writer failed, dropping UDP", zap.Error(err))
-						return
-					}
-				} else if timer == nil {
-					timer = time.NewTimer(hold)
-					timerCh = timer.C
-				}
-			}
-		}
-	}()
-}
-
 // @sk-task secondary-batching#T2.1: enable batched secondary writes (AC-001)
 func (s *Session) SetBatchMode(on bool) {
 	s.batchMode.Store(on)
@@ -436,15 +387,6 @@ func (s *Session) SetBatchMode(on bool) {
 // @sk-task secondary-batching#T2.1: report batched secondary write mode (AC-001)
 func (s *Session) BatchEnabled() bool {
 	return s.batchMode.Load()
-}
-
-// ensureSecondaryWriter lazily starts the batched writer goroutine. The guard
-// is a flag (not sync.Once) so the writer can restart after a secondary
-// re-bind, not just once per session.
-func (s *Session) ensureSecondaryWriter() {
-	if s.secondaryWriterActive.CompareAndSwap(false, true) {
-		s.startSecondaryWriter(s.getRunCtx())
-	}
 }
 
 // @sk-task dual-ws-channel#T3.1: secondary loop runs independently of the primary errgroup (AC-004)
@@ -473,8 +415,10 @@ func (s *Session) startSecondaryLoop() {
 		if s.secondaryGen.Load() == gen {
 			if sc := s.secondary.Load(); sc != nil {
 				_ = (*sc).Close()
-				s.secondary.Store(nil)
 			}
+			s.secondaryGen.Add(1)
+			s.secondary.Store(nil)
+			s.secondaryWriter.clear()
 		}
 		s.secondaryLoopActive.Store(false)
 
@@ -529,6 +473,7 @@ func (s *Session) Run(ctx context.Context) (err error) {
 		}
 	}()
 	defer s.doneOnce.Do(func() { close(s.done) })
+	s.initWriters()
 	s.startTunReader(ctx)
 	s.setRunCtx(ctx)
 	// @sk-task quic-datagrams#T3.2: resolve datagram capability and start the reader (AC-001)
@@ -539,6 +484,19 @@ func (s *Session) Run(ctx context.Context) (err error) {
 		s.startDatagramReader(ctx)
 	}
 	eg, ctx := errgroup.WithContext(ctx)
+	if s.writeErrCh != nil {
+		eg.Go(func() error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case werr := <-s.writeErrCh:
+				return werr
+			}
+		})
+	}
+	if s.logger != nil {
+		go s.logStats(ctx)
+	}
 	eg.Go(func() (err error) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -562,6 +520,46 @@ func (s *Session) Run(ctx context.Context) (err error) {
 		s.startSecondaryLoop()
 	}
 	return eg.Wait()
+}
+
+// @sk-task ws-media-queue-backpressure#T3.4: bounded-rate queue diagnostics (AC-007)
+func (s *Session) logStats(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			st := s.Stats()
+			s.logger.Debug("session queue stats",
+				zap.String("session_id", s.sessionID),
+				zap.Uint64("secondary_enqueued", st.Secondary.Enqueued),
+				zap.Uint64("secondary_dropped_full", st.Secondary.DroppedFull),
+				zap.Uint64("secondary_dropped_stale_age", st.Secondary.DroppedStaleAge),
+				zap.Uint64("secondary_dropped_stale_gen", st.Secondary.DroppedStaleGen),
+				zap.Uint64("secondary_write_errors", st.Secondary.WriteErrors),
+				zap.Int64("secondary_max_depth", st.Secondary.MaxDepth),
+				zap.Duration("secondary_max_write", time.Duration(st.Secondary.MaxWriteNanos)),
+				zap.Uint64("primary_dropped_full", st.Primary.DroppedFull),
+				zap.Uint64("primary_write_errors", st.Primary.WriteErrors),
+				zap.Int64("primary_max_depth", st.Primary.MaxDepth),
+				zap.Duration("primary_max_write", time.Duration(st.Primary.MaxWriteNanos)),
+				zap.Uint64("framing_errors", st.FramingErrors),
+			)
+		}
+	}
+}
+
+// @sk-task ws-media-queue-backpressure#T1.1: surface fatal primary write errors to Run
+func (s *Session) reportWriteError(err error) {
+	if s.writeErrCh == nil || err == nil {
+		return
+	}
+	select {
+	case s.writeErrCh <- err:
+	default:
+	}
 }
 
 func (s *Session) setRunCtx(ctx context.Context) {
@@ -719,7 +717,7 @@ func (s *Session) handleProxyFrame(ctx context.Context, f *framing.Frame) {
 		}
 		data, err := ack.Encode()
 		if err == nil {
-			_ = s.stream.WriteMessage(data)
+			_ = transport.WriteMessageWithDeadline(s.stream, data, time.Now().Add(s.tunnelTimeout))
 			framing.ReturnBuffer(data)
 		}
 		return
@@ -852,8 +850,7 @@ func (s *Session) writeProxyCloseFrame(sid uint32) {
 	binary.BigEndian.PutUint32(closeFrame.Payload[0:4], sid)
 	binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
 	if encoded, encErr := closeFrame.Encode(); encErr == nil {
-		_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
-		if err := s.stream.WriteMessage(encoded); err != nil {
+		if err := transport.WriteMessageWithDeadline(s.stream, encoded, time.Now().Add(s.tunnelTimeout)); err != nil {
 			s.logger.Warn("write close frame failed", zap.Error(err))
 		}
 		framing.ReturnBuffer(encoded)
@@ -890,8 +887,7 @@ func (s *Session) handleDNSFrame(ctx context.Context, payload []byte) {
 		return
 	}
 	defer framing.ReturnBuffer(encoded)
-	_ = s.stream.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	_ = s.stream.WriteMessage(encoded)
+	_ = transport.WriteMessageWithDeadline(s.stream, encoded, time.Now().Add(10*time.Second))
 }
 
 // @sk-task dns-upstreams-list#T2.2: forwardDNS with upstream list + fallback (AC-006)
@@ -950,8 +946,7 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 		binary.BigEndian.PutUint32(closeFrame.Payload[0:4], sid)
 		binary.BigEndian.PutUint16(closeFrame.Payload[4:6], 0)
 		if encoded, encErr := closeFrame.Encode(); encErr == nil {
-			_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
-			if err := s.stream.WriteMessage(encoded); err != nil {
+			if err := transport.WriteMessageWithDeadline(s.stream, encoded, time.Now().Add(s.tunnelTimeout)); err != nil {
 				s.logger.Debug("write close frame failed (stream closed)", zap.Error(err))
 			}
 			framing.ReturnBuffer(encoded)
@@ -993,13 +988,33 @@ func (s *Session) forwardProxyStream(sid uint32, tcp net.Conn, dst string, paren
 		if err != nil {
 			return
 		}
-		_ = s.stream.SetWriteDeadline(time.Now().Add(s.tunnelTimeout))
-		if err := s.stream.WriteMessage(encoded); err != nil {
+		if err := transport.WriteMessageWithDeadline(s.stream, encoded, time.Now().Add(s.tunnelTimeout)); err != nil {
 			framing.ReturnBuffer(encoded)
 			return
 		}
 		framing.ReturnBuffer(encoded)
 	}
+}
+
+// @sk-task ws-media-queue-backpressure#T3.2: strict framing check for a full
+// no-pad batch; rejects partial frames, trailing bytes and non-data frames (AC-005)
+func validateSecondaryBatch(data []byte) error {
+	for len(data) > 0 {
+		if len(data) < framing.FrameHeaderSize {
+			return fmt.Errorf("secondary framing: %d trailing bytes", len(data))
+		}
+		frameType := data[0]
+		length := int(binary.BigEndian.Uint16(data[2:4]))
+		if frameType != framing.FrameTypeData && frameType != framing.FrameTypeClose {
+			return fmt.Errorf("secondary framing: unexpected frame type %d", frameType)
+		}
+		next := framing.FrameHeaderSize + length
+		if next > len(data) {
+			return fmt.Errorf("secondary framing: frame length %d exceeds remaining %d", length, len(data)-framing.FrameHeaderSize)
+		}
+		data = data[next:]
+	}
+	return nil
 }
 
 // @sk-task dual-ws-channel#T2.2: secondary read-loop — FrameTypeData → decrypt → TUN (AC-002)
@@ -1058,11 +1073,18 @@ func (s *Session) secondaryToTun(ctx context.Context) error {
 			}
 			return err
 		}
+		// @sk-task ws-media-queue-backpressure#T3.2: validate the whole message
+		// before writing anything to TUN (AC-005)
+		if verr := validateSecondaryBatch(data); verr != nil {
+			s.stats.framingErrors.Add(1)
+			return verr
+		}
 		// @sk-task secondary-batching#T2.2: decode every frame in a batched WS message (AC-003)
 		for len(data) >= framing.FrameHeaderSize {
 			var f framing.Frame
 			if err := f.Decode(data); err != nil {
-				return err
+				s.stats.framingErrors.Add(1)
+				return fmt.Errorf("secondary framing: %w", err)
 			}
 			data = data[framing.FrameHeaderSize+int(f.Length):]
 			if f.Type == framing.FrameTypeClose {
@@ -1071,7 +1093,8 @@ func (s *Session) secondaryToTun(ctx context.Context) error {
 			}
 			if f.Type != framing.FrameTypeData {
 				f.Release()
-				continue
+				s.stats.framingErrors.Add(1)
+				return fmt.Errorf("secondary framing: unexpected frame type %d", f.Type)
 			}
 			if s.cipher != nil {
 				decrypted, err := s.cipher.Decrypt(f.Payload)
@@ -1113,6 +1136,10 @@ func (s *Session) secondaryToTun(ctx context.Context) error {
 				return err
 			}
 			f.Release()
+		}
+		if len(data) != 0 {
+			s.stats.framingErrors.Add(1)
+			return fmt.Errorf("secondary framing: %d trailing bytes", len(data))
 		}
 	}
 }
@@ -1156,63 +1183,10 @@ func (s *Session) tunToWS(ctx context.Context) error {
 				time.Sleep(delay)
 			}
 		}
-		// @sk-task quic-datagrams#T3.1: real-time UDP prefers the unreliable datagram path (AC-001)
-		if handled, derr := s.sendDatagram(payload); handled {
-			if derr != nil {
-				s.logger.Debug("datagram send error", zap.Error(derr))
-			}
-			putTunReadBuf(r.buf)
-			continue
+		// @sk-task ws-media-queue-backpressure#T3.1: enqueue without blocking on a channel write (AC-004)
+		if derr := s.dispatchPacket(payload); derr != nil {
+			s.logger.Debug("dispatch packet error", zap.Error(derr))
 		}
-		target := s.stream
-		toSecondary := false
-		if secondary := s.getSecondary(); secondary != nil && parseIPProto(payload) {
-			target = secondary
-			toSecondary = true
-		}
-		if s.cipher != nil {
-			encrypted, err := s.cipher.Encrypt(payload)
-			if err != nil {
-				s.logger.Error("encrypt failed, dropping packet", zap.Error(err))
-				putTunReadBuf(r.buf)
-				continue
-			}
-			payload = encrypted
-		}
-		f := framing.Frame{
-			Type:    framing.FrameTypeData,
-			Flags:   framing.FrameFlagNone,
-			Payload: payload,
-		}
-		data, err := f.Encode()
-		if err != nil {
-			putTunReadBuf(r.buf)
-			return err
-		}
-		// @sk-task secondary-batching-fix#T1.1: hand frame to the dedicated writer; never block primary on a stuck secondary (AC-002)
-		if toSecondary && s.BatchEnabled() {
-			s.ensureSecondaryWriter()
-			select {
-			case s.secondaryCh <- data:
-				// ownership transferred to the writer goroutine
-			default:
-				// writer busy/backlogged — drop the UDP packet instead of stalling
-				framing.ReturnBuffer(data)
-			}
-			putTunReadBuf(r.buf)
-			continue
-		}
-		if err := target.SetWriteDeadline(time.Now().Add(s.tunnelTimeout)); err != nil {
-			framing.ReturnBuffer(data)
-			putTunReadBuf(r.buf)
-			return err
-		}
-		if err := target.WriteMessage(data); err != nil {
-			framing.ReturnBuffer(data)
-			putTunReadBuf(r.buf)
-			return err
-		}
-		framing.ReturnBuffer(data)
 		putTunReadBuf(r.buf)
 	}
 }

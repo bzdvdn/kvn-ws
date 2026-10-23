@@ -190,6 +190,7 @@ ${NETWORK_YAML}
 session:
   max_clients: 100
   idle_timeout_sec: 120
+  secondary_batch_hold_ms: 2
 rate_limiting:
   packets_per_sec: 40000
 origin:

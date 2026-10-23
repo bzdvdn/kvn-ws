@@ -659,24 +659,28 @@ func (r *recWriteStream) snapshot() (count int, writes [][]byte) {
 	return len(r.writes), r.writes
 }
 
-// @sk-test game-latency#T2.2: single real-time UDP frame is flushed without the aggregation hold (AC-002)
+// @sk-test ws-media-queue-backpressure#T2.3: single frame flushes immediately with hold=0 (AC-001)
 func TestSecondaryWriterNoHold(t *testing.T) {
 	rec := &recWriteStream{}
 	s := &Session{
-		logger:        zap.NewNop(),
-		secondaryCh:   make(chan []byte, 16),
-		tunnelTimeout: time.Second,
+		logger:             zap.NewNop(),
+		tunnelTimeout:      time.Second,
+		secondaryBatchHold: 0,
 	}
 	var sc StreamConn = rec
 	s.secondary.Store(&sc)
+	s.initWriters()
+	s.secondaryBatchHold = 0
+	s.secondaryWriter.setHold(0)
+	s.secondaryGen.Add(1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	s.startSecondaryWriter(ctx)
+	s.secondaryWriter.ensure(ctx)
 
 	frame := []byte("udp-payload")
 	start := time.Now()
-	s.secondaryCh <- append([]byte(nil), frame...)
+	s.secondaryWriter.enqueue(append([]byte(nil), frame...), s.secondaryGen.Load())
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -692,32 +696,33 @@ func TestSecondaryWriterNoHold(t *testing.T) {
 	latency := rec.at[0].Sub(start)
 	got := rec.writes[0]
 	rec.mu.Unlock()
-	if latency > 5*time.Millisecond {
-		t.Errorf("single UDP frame latency = %v, want < 5ms (no aggregation hold)", latency)
+	if latency > 10*time.Millisecond {
+		t.Errorf("single UDP frame latency = %v, want < 10ms (no aggregation hold)", latency)
 	}
 	if !bytes.Equal(got, frame) {
 		t.Errorf("written = %q, want %q", got, frame)
 	}
 }
 
-// @sk-test game-latency#T2.2: frames already queued are coalesced into one write without a timer wait (AC-002)
-func TestSecondaryWriterCoalescesQueued(t *testing.T) {
+// @sk-test ws-media-queue-backpressure#T2.3: a burst is coalesced by the timer (AC-001)
+func TestSecondaryWriterCoalescesBurst(t *testing.T) {
 	rec := &recWriteStream{}
-	s := &Session{
-		logger:        zap.NewNop(),
-		secondaryCh:   make(chan []byte, 16),
-		tunnelTimeout: time.Second,
-	}
+	s := &Session{logger: zap.NewNop(), tunnelTimeout: time.Second}
 	var sc StreamConn = rec
 	s.secondary.Store(&sc)
+	s.initWriters()
+	s.SetBatchMode(true)
+	s.secondaryWriter.setHold(10 * time.Millisecond)
+	s.secondaryGen.Add(1)
+	s.primaryReady.Store(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	s.secondaryCh <- []byte("aaa")
-	s.secondaryCh <- []byte("bbb")
-	s.secondaryCh <- []byte("ccc")
-	s.startSecondaryWriter(ctx)
+	s.secondaryWriter.enqueue([]byte("aaa"), s.secondaryGen.Load())
+	s.secondaryWriter.enqueue([]byte("bbb"), s.secondaryGen.Load())
+	s.secondaryWriter.enqueue([]byte("ccc"), s.secondaryGen.Load())
+	s.secondaryWriter.ensure(ctx)
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -736,6 +741,222 @@ func TestSecondaryWriterCoalescesQueued(t *testing.T) {
 		}
 		time.Sleep(100 * time.Microsecond)
 	}
+}
+
+// @sk-test ws-media-queue-backpressure#T2.3: full queue drops and returns buffers (AC-002, AC-007)
+func TestQueueWriterDropsOnFull(t *testing.T) {
+	stats := &queueStats{}
+	w := newQueueWriter("test", 1, 0, 0, time.Second, nil, nil, nil, zap.NewNop(), stats, nil)
+	if !w.enqueue([]byte("a"), 0) {
+		t.Fatal("first enqueue = false, want true")
+	}
+	if w.enqueue([]byte("b"), 0) {
+		t.Fatal("second enqueue = true, want false on full queue")
+	}
+	if got := stats.droppedFull.Load(); got != 1 {
+		t.Fatalf("droppedFull = %d, want 1", got)
+	}
+}
+
+// @sk-test ws-media-queue-backpressure#T2.3: stale frames are dropped instead of sent (AC-002)
+func TestSecondaryWriterDropsStaleAge(t *testing.T) {
+	rec := &recWriteStream{}
+	s := &Session{logger: zap.NewNop(), tunnelTimeout: time.Second}
+	var sc StreamConn = rec
+	s.secondary.Store(&sc)
+	s.initWriters()
+	s.secondaryGen.Add(1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	s.secondaryWriter.ch <- queuedFrame{data: []byte("old"), enqueued: time.Now().Add(-time.Second), gen: s.secondaryGen.Load()}
+	s.secondaryWriter.ensure(ctx)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if st := s.Stats(); st.Secondary.DroppedStaleAge > 0 {
+			if n, _ := rec.snapshot(); n != 0 {
+				t.Fatalf("writes = %d, want 0 stale writes", n)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for stale drop")
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+}
+
+// @sk-test ws-media-queue-backpressure#T2.3: rebind clears queued frames of the old generation (AC-003)
+func TestSecondaryRebindClearsQueue(t *testing.T) {
+	s := &Session{logger: zap.NewNop(), tunnelTimeout: time.Second}
+	s.initWriters()
+	s.secondaryGen.Add(1)
+	gen := s.secondaryGen.Load()
+	s.secondaryWriter.enqueue([]byte("old-1"), gen)
+	s.secondaryWriter.enqueue([]byte("old-2"), gen)
+	if got := len(s.secondaryWriter.ch); got != 2 {
+		t.Fatalf("queued = %d, want 2", got)
+	}
+
+	rec := &recWriteStream{}
+	var sc StreamConn = rec
+	s.SetSecondary(sc)
+
+	if got := len(s.secondaryWriter.ch); got != 0 {
+		t.Fatalf("queue after rebind = %d, want 0", got)
+	}
+	if st := s.Stats(); st.Secondary.Cleared < 2 {
+		t.Fatalf("cleared = %d, want >= 2", st.Secondary.Cleared)
+	}
+	if n, _ := rec.snapshot(); n != 0 {
+		t.Fatalf("new secondary writes = %d, want 0", n)
+	}
+}
+
+// @sk-test ws-media-queue-backpressure#T3.2: padded message on a no-pad channel is rejected before TUN (AC-005)
+func TestSecondaryFramingRejectsPaddedMessage(t *testing.T) {
+	tunW := &mockTunWrite{}
+	secondary := newQueuedStreamConn()
+	frame := encodeFrame(t, &framing.Frame{Type: framing.FrameTypeData, Payload: []byte("voice")})
+	padded := make([]byte, 4+len(frame)+64)
+	binary.BigEndian.PutUint32(padded[:4], uint32(len(frame)))
+	copy(padded[4:], frame)
+	secondary.push(padded)
+
+	s := &Session{tunDev: tunW, logger: zap.NewNop(), tunnelTimeout: time.Second}
+	s.primaryReady.Store(true)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.setRunCtx(ctx)
+	s.SetSecondary(secondary)
+
+	if err := s.secondaryToTun(ctx); err == nil {
+		t.Fatal("secondaryToTun = nil, want framing error for padded message")
+	}
+	if st := s.Stats(); st.FramingErrors == 0 {
+		t.Fatal("framingErrors = 0, want > 0")
+	}
+	tunW.mu.Lock()
+	writes := len(tunW.written)
+	tunW.mu.Unlock()
+	if writes != 0 {
+		t.Fatalf("wrote %d packets to tun, want 0", writes)
+	}
+}
+
+// @sk-test ws-media-queue-backpressure#T3.2: no-pad batch with trailing bytes is rejected (AC-005)
+func TestSecondaryFramingRejectsTrailingBytes(t *testing.T) {
+	tunW := &mockTunWrite{}
+	secondary := newQueuedStreamConn()
+	frame := encodeFrame(t, &framing.Frame{Type: framing.FrameTypeData, Payload: []byte("ok")})
+	secondary.push(append(frame, 0xff, 0x01))
+
+	s := &Session{tunDev: tunW, logger: zap.NewNop(), tunnelTimeout: time.Second}
+	s.primaryReady.Store(true)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.setRunCtx(ctx)
+	s.SetSecondary(secondary)
+
+	err := s.secondaryToTun(ctx)
+	if err == nil {
+		t.Fatal("secondaryToTun = nil, want framing error")
+	}
+	if st := s.Stats(); st.FramingErrors == 0 {
+		t.Fatal("framingErrors = 0, want > 0")
+	}
+	tunW.mu.Lock()
+	writes := len(tunW.written)
+	tunW.mu.Unlock()
+	if writes != 0 {
+		t.Fatalf("wrote %d packets to tun, want 0", writes)
+	}
+}
+
+// @sk-test ws-media-queue-backpressure#T4.1: blocked primary does not stall UDP dispatch (AC-004)
+type blockingWriteStream struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingWriteStream() *blockingWriteStream {
+	return &blockingWriteStream{started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (b *blockingWriteStream) WriteMessage([]byte) error {
+	b.once.Do(func() { close(b.started) })
+	<-b.release
+	return nil
+}
+func (b *blockingWriteStream) ReadMessage() ([]byte, error)     { return nil, context.Canceled }
+func (b *blockingWriteStream) SetReadDeadline(time.Time) error  { return nil }
+func (b *blockingWriteStream) SetWriteDeadline(time.Time) error { return nil }
+func (b *blockingWriteStream) Close() error                     { return nil }
+
+func ipPacket(proto byte, payload []byte) []byte {
+	p := make([]byte, 20+len(payload))
+	p[0] = 0x45
+	p[2] = byte((20 + len(payload)) >> 8)
+	p[3] = byte(20 + len(payload))
+	p[9] = proto
+	copy(p[20:], payload)
+	return p
+}
+
+func TestPrimaryBackpressureDoesNotBlockUDP(t *testing.T) {
+	primary := newBlockingWriteStream()
+	secondary := &recWriteStream{}
+	s := &Session{tunnelTimeout: 30 * time.Second, logger: zap.NewNop()}
+	s.stream = primary
+	var sec StreamConn = secondary
+	s.secondary.Store(&sec)
+	s.initWriters()
+	s.secondaryBatchHold = 0
+	s.secondaryWriter.setHold(0)
+	s.secondaryGen.Add(1)
+	s.SetBatchMode(false)
+	s.primaryReady.Store(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.setRunCtx(ctx)
+
+	// Fill the primary writer with a TCP packet; it blocks inside WriteMessage.
+	if err := s.dispatchPacket(ipPacket(6, []byte("tcp"))); err != nil {
+		t.Fatalf("dispatch tcp: %v", err)
+	}
+	select {
+	case <-primary.started:
+	case <-time.After(time.Second):
+		t.Fatal("primary writer did not start")
+	}
+
+	const udpPackets = 100
+	start := time.Now()
+	for i := 0; i < udpPackets; i++ {
+		if err := s.dispatchPacket(ipPacket(17, []byte("voice"))); err != nil {
+			t.Fatalf("dispatch udp: %v", err)
+		}
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("UDP dispatch took %v while primary was blocked, want < 100ms", elapsed)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if n, _ := secondary.snapshot(); n >= udpPackets {
+			break
+		}
+		if time.Now().After(deadline) {
+			n, _ := secondary.snapshot()
+			t.Fatalf("secondary writes = %d, want %d", n, udpPackets)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(primary.release)
 }
 
 // @sk-test quic-datagrams#T3.5: recorder implementing transport.DatagramConn

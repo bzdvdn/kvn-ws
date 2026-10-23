@@ -14,6 +14,7 @@
 - Подпакеты `websocket` и `quic` в своих `init()` вызывают `transport.Register("ws"/"quic", ...)`; регистрирующий код должен быть импортирован (клиент делает blank-import).
 - `NewFactory(typeStr, cfg)` нормализует `""`/`"tcp"` → `"ws"`; неизвестное имя **молча** даёт `"ws"`, отсутствие `"ws"` — `nil`.
 - `FactoryConfig` — общий набор настроек: TLS, logger, `MaxMessageSize`, keepalive, `Multiplex`, `MTU`, uTLS, padding, `RequestNoPad`, `Obfuscation`.
+- `DeadlineWriter`/`WriteMessageWithDeadline` — optional deadline-safe запись: WS ставит дедлайн и пишет под одним `writeMu`, остальные падают в `SetWriteDeadline` + `WriteMessage`.
 - `FallbackFactory.Dial` пробует primary, при ошибке логирует warn и вызывает secondary; `Listen` всегда идёт только в primary.
 - `CountingStreamConn` встраивает `StreamConn`, считает байты payload'а (длина сообщения, не провод) и пробрасывает `DatagramConn` через type assertion.
 - `ReadMessage`/`WriteMessage` — message-oriented API: валидная реализация обязана сохранять границы сообщений (WS — binary frame, QUIC — 4-байтовый length prefix).

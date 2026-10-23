@@ -24,6 +24,8 @@ export interface ClientConfig {
   multi_channel?: boolean;
   // @sk-task quic-datagrams#T4.3: QUIC datagrams for real-time UDP (AC-001)
   udp_datagrams?: boolean;
+  // @sk-task ws-media-queue-backpressure#T4.2: secondary UDP batching window (AC-001)
+  secondary_batch_hold_ms?: number;
   max_message_size?: number;
   tunnel_timeout?: number;
   proxy_listen?: string;

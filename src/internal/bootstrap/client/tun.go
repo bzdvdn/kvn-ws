@@ -128,6 +128,7 @@ func (c *Client) runSession(ctx context.Context, tunDev tun.TunDevice, stream tu
 
 	tunSess := tunnel.NewSession(tunDev, stream, nil, serverHello.SessionId, "", nil, nil, nil, c.logger, tcfg.sessionCipher, nil,
 		time.Duration(c.cfg.TunnelTimeout)*time.Second, c.cfg.ProxyMaxConcurrency, nil, nil, nil)
+	tunSess.SetSecondaryBatchHold(c.cfg.SecondaryBatchHold())
 	// @sk-task quic-datagrams#T3.4: enable datagram path when the server confirmed it (AC-001)
 	datagramsOK := c.cfg.UDPDatagramsEnabled() && quictp.DatagramCapable(serverHello.Transport)
 	tunSess.SetDatagrams(datagramsOK)

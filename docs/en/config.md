@@ -24,6 +24,7 @@ kvn-ws uses YAML configuration files for both server and client.
 | `network.pool_ipv6.range_end` | string | broadcast-1 | Last allocatable IPv6 address |
 | `session.max_clients` | int | `100` | Maximum concurrent client sessions |
 | `session.idle_timeout_sec` | int | `120` | Session idle timeout in seconds (0 = no timeout) |
+| `session.secondary_batch_hold_ms` | int | `2` | Secondary UDP batching window in ms (0 = no hold, max 10) |
 | `session.expiry.session_ttl_sec` | int | `86400` | Absolute session TTL in seconds |
 | `session.expiry.reclaim_interval_sec` | int | `10` | Reclaim loop interval in seconds |
 | `auth.mode` | string | `token` | Authentication mode (`token`, `jwt`, `basic`) |
@@ -115,6 +116,7 @@ logging:
 | `multiplex` | bool | `false` | Enable WebSocket multiplexing |
 | `multi_channel` | bool | `true` | Second WebSocket channel for UDP traffic (VoIP/media): routes UDP out of the shared stream to remove head-of-line blocking (recommended — enabled in the provided configs). Backward compatible with older servers/clients (without the flag it works as a single channel) |
 | `udp_datagrams` | bool | `true` | Real-time UDP over unreliable QUIC datagrams (games/VoIP) without retransmit or head-of-line blocking; enabled only when both peers support it and `transport: quic`, otherwise UDP uses the stream |
+| `secondary_batch_hold_ms` | int | `2` | Secondary UDP batching window in ms (0 = no hold, max 10) |
 | `crypto.enabled` | bool | `false` | Enable app-layer AES-256-GCM encryption |
 | `crypto.key` | string | `""` | 256-bit master key as 64 hex chars (must match server) |
 | `proxy_listen` | string | `127.0.0.1:2310` | SOCKS5/HTTP proxy listen address (proxy mode only) |
