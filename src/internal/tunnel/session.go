@@ -540,11 +540,11 @@ func (s *Session) logStats(ctx context.Context) {
 				zap.Uint64("secondary_dropped_stale_gen", st.Secondary.DroppedStaleGen),
 				zap.Uint64("secondary_write_errors", st.Secondary.WriteErrors),
 				zap.Int64("secondary_max_depth", st.Secondary.MaxDepth),
-				zap.Duration("secondary_max_write", time.Duration(st.Secondary.MaxWriteNanos)),
+				zap.Uint64("secondary_max_write_ns", st.Secondary.MaxWriteNanos),
 				zap.Uint64("primary_dropped_full", st.Primary.DroppedFull),
 				zap.Uint64("primary_write_errors", st.Primary.WriteErrors),
 				zap.Int64("primary_max_depth", st.Primary.MaxDepth),
-				zap.Duration("primary_max_write", time.Duration(st.Primary.MaxWriteNanos)),
+				zap.Uint64("primary_max_write_ns", st.Primary.MaxWriteNanos),
 				zap.Uint64("framing_errors", st.FramingErrors),
 			)
 		}
