@@ -486,6 +486,22 @@ export default function TabbedForm(props: TabbedFormProps) {
           <span style={labelStyle()}>Proxy Connections</span>
           <input style={inputStyle} type="number" value={serverConfig.proxy_connections || 10} onChange={(e) => props.onUpdateServer("proxy_connections", parseInt(e.target.value) || 10)} />
         </div>
+        <div style={fieldStyle()}>
+          {/* @sk-task ws-media-queue-backpressure#T4.2: secondary batching hold (AC-001) */}
+          <span style={labelStyle()}>Secondary Batch Hold (ms)</span>
+          <input
+            style={inputStyle}
+            type="number"
+            min={0}
+            max={10}
+            value={serverConfig.secondary_batch_hold_ms ?? globalConfig.secondary_batch_hold_ms ?? 2}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              props.onUpdateServer("secondary_batch_hold_ms", Number.isNaN(v) ? 2 : Math.max(0, Math.min(10, v)));
+            }}
+          />
+          <span style={{ fontSize: 10, color: colors.textDim }}>UDP coalescing on secondary; 0 = immediate</span>
+        </div>
       </div>
 
       {serverConfig.obfuscation?.enabled && (
@@ -573,6 +589,22 @@ export default function TabbedForm(props: TabbedFormProps) {
           <input type="checkbox" checked={globalConfig.udp_datagrams ?? true} onChange={(e) => props.onUpdateGlobal("udp_datagrams", e.target.checked)} style={{ accentColor: colors.accent }} />
           <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>UDP Datagrams</div><div style={{ fontSize: 10, color: colors.textDim }}>QUIC unreliable UDP (games/VoIP)</div></div>
         </label>
+      </div>
+      <div style={fieldStyle()}>
+        {/* @sk-task ws-media-queue-backpressure#T4.2: global secondary batching hold (AC-001) */}
+        <span style={labelStyle()}>Secondary Batch Hold (ms)</span>
+        <input
+          style={inputStyle}
+          type="number"
+          min={0}
+          max={10}
+          value={globalConfig.secondary_batch_hold_ms ?? 2}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            props.onUpdateGlobal("secondary_batch_hold_ms", Number.isNaN(v) ? 2 : Math.max(0, Math.min(10, v)));
+          }}
+        />
+        <span style={{ fontSize: 10, color: colors.textDim }}>UDP coalescing on secondary; 0 = immediate, max 10</span>
       </div>
 
       <div style={subTitleStyle}>DNS</div>

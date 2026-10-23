@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
@@ -54,6 +55,8 @@ type ClientConfig struct {
 	MultiChannel bool `json:"multi_channel" mapstructure:"multi_channel"`
 	// @sk-task quic-datagrams#T3.4: unreliable QUIC datagrams for real-time UDP (AC-001)
 	UDPDatagrams *bool `json:"udp_datagrams,omitempty" mapstructure:"udp_datagrams"`
+	// @sk-task ws-media-queue-backpressure#T2.2: secondary batching window in ms (AC-001)
+	SecondaryBatchHoldMS *int `json:"secondary_batch_hold_ms,omitempty" yaml:"secondary_batch_hold_ms,omitempty" mapstructure:"secondary_batch_hold_ms"`
 }
 
 // @sk-task quic-datagrams#T3.4: datagram mode defaults to enabled (AC-001)
@@ -62,6 +65,21 @@ func (c *ClientConfig) UDPDatagramsEnabled() bool {
 		return true
 	}
 	return *c.UDPDatagrams
+}
+
+// @sk-task ws-media-queue-backpressure#T2.2: secondary batching window default 2ms (AC-001)
+func (c *ClientConfig) SecondaryBatchHold() time.Duration {
+	ms := 2
+	if c.SecondaryBatchHoldMS != nil {
+		ms = *c.SecondaryBatchHoldMS
+	}
+	if ms < 0 {
+		ms = 0
+	}
+	if ms > 10 {
+		ms = 10
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // @sk-task client-relay-mode#T1.1: relay config struct (AC-003)

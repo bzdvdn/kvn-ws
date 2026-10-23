@@ -32,7 +32,7 @@
 - Загрузчики: `LoadClientConfig(path)`, `LoadServerConfig(path)`, `LoadRelayConfig(path)`, `LoadWebUIConfig(path)`; сохранение — `SaveClientConfig`, `SaveWebUIConfig` (обе создают каталог и пишут `0600`).
 - Нормализация: `SetClientDefaults(*ClientConfig)` — вызывают и CLI, и Web UI перед показом/сохранением.
 - Значения по умолчанию: `DefaultDNSUpstreams`, `DefaultExcludeRanges`, `DefaultServerMTU`.
-- Хелперы: `(*ClientConfig).UDPDatagramsEnabled()` (nil → true), `(*ServerConfig).UDPDatagramsEnabled()`, `SourceRule.Type/Value/Valid`, `(*PaddingCfg).RealtimeUnpaddedEnabled()`.
+- Хелперы: `(*ClientConfig).UDPDatagramsEnabled()` (nil → true), `(*ClientConfig).SecondaryBatchHold()` / `(*SessionCfg).SecondaryBatchHold()` (default 2 мс, clamp 0..10), `(*ServerConfig).UDPDatagramsEnabled()`, `SourceRule.Type/Value/Valid`, `(*PaddingCfg).RealtimeUnpaddedEnabled()`.
 - JSON-теги — фактический контракт для Web UI/desktop API; YAML-теги — для файлов конфигурации.
 
 ## Dependencies

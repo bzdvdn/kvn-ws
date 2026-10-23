@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4.1] 2026-10-23
+
+### Fixed
+
+- **WS: возвращены управляемый batching и защита очередей real-time UDP** — `secondaryBatchHold` больше не равен нулю: окно агрегации настраивается (`secondary_batch_hold_ms`, default `2` мс, `0` — без удержания). Очереди primary/secondary ограничены 512 кадрами, кадры старше 100 мс и кадры старого поколения после rebind дропаются, а не отправляются. При ошибке writer'а очередь очищается и буферы возвращаются в пул. Primary TUN-трафик уходит через отдельный writer, поэтому затор primary больше не блокирует постановку UDP в secondary.
+- **WS: строгая валидация no-pad batch** — `secondaryToTun` проверяет весь batch до записи в TUN: trailing bytes, неизвестный тип кадра и неверная длина закрывают secondary с записью `framing_errors`, а не пишут мусор в TUN.
+- **WS: deadline data-записи не сбрасывается ping'ом** — добавлена deadline-safe запись (`WriteMessageWithDeadline`), поэтому control-ping не может обнулить таймаут data-записи и подвесить writer.
+
+### Added
+
+- Счётчики `SessionStats`: глубина очередей, дропы (full/stale/exit), ошибки записи, framing errors и max write duration; rate-limited логи дропов и debug-сводка раз в 10 с.
+- Конфиг `secondary_batch_hold_ms` (клиент) и `session.secondary_batch_hold_ms` (сервер).
+- kvn-web: поле «Secondary Batch Hold (ms)» на вкладках Advanced (per-server) и Global; `0` сохраняется как явное значение, диапазон 0–10.
+
 ## [1.4.0] 2026-10-10
 
 ### Added

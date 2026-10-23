@@ -1102,6 +1102,41 @@ func TestDialContextCancel(t *testing.T) {
 	}
 }
 
+// @sk-test ws-media-queue-backpressure#T3.3: deadline write cannot hang when peer stops reading (AC-008)
+func TestWriteMessageWithDeadlineHonorsDeadline(t *testing.T) {
+	done := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r, nopLogger)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		<-done
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	client, err := Dial(wsURL, nil, nopLogger)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	payload := make([]byte, 8<<20)
+	start := time.Now()
+	err = client.WriteMessageWithDeadline(payload, time.Now().Add(50*time.Millisecond))
+	elapsed := time.Since(start)
+	close(done)
+	if err == nil {
+		t.Fatal("WriteMessageWithDeadline = nil, want timeout")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("deadline write took %v, want bounded by timeout", elapsed)
+	}
+}
+
 // @sk-test game-latency#T3.5: unpadded secondary negotiated when both peers support it (AC-001)
 func TestNoPadNegotiationAccepted(t *testing.T) {
 	serverCh := make(chan *WSConn, 1)

@@ -95,6 +95,23 @@ type SessionCfg struct {
 	MaxClients     int               `mapstructure:"max_clients"`
 	IdleTimeoutSec int               `mapstructure:"idle_timeout_sec"`
 	Expiry         *SessionExpiryCfg `mapstructure:"expiry"`
+	// @sk-task ws-media-queue-backpressure#T2.2: secondary batching window in ms (AC-001)
+	SecondaryBatchHoldMS *int `yaml:"secondary_batch_hold_ms,omitempty" mapstructure:"secondary_batch_hold_ms"`
+}
+
+// @sk-task ws-media-queue-backpressure#T2.2: secondary batching window default 2ms (AC-001)
+func (s *SessionCfg) SecondaryBatchHold() time.Duration {
+	ms := 2
+	if s.SecondaryBatchHoldMS != nil {
+		ms = *s.SecondaryBatchHoldMS
+	}
+	if ms < 0 {
+		ms = 0
+	}
+	if ms > 10 {
+		ms = 10
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // @sk-task security-acl#T1: TokenCfg with per-token limits

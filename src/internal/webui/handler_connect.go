@@ -195,6 +195,10 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	if server.UDPDatagrams != nil {
 		merged.UDPDatagrams = server.UDPDatagrams
 	}
+	// @sk-task ws-media-queue-backpressure#T2.2: per-server batching window (AC-001)
+	if server.SecondaryBatchHoldMS != nil {
+		merged.SecondaryBatchHoldMS = server.SecondaryBatchHoldMS
+	}
 	if server.Transparent {
 		merged.Transparent = true
 	}

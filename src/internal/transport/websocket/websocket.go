@@ -235,7 +235,22 @@ func (c *WSConn) ReadMessage() ([]byte, error) {
 func (c *WSConn) WriteMessage(data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	return c.writeMessageLocked(data)
+}
 
+// @sk-task ws-media-queue-backpressure#T3.3: set deadline and write under one
+// lock so a control ping cannot reset the data write deadline (AC-008)
+func (c *WSConn) WriteMessageWithDeadline(data []byte, deadline time.Time) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if err := c.conn.SetWriteDeadline(deadline); err != nil {
+		return err
+	}
+	return c.writeMessageLocked(data)
+}
+
+// @sk-task ws-media-queue-backpressure#T3.3: write under the caller-held write lock
+func (c *WSConn) writeMessageLocked(data []byte) error {
 	if c.paddingEnabled.Load() {
 		payloadLen := len(data)
 		if payloadLen > math.MaxUint32 {

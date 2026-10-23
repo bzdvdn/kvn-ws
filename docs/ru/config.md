@@ -24,6 +24,7 @@ kvn-ws использует YAML-файлы конфигурации для се
 | `network.pool_ipv6.range_end` | string | broadcast-1 | Последний выделяемый IPv6 адрес |
 | `session.max_clients` | int | `100` | Максимальное количество одновременных сессий |
 | `session.idle_timeout_sec` | int | `120` | Таймаут бездействия сессии в секундах (0 = отключён) |
+| `session.secondary_batch_hold_ms` | int | `2` | Окно агрегации UDP-кадров secondary-канала в мс (0 = без удержания, максимум 10) |
 | `session.expiry.session_ttl_sec` | int | `86400` | Абсолютный TTL сессии в секундах |
 | `session.expiry.reclaim_interval_sec` | int | `10` | Интервал цикла очистки сессий |
 | `auth.mode` | string | `token` | Режим аутентификации (`token`, `jwt`, `basic`) |
@@ -115,6 +116,7 @@ logging:
 | `multiplex` | bool | `false` | Включить мультиплексирование WebSocket |
 | `multi_channel` | bool | `true` | Второй WebSocket-канал для UDP-трафика (VoIP/медиа): выносит UDP из общего потока, снимая head-of-line blocking (рекомендуется — включено в поставляемых конфигах). Обратно совместимо со старыми серверами/клиентами (без флага работает как одиночный канал) |
 | `udp_datagrams` | bool | `true` | Real-time UDP через unreliable QUIC datagrams (игры/VoIP) без ретрансмита и head-of-line blocking; включается только при обоюдной поддержке и `transport: quic`, иначе UDP идёт по stream |
+| `secondary_batch_hold_ms` | int | `2` | Окно агрегации UDP-кадров secondary-канала в мс (0 = без удержания, максимум 10) |
 | `crypto.enabled` | bool | `false` | Включить шифрование AES-256-GCM |
 | `crypto.key` | string | `""` | 256-битный мастер-ключ, 64 hex символа (должен совпадать с серверным) |
 | `proxy_listen` | string | `127.0.0.1:2310` | Адрес SOCKS5/HTTP прокси (только режим proxy) |

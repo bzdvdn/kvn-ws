@@ -704,3 +704,25 @@ func TestDefaultDNSUpstreams(t *testing.T) {
 		t.Errorf("DefaultDNSUpstreams[0] = %q, want %q", DefaultDNSUpstreams[0], "1.1.1.1:53")
 	}
 }
+
+// @sk-test ws-media-queue-backpressure#T2.2: secondary batching hold defaults and clamps (AC-001)
+func TestSecondaryBatchHoldDefaultAndClamp(t *testing.T) {
+	def := 2
+	if got := (&ClientConfig{}).SecondaryBatchHold().Milliseconds(); got != int64(def) {
+		t.Fatalf("client default hold = %dms, want %dms", got, def)
+	}
+	zero := 0
+	if got := (&ClientConfig{SecondaryBatchHoldMS: &zero}).SecondaryBatchHold().Milliseconds(); got != 0 {
+		t.Fatalf("client zero hold = %dms, want 0ms", got)
+	}
+	high := 99
+	if got := (&ClientConfig{SecondaryBatchHoldMS: &high}).SecondaryBatchHold().Milliseconds(); got != 10 {
+		t.Fatalf("client clamped hold = %dms, want 10ms", got)
+	}
+	if got := (&SessionCfg{}).SecondaryBatchHold().Milliseconds(); got != int64(def) {
+		t.Fatalf("server default hold = %dms, want %dms", got, def)
+	}
+	if got := (&SessionCfg{SecondaryBatchHoldMS: &high}).SecondaryBatchHold().Milliseconds(); got != 10 {
+		t.Fatalf("server clamped hold = %dms, want 10ms", got)
+	}
+}

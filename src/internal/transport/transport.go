@@ -26,6 +26,25 @@ type DatagramConn interface {
 	ReceiveDatagram(ctx context.Context) ([]byte, error)
 }
 
+// @sk-task ws-media-queue-backpressure#T3.3: optional deadline-safe write path
+// avoids control frames clobbering a data write deadline (AC-008)
+type DeadlineWriter interface {
+	WriteMessageWithDeadline(data []byte, deadline time.Time) error
+}
+
+// WriteMessageWithDeadline writes one message using a single deadline-critical
+// section when the transport supports it, falling back to SetWriteDeadline plus
+// WriteMessage otherwise.
+func WriteMessageWithDeadline(c StreamConn, data []byte, deadline time.Time) error {
+	if dw, ok := c.(DeadlineWriter); ok {
+		return dw.WriteMessageWithDeadline(data, deadline)
+	}
+	if err := c.SetWriteDeadline(deadline); err != nil {
+		return err
+	}
+	return c.WriteMessage(data)
+}
+
 // @sk-task kvn-web-redesign#T4.1: CountingStreamConn wraps StreamConn to count bytes (AC-013)
 type CountingStreamConn struct {
 	StreamConn
@@ -46,6 +65,14 @@ func (c *CountingStreamConn) WriteMessage(data []byte) error {
 		c.AddTX(int64(len(data)))
 	}
 	return c.StreamConn.WriteMessage(data)
+}
+
+// @sk-task ws-media-queue-backpressure#T3.3: forward deadline-safe writes (AC-008)
+func (c *CountingStreamConn) WriteMessageWithDeadline(data []byte, deadline time.Time) error {
+	if c.AddTX != nil {
+		c.AddTX(int64(len(data)))
+	}
+	return WriteMessageWithDeadline(c.StreamConn, data, deadline)
 }
 
 // @sk-task quic-datagrams#T3.1: forward datagram capability through the counting wrapper (AC-001)
