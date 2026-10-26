@@ -28,6 +28,14 @@ Clients connect via WebSocket (TCP, always on) or QUIC (UDP, requires `relay.qui
 - **WebSocket listener**: HTTP server with TLS, path allowlist (`ws_paths`), standard WS upgrade.
 - **QUIC listener**: UDP on the same port, requires TLS 1.3, no path filtering.
 
+### Padding and no-pad
+
+`obfuscation.padding` in the relay config applies to WS hops in both modes and follows the same rules as client/server: padding is enabled only by `padding.enabled: true`, `obfuscation.enabled` alone does not enable it, and `padding.size` defaults to `512`.
+
+- **Terminator**: an incoming client may request `X-KVN-NoPad` for the secondary channel; the relay confirms it when `realtime_unpadded` is enabled and separately negotiates unpadded framing with its upstream according to config.
+- **Bridge**: no-pad is negotiated on both hops of one connection. The client is confirmed only when upstream also confirms; otherwise both hops stay padded.
+- With an old peer or without header support, the connection runs padded without errors.
+
 ### Relay → Server (Upstream)
 
 The relay opens a single upstream tunnel to the configured `server`. The upstream transport is independent of the client transport — set via `transport: quic` or `transport: tcp` (default). QUIC→TCP fallback on dial failure.

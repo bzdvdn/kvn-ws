@@ -3,6 +3,8 @@ package relay
 import (
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/session"
+	wst "github.com/bzdvdn/kvn-ws/src/internal/transport/websocket"
 )
 
 type mockStreamConn struct {
@@ -155,5 +158,64 @@ func TestHandleTerminatorStreamInvalidToken(t *testing.T) {
 	sessions := sm.List()
 	if len(sessions) != 0 {
 		t.Fatalf("expected 0 sessions for invalid token, got %d", len(sessions))
+	}
+}
+
+// @sk-test relay-padding-parity#T2.2: terminator accepts no-pad only when realtime unpadded is on (AC-002, AC-006)
+func TestAcceptTerminatorWSNoPad(t *testing.T) {
+	tests := []struct {
+		name       string
+		realtime   bool
+		wantActive bool
+	}{
+		{name: "negotiated", realtime: true, wantActive: false},
+		{name: "realtime disabled", realtime: false, wantActive: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.RelayConfig{Obfuscation: &config.ObfuscationCfg{
+				Padding: &config.PaddingCfg{Enabled: true, Size: 64, RealtimeUnpadded: relayBoolPtr(tt.realtime)},
+			}}
+			r := &Relay{cfg: cfg, logger: zap.NewNop()}
+
+			serverCh := make(chan bool, 1)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				conn, err := r.acceptTerminatorWS(w, req)
+				if err != nil {
+					t.Errorf("acceptTerminatorWS: %v", err)
+					serverCh <- true
+					return
+				}
+				serverCh <- conn.PaddingActive()
+				_ = conn.Close()
+			}))
+			defer srv.Close()
+
+			wsURL := "ws" + srv.URL[len("http"):]
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+
+			client, err := wst.DialContext(ctx, wsURL, nil, zap.NewNop(), wst.WSConfig{
+				PaddingEnabled: true, PaddingSize: 64, RequestNoPad: true,
+			})
+			if err != nil {
+				t.Fatalf("DialContext: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+
+			if got := client.PaddingActive(); got != tt.wantActive {
+				t.Errorf("client PaddingActive = %v, want %v", got, tt.wantActive)
+			}
+
+			select {
+			case got := <-serverCh:
+				if got != tt.wantActive {
+					t.Errorf("terminator PaddingActive = %v, want %v", got, tt.wantActive)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("timeout waiting for terminator accept")
+			}
+		})
 	}
 }

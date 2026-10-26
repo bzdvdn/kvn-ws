@@ -1284,3 +1284,70 @@ func TestNoPadOldPeerKeepsPadding(t *testing.T) {
 		t.Errorf("server got %q, want %q", got, payload)
 	}
 }
+
+// @sk-test relay-padding-parity#T2.1: PaddingActive exposes the negotiated state (AC-001, AC-008)
+func TestPaddingActiveReflectsNegotiation(t *testing.T) {
+	tests := []struct {
+		name       string
+		serverCfg  WSConfig
+		clientCfg  WSConfig
+		wantActive bool
+	}{
+		{
+			name:       "padded",
+			serverCfg:  WSConfig{PaddingEnabled: true, PaddingSize: 64},
+			clientCfg:  WSConfig{PaddingEnabled: true, PaddingSize: 64},
+			wantActive: true,
+		},
+		{
+			name:       "negotiated unpadded",
+			serverCfg:  WSConfig{PaddingEnabled: true, PaddingSize: 64, AllowNoPad: true},
+			clientCfg:  WSConfig{PaddingEnabled: true, PaddingSize: 64, RequestNoPad: true},
+			wantActive: false,
+		},
+		{
+			name:       "upstream denied",
+			serverCfg:  WSConfig{PaddingEnabled: true, PaddingSize: 64},
+			clientCfg:  WSConfig{PaddingEnabled: true, PaddingSize: 64, RequestNoPad: true},
+			wantActive: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverCh := make(chan *WSConn, 1)
+			mux := http.NewServeMux()
+			mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+				conn, err := Accept(w, r, nopLogger, tt.serverCfg)
+				if err != nil {
+					t.Errorf("Accept: %v", err)
+					serverCh <- nil
+					return
+				}
+				serverCh <- conn
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+			wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+			client, err := DialContext(context.Background(), wsURL, nil, nopLogger, tt.clientCfg)
+			if err != nil {
+				t.Fatalf("DialContext: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+
+			serverConn := <-serverCh
+			if serverConn == nil {
+				t.Fatal("server conn is nil")
+			}
+			defer func() { _ = serverConn.Close() }()
+
+			if got := client.PaddingActive(); got != tt.wantActive {
+				t.Errorf("client PaddingActive = %v, want %v", got, tt.wantActive)
+			}
+			if got := serverConn.PaddingActive(); got != tt.wantActive {
+				t.Errorf("server PaddingActive = %v, want %v", got, tt.wantActive)
+			}
+		})
+	}
+}

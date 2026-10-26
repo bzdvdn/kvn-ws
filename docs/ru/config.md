@@ -180,6 +180,8 @@ proxy_max_concurrency: 1000
 
 При `mode: relay` клиент работает как промежуточный узел, принимающий WebSocket (TCP) и опционально QUIC (UDP) подключения и проксирующий их на вышестоящий сервер.
 
+Блок `obfuscation.padding` применяется к WS-плечам relay в обоих режимах: padding включается только при `padding.enabled: true` (не из `obfuscation.enabled`), `padding.size` по умолчанию `512`, а `padding.realtime_unpadded` разрешает `X-KVN-NoPad` для real-time канала. Подробности — в [relay.md](relay.md).
+
 ### Режим Bridge
 
 Прозрачный pipe — не расшифровывает трафик, без маршрутизации, без TUN.
@@ -231,7 +233,7 @@ log:
 | `relay.network.pool_ipv4.gateway` | string | — | IPv4 шлюз |
 | `relay.network.pool_ipv6.subnet` | string | — | IPv6 подсеть пула (опционально) |
 | `relay.network.pool_ipv6.gateway` | string | — | IPv6 шлюз (опционально) |
-| `obfuscation` | object | — | Конфигурация обфускации (uTLS, padding) для upstream-соединения |
+| `obfuscation` | object | — | Конфигурация обфускации (uTLS, padding) для клиентских и upstream WS-соединений |
 
 ### Пример (terminator)
 

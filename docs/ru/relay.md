@@ -28,6 +28,14 @@ Relay работает как **terminator**: полноценный VPN-endpoin
 - **WebSocket listener**: HTTP-сервер с TLS, path allowlist (`ws_paths`), стандартный WS upgrade.
 - **QUIC listener**: UDP на том же порту, требует TLS 1.3, без фильтрации path.
 
+### Padding и no-pad
+
+`obfuscation.padding` в конфиге relay применяется к WS-плечам в обоих режимах и трактуется так же, как у client/server: padding включается только при `padding.enabled: true`, `obfuscation.enabled` сам по себе его не включает, `padding.size` по умолчанию `512`.
+
+- **Terminator**: входящий клиент может запросить `X-KVN-NoPad` для вторичного канала; relay подтверждает, если включён `realtime_unpadded`, и отдельно согласует unpadded со своим upstream по конфигу.
+- **Bridge**: no-pad согласуется на обоих плечах одного соединения. Клиент получает подтверждение только если upstream тоже подтвердил; иначе оба плеча остаются padded.
+- Если peer старый или не поддерживает заголовок, соединение работает в padded-режиме без ошибок.
+
 ### Relay → Server (Upstream)
 
 Relay открывает один upstream-туннель к `server`. Транспорт upstream независим от транспорта клиента — задаётся через `transport: quic` или `transport: tcp` (по умолчанию). При падении QUIC — fallback на TCP.

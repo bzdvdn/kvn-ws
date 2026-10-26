@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	pkglog "github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/auth"
 	"github.com/bzdvdn/kvn-ws/src/internal/protocol/handshake"
@@ -26,20 +28,29 @@ func (r *Relay) handleTerminatorWS(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "404 not found", http.StatusNotFound)
 		return
 	}
-	paddingEnabled := r.cfg.Obfuscation != nil && r.cfg.Obfuscation.Padding != nil && r.cfg.Obfuscation.Padding.Enabled
-	if !paddingEnabled && r.cfg.Obfuscation != nil && r.cfg.Obfuscation.Enabled {
-		paddingEnabled = true
-	}
-	wsCfg := websocket.WSConfig{
-		PaddingEnabled: paddingEnabled,
-		PaddingSize:    paddingSizeOrDefault(r.cfg.Obfuscation),
-	}
-	wsConn, err := websocket.Accept(w, req, r.logger, wsCfg)
+	wsConn, err := r.acceptTerminatorWS(w, req)
 	if err != nil {
 		r.logger.Error("terminator ws upgrade", zap.Error(err))
 		return
 	}
+	if strings.EqualFold(req.Header.Get(websocket.NoPadHeader), "1") {
+		logNoPadOutcome(r.logger, "client", req.RemoteAddr, wsConn)
+	}
 	r.handleTerminatorStream(req.Context(), wsConn, req.RemoteAddr, "tcp")
+}
+
+// @sk-task relay-padding-parity#T1.3: terminator client-facing padding config (AC-001, AC-002)
+func (r *Relay) acceptTerminatorWS(w http.ResponseWriter, req *http.Request) (*websocket.WSConn, error) {
+	return websocket.Accept(w, req, r.logger, terminatorWSConfig(r.cfg))
+}
+
+// @sk-task relay-padding-parity#T1.3: mirror server padding rules for incoming clients (AC-001, AC-002)
+func terminatorWSConfig(cfg *config.RelayConfig) websocket.WSConfig {
+	return websocket.WSConfig{
+		PaddingEnabled: relayPaddingEnabled(cfg),
+		PaddingSize:    relayPaddingSize(cfg),
+		AllowNoPad:     relayRealtimeUnpadded(cfg),
+	}
 }
 
 // @sk-task relay-terminator#T2.1: terminator stream handler — handshake + session (AC-001, AC-004)
