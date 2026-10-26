@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "slug": "relay-padding-parity",
+  "base_sha": "bbb8b5672ea226288875971a029fa2f4e3d14d55",
+  "head_sha": "bbb8b5672ea226288875971a029fa2f4e3d14d55",
+  "base_branch": "master",
+  "base_source": "inferred",
+  "source": "git",
+  "generated_at": "2026-10-26T08:06:06Z",
+  "dirty": true,
+  "files": [],
+  "declared_not_changed": [
+    "CHANGELOG.md",
+    "docs/en/config.md",
+    "docs/en/relay.md",
+    "docs/ru/config.md",
+    "docs/ru/relay.md",
+    "src/integration/",
+    "src/integration/tunnel_integration_test.go",
+    "src/internal/bootstrap/relay/",
+    "src/internal/bootstrap/relay/bridge.go",
+    "src/internal/bootstrap/relay/bridge_test.go",
+    "src/internal/bootstrap/relay/handler.go",
+    "src/internal/bootstrap/relay/handler_test.go",
+    "src/internal/bootstrap/relay/padding.go",
+    "src/internal/bootstrap/relay/padding_test.go",
+    "src/internal/bootstrap/relay/upstream.go",
+    "src/internal/bootstrap/relay/upstream_test.go",
+    "src/internal/transport/websocket/",
+    "src/internal/transport/websocket/websocket.go",
+    "src/internal/transport/websocket/websocket_test.go"
+  ]
+}

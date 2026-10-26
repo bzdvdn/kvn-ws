@@ -180,6 +180,8 @@ proxy_max_concurrency: 1000
 
 When `mode: relay`, the client acts as an intermediary node that accepts WebSocket (TCP) and optionally QUIC (UDP) incoming connections and proxies them to the upstream server.
 
+The `obfuscation.padding` block applies to relay WS hops in both modes: padding is enabled only by `padding.enabled: true` (not by `obfuscation.enabled`), `padding.size` defaults to `512`, and `padding.realtime_unpadded` allows `X-KVN-NoPad` for the real-time channel. See [relay.md](relay.md) for details.
+
 ### Bridge mode
 
 Simple transparent pipe — does not decrypt traffic, no routing, no TUN.
@@ -231,7 +233,7 @@ Full VPN endpoint: decrypts traffic, manages TUN, routes packets, intercepts DNS
 | `relay.network.pool_ipv4.gateway` | string | — | IPv4 gateway address |
 | `relay.network.pool_ipv6.subnet` | string | — | IPv6 pool subnet (optional) |
 | `relay.network.pool_ipv6.gateway` | string | — | IPv6 gateway address (optional) |
-| `obfuscation` | object | — | Obfuscation config (uTLS, padding) for upstream connection |
+| `obfuscation` | object | — | Obfuscation config (uTLS, padding) for client-facing and upstream WS connections |
 
 ### Example (terminator)
 

@@ -105,21 +105,14 @@ func dialAndHandshake(ctx context.Context, cfg *config.RelayConfig, tlsCfg *tls.
 
 // @sk-task transport-factory#T2.3: dialAndHandshakeWS uses WSFactory (AC-004)
 func dialAndHandshakeWS(ctx context.Context, cfg *config.RelayConfig, tlsCfg *tls.Config, logger *zap.Logger) (transport.StreamConn, net.IP, error) {
-	paddingEnabled := cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil && cfg.Obfuscation.Padding.Enabled
-	if !paddingEnabled && cfg.Obfuscation != nil && cfg.Obfuscation.Enabled {
-		paddingEnabled = true
-	}
-	paddingSize := 512
-	if cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil && cfg.Obfuscation.Padding.Size > 0 {
-		paddingSize = cfg.Obfuscation.Padding.Size
-	}
 	wsCfg := &transport.FactoryConfig{
 		TLS:               tlsCfg,
 		Logger:            logger,
 		KeepaliveInterval: control.DefaultPingInterval,
 		KeepaliveTimeout:  control.DefaultPongTimeout,
-		PaddingEnabled:    paddingEnabled,
-		PaddingSize:       paddingSize,
+		PaddingEnabled:    relayPaddingEnabled(cfg),
+		PaddingSize:       relayPaddingSize(cfg),
+		RequestNoPad:      relayRealtimeUnpadded(cfg),
 	}
 	factory := transport.NewFactory("ws", wsCfg)
 	conn, err := factory.Dial(ctx, cfg.Server)
@@ -131,15 +124,20 @@ func dialAndHandshakeWS(ctx context.Context, cfg *config.RelayConfig, tlsCfg *tl
 		_ = conn.Close()
 		return nil, nil, hErr
 	}
+	if relayRealtimeUnpadded(cfg) {
+		logNoPadOutcome(logger, "upstream", cfg.Server, conn)
+	}
 	return conn, assignedIP, nil
 }
 
-// @sk-task relay-terminator#T3.2: padding size from obfuscation config (upstream helper)
-func paddingSizeOrDefault(oc *config.ObfuscationCfg) int {
-	if oc != nil && oc.Padding != nil && oc.Padding.Size > 0 {
-		return oc.Padding.Size
-	}
-	return 512
+// @sk-task relay-padding-parity#T1.4: report the negotiated padding state per hop (AC-008)
+func logNoPadOutcome(logger *zap.Logger, hop, peer string, conn transport.StreamConn) {
+	padded, _ := streamPaddingActive(conn)
+	logger.Info("relay no-pad negotiation",
+		zap.String("hop", hop),
+		zap.String("peer", peer),
+		zap.Bool("negotiated", !padded),
+	)
 }
 
 // @sk-task relay-terminator#T7.1: upstream handshake with token from config or env (AC-004)

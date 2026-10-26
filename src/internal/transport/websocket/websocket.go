@@ -41,9 +41,9 @@ type WSConfig struct {
 	AllowNoPad   bool // server: honor an unpadded request
 }
 
-// noPadHeader negotiates unpadded framing on the secondary (UDP) channel.
+// NoPadHeader negotiates unpadded framing on the secondary (UDP) channel.
 // Both peers must agree; absent header keeps padding on (backward compatible).
-const noPadHeader = "X-KVN-NoPad"
+const NoPadHeader = "X-KVN-NoPad"
 
 type controlMsg struct {
 	msgType int
@@ -68,6 +68,11 @@ type WSConn struct {
 // @sk-task game-latency#T3.1: runtime padding toggle for the data phase (AC-001)
 func (c *WSConn) SetPadding(enabled bool) {
 	c.paddingEnabled.Store(enabled)
+}
+
+// @sk-task relay-padding-parity#T1.1: expose negotiated padding state (AC-001, AC-008)
+func (c *WSConn) PaddingActive() bool {
+	return c.paddingEnabled.Load()
 }
 
 var batchBufPool = sync.Pool{
@@ -405,7 +410,7 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 	// server confirms with the same upgrade header (AC-001).
 	var reqHeader http.Header
 	if wsCfg.RequestNoPad {
-		reqHeader = http.Header{noPadHeader: []string{"1"}}
+		reqHeader = http.Header{NoPadHeader: []string{"1"}}
 	}
 	conn, resp, err := d.DialContext(ctx, serverURL, reqHeader)
 	if err != nil {
@@ -420,7 +425,7 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 		controlCh: make(chan controlMsg, 8),
 	}
 	wc.paddingEnabled.Store(wsCfg.PaddingEnabled)
-	if wsCfg.RequestNoPad && resp != nil && strings.EqualFold(resp.Header.Get(noPadHeader), "1") {
+	if wsCfg.RequestNoPad && resp != nil && strings.EqualFold(resp.Header.Get(NoPadHeader), "1") {
 		wc.SetPadding(false)
 		// @sk-task game-latency: visibility for the unpadded-secondary negotiation (client side)
 		logger.Info("no-pad framing negotiated", zap.String("side", "client"), zap.String("url", serverURL))
@@ -528,10 +533,10 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 		upgrader.Subprotocols = []string{MultiplexSubprotocol}
 	}
 	// @sk-task game-latency#T3.2: confirm unpadded framing when requested and allowed (AC-001)
-	allowNoPad := cfg.AllowNoPad && strings.EqualFold(r.Header.Get(noPadHeader), "1")
+	allowNoPad := cfg.AllowNoPad && strings.EqualFold(r.Header.Get(NoPadHeader), "1")
 	var respHeader http.Header
 	if allowNoPad {
-		respHeader = http.Header{noPadHeader: []string{"1"}}
+		respHeader = http.Header{NoPadHeader: []string{"1"}}
 	}
 	conn, err := upgrader.Upgrade(w, r, respHeader)
 	if err != nil {

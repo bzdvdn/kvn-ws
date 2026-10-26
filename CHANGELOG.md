@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Relay: padding-parity и `X-KVN-NoPad` на обоих плечах** — relay в режимах `bridge` и `terminator` теперь использует те же правила padding, что client/server, и участвует в no-pad-переговорах вторичного (UDP) канала. Terminator согласует unpadded со входящим клиентом и отдельно со своим upstream; bridge подтверждает клиенту no-pad только если upstream тоже подтвердил, поэтому смешанного состояния нет. Старые peer'ы и отказ upstream остаются в padded-режиме.
+
+### Changed
+
+- **Relay: `obfuscation.enabled` больше не включает padding неявно** — padding включается только `obfuscation.padding.enabled: true`, как у client/server; `padding.size` по умолчанию `512`, `padding.realtime_unpadded` управляет no-pad для real-time канала.
+
 ## [1.4.1] 2026-10-23
 
 ### Fixed

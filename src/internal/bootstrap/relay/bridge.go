@@ -196,7 +196,7 @@ func (r *Relay) runBridgeQUICAccept(ctx context.Context, listener *quictp.Listen
 				r.logger.Warn("bridge: unexpected QUIC stream type")
 				return
 			}
-			r.bridgeRelayConn(ctx, conn, fmt.Sprintf("quic-stream-%d", qConn.StreamID()))
+			r.bridgeRelayConn(ctx, conn, fmt.Sprintf("quic-stream-%d", qConn.StreamID()), nil)
 		}(quicConn)
 	}
 }
@@ -285,13 +285,40 @@ func (r *Relay) relayWSHandler(w http.ResponseWriter, rq *http.Request) {
 		return
 	}
 
-	wsConn, err := websocket.Accept(w, rq, r.logger)
+	noPadRequested := strings.EqualFold(rq.Header.Get(websocket.NoPadHeader), "1")
+	canNoPad := relayRealtimeUnpadded(r.cfg)
+
+	var upstreamConn transport.StreamConn
+	upstreamUnpadded := false
+	if noPadRequested && canNoPad {
+		conn, err := r.dialRelayUpstream(rq.Context(), true)
+		if err != nil {
+			r.logger.Warn("relay: upstream dial failed before upgrade", zap.Error(err))
+			http.Error(w, "502 upstream unavailable", http.StatusBadGateway)
+			return
+		}
+		upstreamConn = conn
+		padded, known := streamPaddingActive(conn)
+		upstreamUnpadded = known && !padded
+	}
+
+	wsConn, err := websocket.Accept(w, rq, r.logger, websocket.WSConfig{
+		PaddingEnabled: relayPaddingEnabled(r.cfg),
+		PaddingSize:    relayPaddingSize(r.cfg),
+		AllowNoPad:     upstreamUnpadded,
+	})
 	if err != nil {
+		if upstreamConn != nil {
+			_ = upstreamConn.Close()
+		}
 		r.logger.Error("relay ws upgrade", zap.Error(err))
 		return
 	}
+	if noPadRequested {
+		logNoPadOutcome(r.logger, "client", rq.RemoteAddr, wsConn)
+	}
 
-	r.bridgeRelayConn(rq.Context(), wsConn, rq.RemoteAddr)
+	r.bridgeRelayConn(rq.Context(), wsConn, rq.RemoteAddr, upstreamConn)
 }
 
 func isWebSocketRequest(r *http.Request) bool {
@@ -299,7 +326,8 @@ func isWebSocketRequest(r *http.Request) bool {
 }
 
 // @sk-task transport-factory#T2.4: dialRelayUpstream uses WSFactory (AC-004)
-func (r *Relay) dialRelayUpstream(ctx context.Context) (transport.StreamConn, error) {
+// @sk-task relay-padding-parity#T3.1: bridge upstream participates in no-pad negotiation (AC-005)
+func (r *Relay) dialRelayUpstream(ctx context.Context, requestNoPad bool) (transport.StreamConn, error) {
 	tlsCfg, err := relayTLSConfig(r.cfg)
 	if err != nil {
 		return nil, err
@@ -310,9 +338,19 @@ func (r *Relay) dialRelayUpstream(ctx context.Context) (transport.StreamConn, er
 		Logger:            r.logger,
 		KeepaliveInterval: control.DefaultPingInterval,
 		KeepaliveTimeout:  control.DefaultPongTimeout,
+		PaddingEnabled:    relayPaddingEnabled(r.cfg),
+		PaddingSize:       relayPaddingSize(r.cfg),
+		RequestNoPad:      requestNoPad && relayRealtimeUnpadded(r.cfg),
 	}
 	factory := transport.NewFactory("ws", factoryCfg)
-	return factory.Dial(ctx, r.cfg.Server)
+	conn, err := factory.Dial(ctx, r.cfg.Server)
+	if err != nil {
+		return nil, err
+	}
+	if factoryCfg.RequestNoPad {
+		logNoPadOutcome(r.logger, "upstream", r.cfg.Server, conn)
+	}
+	return conn, nil
 }
 
 func relayTLSConfig(cfg *config.RelayConfig) (*tls.Config, error) {
@@ -330,8 +368,12 @@ func relayTLSConfig(cfg *config.RelayConfig) (*tls.Config, error) {
 	return tlsCfg, nil
 }
 
-func (r *Relay) bridgeRelayConn(ctx context.Context, clientConn transport.StreamConn, remoteAddr string) {
+func (r *Relay) bridgeRelayConn(ctx context.Context, clientConn transport.StreamConn, remoteAddr string, upstreamConn transport.StreamConn) {
 	defer func() { _ = clientConn.Close() }()
+
+	if upstreamConn != nil {
+		defer func() { _ = upstreamConn.Close() }()
+	}
 
 	_ = clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	clientHello, err := clientConn.ReadMessage()
@@ -341,12 +383,14 @@ func (r *Relay) bridgeRelayConn(ctx context.Context, clientConn transport.Stream
 	}
 	_ = clientConn.SetReadDeadline(time.Time{})
 
-	upstreamConn, err := r.dialRelayUpstream(ctx)
-	if err != nil {
-		r.logger.Warn("upstream dial failed, rejecting client", zap.Error(err))
-		return
+	if upstreamConn == nil {
+		upstreamConn, err = r.dialRelayUpstream(ctx, false)
+		if err != nil {
+			r.logger.Warn("upstream dial failed, rejecting client", zap.Error(err))
+			return
+		}
+		defer func() { _ = upstreamConn.Close() }()
 	}
-	defer func() { _ = upstreamConn.Close() }()
 
 	r.logger.Debug("relay: forwarding clientHello", zap.Int("len", len(clientHello)))
 
