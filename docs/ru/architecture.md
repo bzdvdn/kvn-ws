@@ -134,6 +134,8 @@ flowchart TB
 1. Приложение на клиенте отправляет пакет в TUN-интерфейс
 2. Routing engine проверяет правила (ordered): direct или tunnel
 3. Для tunnel: пакет инкапсулируется в фрейм (length-prefix + payload), опционально шифруется; для WS транспорта с `padding.enabled: true` — фрейм оборачивается в `[4B длина][payload][random padding]` с выравниванием до `padding.size`
+   - primary TCP пишется с backpressure: при медленном канале отправитель притормаживается, кадры не дропаются;
+   - UDP при наличии secondary уходит в отдельную bounded-очередь с drop старых кадров (real-time).
 4. Если `transport: quic` с `obfuscation: true`, весь payload XOR'ится с nonce от TLS Exporter (не только length prefix)
 5. Сервер получает фрейм, отбрасывает WS padding если включён, расшифровывает при необходимости, извлекает пакет
 6. Сервер применяет NAT (MASQUERADE) и пересылает пакет получателю

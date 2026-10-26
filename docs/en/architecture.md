@@ -134,6 +134,8 @@ Transport is selected by the `transport` config field:
 1. Application on client sends packet to TUN interface
 2. Client routing engine evaluates rules (ordered): direct or tunnel
 3. For tunnel: packet is encapsulated in a frame (length-prefix + payload), optionally encrypted; for WS transport with `padding.enabled: true` — frame is wrapped in `[4B length][payload][random padding]` aligned to `padding.size`
+   - primary TCP uses backpressure: a slow link slows the sender instead of dropping frames;
+   - UDP with a bound secondary channel goes to a separate bounded queue that drops stale packets (real-time).
 4. If `transport: quic` with `obfuscation: true`, the full payload is XOR'd with the TLS Exporter nonce before sending (not just length prefix)
 5. Server receives frame, strips WS padding if enabled, decrypts if needed, extracts packet
 6. Server applies NAT (MASQUERADE) and forwards to target

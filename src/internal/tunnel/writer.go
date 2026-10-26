@@ -14,7 +14,6 @@ import (
 // @sk-task ws-media-queue-backpressure#T1.1: bounded per-channel writers (AC-001, AC-002, AC-003, AC-004)
 const (
 	secondaryQueueCapacity  = 512
-	primaryQueueCapacity    = 512
 	queueBatchMaxBytes      = 4096
 	secondaryQueueMaxAge    = 100 * time.Millisecond
 	secondaryWriteTimeout   = time.Second
@@ -62,7 +61,6 @@ type QueueStatsSnapshot struct {
 // @sk-task ws-media-queue-backpressure#T1.2: session-wide snapshot
 type SessionStatsSnapshot struct {
 	Secondary     QueueStatsSnapshot
-	Primary       QueueStatsSnapshot
 	FramingErrors uint64
 }
 

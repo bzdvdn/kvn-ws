@@ -876,25 +876,48 @@ func TestSecondaryFramingRejectsTrailingBytes(t *testing.T) {
 }
 
 // @sk-test ws-media-queue-backpressure#T4.1: blocked primary does not stall UDP dispatch (AC-004)
-type blockingWriteStream struct {
-	started chan struct{}
-	release chan struct{}
-	once    sync.Once
+type recordingBlockingStream struct {
+	mu       sync.Mutex
+	received [][]byte
+	started  chan struct{}
+	gate     chan struct{}
+	once     sync.Once
 }
 
-func newBlockingWriteStream() *blockingWriteStream {
-	return &blockingWriteStream{started: make(chan struct{}), release: make(chan struct{})}
+func newRecordingBlockingStream() *recordingBlockingStream {
+	return &recordingBlockingStream{started: make(chan struct{}), gate: make(chan struct{})}
 }
 
-func (b *blockingWriteStream) WriteMessage([]byte) error {
+func (b *recordingBlockingStream) WriteMessage(data []byte) error {
 	b.once.Do(func() { close(b.started) })
-	<-b.release
+	<-b.gate
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	b.mu.Lock()
+	b.received = append(b.received, cp)
+	b.mu.Unlock()
 	return nil
 }
-func (b *blockingWriteStream) ReadMessage() ([]byte, error)     { return nil, context.Canceled }
-func (b *blockingWriteStream) SetReadDeadline(time.Time) error  { return nil }
-func (b *blockingWriteStream) SetWriteDeadline(time.Time) error { return nil }
-func (b *blockingWriteStream) Close() error                     { return nil }
+func (b *recordingBlockingStream) ReadMessage() ([]byte, error)     { return nil, context.Canceled }
+func (b *recordingBlockingStream) SetReadDeadline(time.Time) error  { return nil }
+func (b *recordingBlockingStream) SetWriteDeadline(time.Time) error { return nil }
+func (b *recordingBlockingStream) Close() error                     { return nil }
+
+func (b *recordingBlockingStream) snapshot() [][]byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([][]byte, len(b.received))
+	copy(out, b.received)
+	return out
+}
+
+type failingWriteStream struct{ err error }
+
+func (f *failingWriteStream) WriteMessage([]byte) error        { return f.err }
+func (f *failingWriteStream) ReadMessage() ([]byte, error)     { return nil, context.Canceled }
+func (f *failingWriteStream) SetReadDeadline(time.Time) error  { return nil }
+func (f *failingWriteStream) SetWriteDeadline(time.Time) error { return nil }
+func (f *failingWriteStream) Close() error                     { return nil }
 
 func ipPacket(proto byte, payload []byte) []byte {
 	p := make([]byte, 20+len(payload))
@@ -906,11 +929,91 @@ func ipPacket(proto byte, payload []byte) []byte {
 	return p
 }
 
-func TestPrimaryBackpressureDoesNotBlockUDP(t *testing.T) {
-	primary := newBlockingWriteStream()
+// @sk-test tunnel-primary-backpressure#T2.1: primary TCP blocks instead of dropping frames (AC-001)
+func TestPrimaryWriteAppliesBackpressure(t *testing.T) {
+	const frames = 5
+	stream := newRecordingBlockingStream()
+	s := &Session{stream: stream, tunnelTimeout: time.Second, logger: zap.NewNop()}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.setRunCtx(ctx)
+
+	packets := make([][]byte, frames)
+	for i := range packets {
+		packets[i] = ipPacket(6, []byte{byte(i)})
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		for _, pkt := range packets {
+			if err := s.dispatchPacket(pkt); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+
+	select {
+	case <-stream.started:
+	case <-time.After(time.Second):
+		t.Fatal("primary write did not start")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("dispatch returned while primary was blocked: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(stream.gate)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("dispatch: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("dispatch did not finish after release")
+	}
+
+	got := stream.snapshot()
+	if len(got) != frames {
+		t.Fatalf("primary received %d frames, want %d", len(got), frames)
+	}
+	for i, raw := range got {
+		var f framing.Frame
+		if err := f.Decode(raw); err != nil {
+			t.Fatalf("decode frame %d: %v", i, err)
+		}
+		if !bytes.Equal(f.Payload, packets[i]) {
+			t.Errorf("frame %d payload mismatch", i)
+		}
+		f.Release()
+	}
+}
+
+// @sk-test tunnel-primary-backpressure#T2.2: primary write error ends the tunnel loop (AC-004)
+func TestPrimaryWriteErrorEndsSession(t *testing.T) {
+	writeErr := errors.New("primary write failed")
+	s := &Session{
+		stream:        &failingWriteStream{err: writeErr},
+		tunnelTimeout: time.Second,
+		logger:        zap.NewNop(),
+		tunReaderCh:   make(chan tunReadResult, 1),
+	}
+	pkt := ipPacket(6, []byte("tcp"))
+	s.tunReaderCh <- tunReadResult{n: len(pkt), buf: pkt}
+
+	err := s.tunToWS(context.Background())
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("tunToWS error = %v, want %v", err, writeErr)
+	}
+}
+
+// @sk-test tunnel-primary-backpressure#T2.4: UDP still goes to secondary, primary untouched (AC-002)
+func TestUDPDispatchUsesSecondaryWhenPrimaryIdle(t *testing.T) {
+	primary := &recWriteStream{}
 	secondary := &recWriteStream{}
-	s := &Session{tunnelTimeout: 30 * time.Second, logger: zap.NewNop()}
-	s.stream = primary
+	s := &Session{stream: primary, tunnelTimeout: time.Second, logger: zap.NewNop()}
 	var sec StreamConn = secondary
 	s.secondary.Store(&sec)
 	s.initWriters()
@@ -918,45 +1021,27 @@ func TestPrimaryBackpressureDoesNotBlockUDP(t *testing.T) {
 	s.secondaryWriter.setHold(0)
 	s.secondaryGen.Add(1)
 	s.SetBatchMode(false)
-	s.primaryReady.Store(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s.setRunCtx(ctx)
 
-	// Fill the primary writer with a TCP packet; it blocks inside WriteMessage.
-	if err := s.dispatchPacket(ipPacket(6, []byte("tcp"))); err != nil {
-		t.Fatalf("dispatch tcp: %v", err)
+	if err := s.dispatchPacket(ipPacket(17, []byte("voice"))); err != nil {
+		t.Fatalf("dispatch udp: %v", err)
 	}
-	select {
-	case <-primary.started:
-	case <-time.After(time.Second):
-		t.Fatal("primary writer did not start")
-	}
-
-	const udpPackets = 100
-	start := time.Now()
-	for i := 0; i < udpPackets; i++ {
-		if err := s.dispatchPacket(ipPacket(17, []byte("voice"))); err != nil {
-			t.Fatalf("dispatch udp: %v", err)
-		}
-	}
-	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
-		t.Fatalf("UDP dispatch took %v while primary was blocked, want < 100ms", elapsed)
-	}
-
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if n, _ := secondary.snapshot(); n >= udpPackets {
+		if n, _ := secondary.snapshot(); n > 0 {
 			break
 		}
 		if time.Now().After(deadline) {
-			n, _ := secondary.snapshot()
-			t.Fatalf("secondary writes = %d, want %d", n, udpPackets)
+			t.Fatal("secondary did not receive UDP")
 		}
 		time.Sleep(time.Millisecond)
 	}
-	close(primary.release)
+	if n, _ := primary.snapshot(); n != 0 {
+		t.Fatalf("primary writes = %d, want 0", n)
+	}
 }
 
 // @sk-test quic-datagrams#T3.5: recorder implementing transport.DatagramConn

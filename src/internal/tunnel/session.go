@@ -98,8 +98,6 @@ type Session struct {
 	secondaryBatchHold time.Duration
 	writersOnce        sync.Once
 	secondaryWriter    *queueWriter
-	primaryWriter      *queueWriter
-	writeErrCh         chan error
 	stats              sessionStats
 	// onSecondaryLost is invoked when the secondary read-loop ends so the owner
 	// can re-establish the channel (dual-ws-channel AC-004).
@@ -179,7 +177,6 @@ func NewSession(
 		clientIP6:          clientIP6,
 		dnsUpstreams:       dnsUpstreams,
 		done:               make(chan struct{}),
-		writeErrCh:         make(chan error, 1),
 		secondaryBatchHold: time.Duration(defaultSecondaryBatchMs) * time.Millisecond,
 	}
 }
@@ -187,7 +184,6 @@ func NewSession(
 // @sk-task ws-media-queue-backpressure#T1.2: session queue counters (AC-007)
 type sessionStats struct {
 	secondary     queueStats
-	primary       queueStats
 	framingErrors atomic.Uint64
 }
 
@@ -195,7 +191,6 @@ type sessionStats struct {
 func (s *Session) Stats() SessionStatsSnapshot {
 	return SessionStatsSnapshot{
 		Secondary:     s.stats.secondary.snapshot(),
-		Primary:       s.stats.primary.snapshot(),
 		FramingErrors: s.stats.framingErrors.Load(),
 	}
 }
@@ -208,10 +203,6 @@ func (s *Session) initWriters() {
 			s.BatchEnabled, s.getSecondary, func() uint64 { return s.secondaryGen.Load() }, s.logger, &s.stats.secondary, nil,
 		)
 		s.secondaryWriter.setHold(s.secondaryBatchHold)
-		s.primaryWriter = newQueueWriter(
-			"primary", primaryQueueCapacity, 0, 0, s.tunnelTimeout,
-			func() bool { return false }, func() StreamConn { return s.stream }, nil, s.logger, &s.stats.primary, s.reportWriteError,
-		)
 	})
 }
 
@@ -268,9 +259,14 @@ func (s *Session) dispatchPacket(packet []byte) error {
 		s.secondaryWriter.enqueue(data, s.secondaryGen.Load())
 		return nil
 	}
-	s.primaryWriter.ensure(s.getRunCtx())
-	s.primaryWriter.enqueue(data, 0)
-	return nil
+	// @sk-task tunnel-primary-backpressure#T1.1: TCP uses backpressure, not a drop queue (AC-001, AC-004)
+	return s.writePrimary(data)
+}
+
+// @sk-task tunnel-primary-backpressure#T1.1: synchronous primary write (AC-001, AC-004)
+func (s *Session) writePrimary(data []byte) error {
+	defer framing.ReturnBuffer(data)
+	return transport.WriteMessageWithDeadline(s.stream, data, time.Now().Add(s.tunnelTimeout))
 }
 
 // @sk-task ws-media-queue-backpressure#T3.1: router callback using bounded writers
@@ -484,16 +480,6 @@ func (s *Session) Run(ctx context.Context) (err error) {
 		s.startDatagramReader(ctx)
 	}
 	eg, ctx := errgroup.WithContext(ctx)
-	if s.writeErrCh != nil {
-		eg.Go(func() error {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case werr := <-s.writeErrCh:
-				return werr
-			}
-		})
-	}
 	if s.logger != nil {
 		go s.logStats(ctx)
 	}
@@ -541,24 +527,9 @@ func (s *Session) logStats(ctx context.Context) {
 				zap.Uint64("secondary_write_errors", st.Secondary.WriteErrors),
 				zap.Int64("secondary_max_depth", st.Secondary.MaxDepth),
 				zap.Uint64("secondary_max_write_ns", st.Secondary.MaxWriteNanos),
-				zap.Uint64("primary_dropped_full", st.Primary.DroppedFull),
-				zap.Uint64("primary_write_errors", st.Primary.WriteErrors),
-				zap.Int64("primary_max_depth", st.Primary.MaxDepth),
-				zap.Uint64("primary_max_write_ns", st.Primary.MaxWriteNanos),
 				zap.Uint64("framing_errors", st.FramingErrors),
 			)
 		}
-	}
-}
-
-// @sk-task ws-media-queue-backpressure#T1.1: surface fatal primary write errors to Run
-func (s *Session) reportWriteError(err error) {
-	if s.writeErrCh == nil || err == nil {
-		return
-	}
-	select {
-	case s.writeErrCh <- err:
-	default:
 	}
 }
 
@@ -1186,6 +1157,8 @@ func (s *Session) tunToWS(ctx context.Context) error {
 		// @sk-task ws-media-queue-backpressure#T3.1: enqueue without blocking on a channel write (AC-004)
 		if derr := s.dispatchPacket(payload); derr != nil {
 			s.logger.Debug("dispatch packet error", zap.Error(derr))
+			putTunReadBuf(r.buf)
+			return derr
 		}
 		putTunReadBuf(r.buf)
 	}
