@@ -151,7 +151,7 @@ flowchart TB
 4. После получения ответа DNS tracker сохраняет маппинг `IP → domain` с TTL из DNS-ответа
 5. Когда приложение отправляет пакет на этот IP, Routing Engine проверяет трекер:
    - Если IP найден — применяется domain-based правило (exact или suffix match)
-   - RouteAction (direct/tunnel) выбирается по наиболее специфичному совпадению
+   - RouteAction (direct/tunnel) выбирается по наиболее специфичному совпадению: exact > suffix, среди suffix — самый длинный; при равной специфичности побеждает exclude
 6. Если IP не найден в трекере — применяются обычные CIDR/IP-правила
 
 ### Keepalive
