@@ -1,0 +1,257 @@
+{
+  "version": 1,
+  "slug": "tunnel-primary-backpressure",
+  "base_sha": "bbb8b5672ea226288875971a029fa2f4e3d14d55",
+  "head_sha": "76197c4cae58f17c2442e0a2c0b228920087cca6",
+  "base_branch": "master",
+  "base_source": "inferred",
+  "source": "git",
+  "generated_at": "2026-10-26T12:29:22Z",
+  "dirty": true,
+  "commits": [
+    {
+      "sha": "76197c4cae58f17c2442e0a2c0b228920087cca6",
+      "subject": "fix(tunnel): restore primary TCP backpressure and reuse TUN buffers"
+    },
+    {
+      "sha": "b8fd0e5993573b044aad84554a2fc4a8cc4323e4",
+      "subject": "merge feature/relay-padding-parity"
+    },
+    {
+      "sha": "d88bc1fbce6f47871b219f31dfded90e87089b6c",
+      "subject": "fix(relay): honor padding config and negotiate no-pad on both hops"
+    }
+  ],
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "status": "M",
+      "additions": 13,
+      "tasks": [
+        "T3.1"
+      ]
+    },
+    {
+      "path": "docs/en/architecture.md",
+      "status": "M",
+      "additions": 2,
+      "tasks": [
+        "T3.1"
+      ]
+    },
+    {
+      "path": "docs/en/config.md",
+      "status": "M",
+      "additions": 3,
+      "deletions": 1
+    },
+    {
+      "path": "docs/en/relay.md",
+      "status": "M",
+      "additions": 8
+    },
+    {
+      "path": "docs/ru/architecture.md",
+      "status": "M",
+      "additions": 2,
+      "tasks": [
+        "T3.1"
+      ]
+    },
+    {
+      "path": "docs/ru/config.md",
+      "status": "M",
+      "additions": 3,
+      "deletions": 1
+    },
+    {
+      "path": "docs/ru/relay.md",
+      "status": "M",
+      "additions": 8
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/changes.json",
+      "status": "A",
+      "additions": 33
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/plan/plan.md",
+      "status": "A",
+      "additions": 162
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/plan/tasks.md",
+      "status": "A",
+      "additions": 99
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/specs/relay-padding-parity/spec.md",
+      "status": "A",
+      "additions": 165
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/summary.md",
+      "status": "A",
+      "additions": 33
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/trace-meta.json",
+      "status": "A",
+      "additions": 10
+    },
+    {
+      "path": "src/internal/bootstrap/relay/bridge.go",
+      "status": "M",
+      "additions": 55,
+      "deletions": 11
+    },
+    {
+      "path": "src/internal/bootstrap/relay/bridge_test.go",
+      "status": "A",
+      "additions": 307
+    },
+    {
+      "path": "src/internal/bootstrap/relay/handler.go",
+      "status": "M",
+      "additions": 20,
+      "deletions": 9
+    },
+    {
+      "path": "src/internal/bootstrap/relay/handler_test.go",
+      "status": "M",
+      "additions": 62
+    },
+    {
+      "path": "src/internal/bootstrap/relay/padding.go",
+      "status": "A",
+      "additions": 38
+    },
+    {
+      "path": "src/internal/bootstrap/relay/padding_test.go",
+      "status": "A",
+      "additions": 52
+    },
+    {
+      "path": "src/internal/bootstrap/relay/upstream.go",
+      "status": "M",
+      "additions": 14,
+      "deletions": 16
+    },
+    {
+      "path": "src/internal/bootstrap/relay/upstream_test.go",
+      "status": "A",
+      "additions": 136
+    },
+    {
+      "path": "src/internal/transport/websocket/websocket.go",
+      "status": "M",
+      "additions": 11,
+      "deletions": 6,
+      "tasks": [
+        "T3.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/websocket/websocket_test.go",
+      "status": "M",
+      "additions": 67,
+      "tasks": [
+        "T3.2"
+      ]
+    },
+    {
+      "path": "src/internal/tun/tun.go",
+      "status": "M",
+      "additions": 41,
+      "deletions": 5,
+      "tasks": [
+        "T1.3",
+        "T3.2"
+      ],
+      "anchors": [
+        "writeScratchPool"
+      ]
+    },
+    {
+      "path": "src/internal/tun/tun_alloc_test.go",
+      "status": "A",
+      "additions": 51,
+      "tasks": [
+        "T2.3",
+        "T3.2"
+      ],
+      "anchors": [
+        "TestTunReadWriteAllocs"
+      ]
+    },
+    {
+      "path": "src/internal/tunnel/session.go",
+      "status": "M",
+      "additions": 10,
+      "deletions": 37,
+      "tasks": [
+        "T1.1",
+        "T3.2"
+      ],
+      "anchors": [
+        "writePrimary"
+      ]
+    },
+    {
+      "path": "src/internal/tunnel/session_test.go",
+      "status": "M",
+      "additions": 126,
+      "deletions": 41,
+      "tasks": [
+        "T1.2",
+        "T2.1",
+        "T2.2",
+        "T2.4",
+        "T3.2"
+      ],
+      "anchors": [
+        "TestPrimaryWriteAppliesBackpressure",
+        "TestPrimaryWriteErrorEndsSession",
+        "TestUDPDispatchUsesSecondaryWhenPrimaryIdle"
+      ]
+    },
+    {
+      "path": "src/internal/tunnel/writer.go",
+      "status": "M",
+      "deletions": 2,
+      "tasks": [
+        "T1.1",
+        "T1.2",
+        "T3.2"
+      ]
+    }
+  ],
+  "unmapped": [
+    "docs/en/config.md",
+    "docs/en/relay.md",
+    "docs/ru/config.md",
+    "docs/ru/relay.md",
+    "specs/archived/relay-padding-parity/2026-10-26/changes.json",
+    "specs/archived/relay-padding-parity/2026-10-26/plan/plan.md",
+    "specs/archived/relay-padding-parity/2026-10-26/plan/tasks.md",
+    "specs/archived/relay-padding-parity/2026-10-26/specs/relay-padding-parity/spec.md",
+    "specs/archived/relay-padding-parity/2026-10-26/summary.md",
+    "specs/archived/relay-padding-parity/2026-10-26/trace-meta.json",
+    "src/internal/bootstrap/relay/bridge.go",
+    "src/internal/bootstrap/relay/bridge_test.go",
+    "src/internal/bootstrap/relay/handler.go",
+    "src/internal/bootstrap/relay/handler_test.go",
+    "src/internal/bootstrap/relay/padding.go",
+    "src/internal/bootstrap/relay/padding_test.go",
+    "src/internal/bootstrap/relay/upstream.go",
+    "src/internal/bootstrap/relay/upstream_test.go"
+  ],
+  "declared_not_changed": [
+    "src/internal/tun/tun_test.go"
+  ],
+  "artifacts": [
+    "specs/active/tunnel-primary-backpressure/spec.md",
+    "specs/active/tunnel-primary-backpressure/tasks.md",
+    "specs/active/tunnel-primary-backpressure/trace-meta.json"
+  ]
+}

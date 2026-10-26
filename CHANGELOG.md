@@ -16,6 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Relay: `obfuscation.enabled` больше не включает padding неявно** — padding включается только `obfuscation.padding.enabled: true`, как у client/server; `padding.size` по умолчанию `512`, `padding.realtime_unpadded` управляет no-pad для real-time канала.
 
+### Fixed
+
+- **Primary TCP снова работает через backpressure** — убрана drop-очередь primary из v1.4.1: TCP-кадры больше не теряются при заторе канала и не создают bufferbloat. Bounded drop-очередь осталась только для secondary UDP (real-time), где дроп старых пакетов — корректное поведение.
+- **TUN read/write без per-packet аллокаций** — `sizes` вынесен на стек, буферы записи с headroom переиспользуются через `sync.Pool`; меньше GC-джиттера на высоком pps.
+
 ## [1.4.1] 2026-10-23
 
 ### Fixed

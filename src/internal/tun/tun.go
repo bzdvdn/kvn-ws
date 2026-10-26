@@ -57,17 +57,32 @@ func (t *tunDevice) Close() error {
 	return t.device.Close()
 }
 
+type readScratch struct {
+	bufs  [1][]byte
+	sizes [1]int
+}
+
+var readScratchPool = sync.Pool{
+	New: func() any { return &readScratch{} },
+}
+
 // @sk-task tun-data-path#T2.1: single-buf Read (AC-002)
+// @sk-task tunnel-primary-backpressure#T1.3: no per-packet sizes allocation (AC-003)
 func (t *tunDevice) Read(buf []byte) (int, error) {
-	sizes := make([]int, 1)
-	n, err := t.device.Read([][]byte{buf}, sizes, 0)
+	sc := readScratchPool.Get().(*readScratch)
+	sc.bufs[0] = buf
+	sc.sizes[0] = 0
+	n, err := t.device.Read(sc.bufs[:], sc.sizes[:], 0)
+	size := sc.sizes[0]
+	sc.bufs[0] = nil
+	readScratchPool.Put(sc)
 	if err != nil {
 		return 0, err
 	}
 	if n == 0 {
 		return 0, nil
 	}
-	return sizes[0], nil
+	return size, nil
 }
 
 // @sk-task arch-refactoring#T3.4: exec.Command add default route (AC-007)
@@ -93,11 +108,32 @@ func removeDefaultRoute(iface string, gateway net.IP) error {
 const virtioNetHdrLen = 12
 const writeHeadroom = virtioNetHdrLen
 
+// @sk-task tunnel-primary-backpressure#T1.3: reuse write buffers with headroom (AC-003)
+type writeScratch struct {
+	buf  []byte
+	bufs [1][]byte
+}
+
+var writeScratchPool = sync.Pool{
+	New: func() any {
+		return &writeScratch{buf: make([]byte, writeHeadroom+2048)}
+	},
+}
+
 // @sk-task tun-data-path#T2.2: Write offset=12 virtioNetHdrLen (AC-001)
 func (t *tunDevice) Write(buf []byte) (int, error) {
-	padded := make([]byte, writeHeadroom+len(buf))
+	need := writeHeadroom + len(buf)
+	sc := writeScratchPool.Get().(*writeScratch)
+	if cap(sc.buf) < need {
+		sc.buf = make([]byte, need)
+	}
+	padded := sc.buf[:need]
 	copy(padded[writeHeadroom:], buf)
-	_, err := t.device.Write([][]byte{padded}, writeHeadroom)
+	sc.bufs[0] = padded
+	_, err := t.device.Write(sc.bufs[:], writeHeadroom)
+	sc.bufs[0] = nil
+	sc.buf = padded
+	writeScratchPool.Put(sc)
 	if err != nil {
 		return 0, err
 	}
