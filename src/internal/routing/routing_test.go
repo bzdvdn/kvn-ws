@@ -566,3 +566,125 @@ func buildIPv4Packet(dst string) []byte {
 	copy(pkt[16:20], ip.AsSlice())
 	return pkt
 }
+
+// @sk-test routing-domain-precedence#T2.1: exact > suffix, longest suffix, tie -> exclude (AC-001, AC-002, AC-003)
+func TestRuleSetMatchDomainPrecedence(t *testing.T) {
+	tests := []struct {
+		name   string
+		cfg    *config.RoutingCfg
+		domain string
+		want   RouteAction
+	}{
+		{
+			name: "exact include beats suffix exclude",
+			cfg: &config.RoutingCfg{
+				DefaultRoute:   "server",
+				ExcludeDomains: []string{".ru"},
+				IncludeDomains: []string{"ktalk.ru"},
+			},
+			domain: "ktalk.ru",
+			want:   RouteServer,
+		},
+		{
+			name: "suffix exclude still applies",
+			cfg: &config.RoutingCfg{
+				DefaultRoute:   "server",
+				ExcludeDomains: []string{".ru"},
+				IncludeDomains: []string{"ktalk.ru"},
+			},
+			domain: "hh.ru",
+			want:   RouteDirect,
+		},
+		{
+			name: "longer include suffix beats shorter exclude",
+			cfg: &config.RoutingCfg{
+				DefaultRoute:   "direct",
+				ExcludeDomains: []string{".host"},
+				IncludeDomains: []string{".ktalk.host"},
+			},
+			domain: "board.ktalk.host",
+			want:   RouteServer,
+		},
+		{
+			name: "shorter suffix still applies",
+			cfg: &config.RoutingCfg{
+				DefaultRoute:   "direct",
+				ExcludeDomains: []string{".host"},
+				IncludeDomains: []string{".ktalk.host"},
+			},
+			domain: "example.host",
+			want:   RouteDirect,
+		},
+		{
+			name: "longer exclude suffix beats shorter include",
+			cfg: &config.RoutingCfg{
+				DefaultRoute:   "server",
+				ExcludeDomains: []string{".ktalk.host"},
+				IncludeDomains: []string{".host"},
+			},
+			domain: "board.ktalk.host",
+			want:   RouteDirect,
+		},
+		{
+			name: "exact tie excludes",
+			cfg: &config.RoutingCfg{
+				DefaultRoute:   "server",
+				ExcludeDomains: []string{"example.com"},
+				IncludeDomains: []string{"example.com"},
+			},
+			domain: "example.com",
+			want:   RouteDirect,
+		},
+		{
+			name: "exact does not match subdomain",
+			cfg: &config.RoutingCfg{
+				DefaultRoute:   "server",
+				ExcludeDomains: []string{"example.com"},
+				IncludeDomains: []string{"example.com"},
+			},
+			domain: "sub.example.com",
+			want:   RouteNone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs, err := NewRuleSet(tt.cfg, nopLogger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := rs.MatchDomain(tt.domain); got != tt.want {
+				t.Fatalf("MatchDomain(%q) = %d, want %d", tt.domain, got, tt.want)
+			}
+		})
+	}
+}
+
+// @sk-test routing-domain-precedence#T2.2: map iteration order cannot change the result (AC-004)
+func TestRuleSetMatchDomainDeterministic(t *testing.T) {
+	cfg := &config.RoutingCfg{
+		DefaultRoute:   "server",
+		ExcludeDomains: []string{".ru", ".host", "example.com"},
+		IncludeDomains: []string{".ru", ".ktalk.host", "ktalk.ru", "example.com"},
+	}
+	rs, err := NewRuleSet(cfg, nopLogger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]RouteAction{
+		"ktalk.ru":         RouteServer,
+		"hh.ru":            RouteDirect,
+		"board.ktalk.host": RouteServer,
+		"example.host":     RouteDirect,
+		"example.com":      RouteDirect,
+		"google.com":       RouteNone,
+	}
+	for domain, wantAction := range want {
+		for i := 0; i < 1000; i++ {
+			if got := rs.MatchDomain(domain); got != wantAction {
+				t.Fatalf("MatchDomain(%q) iteration %d = %d, want %d", domain, i, got, wantAction)
+			}
+		}
+	}
+}

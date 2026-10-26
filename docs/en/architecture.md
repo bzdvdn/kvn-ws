@@ -151,7 +151,7 @@ Transport is selected by the `transport` config field:
 4. After receiving the answer, DNS tracker stores the `IP → domain` mapping with the TTL from the DNS response
 5. When the application sends a packet to that IP, Routing Engine checks the tracker:
    - If IP is found — domain-based rule applies (exact or suffix match)
-   - RouteAction (direct/tunnel) is selected by the most specific match
+   - RouteAction (direct/tunnel) is selected by the most specific match: exact > suffix, longest suffix wins, and exclude wins equal-specificity ties
 6. If IP is not found in the tracker — falls back to CIDR/IP matching rules
 
 ### Keepalive

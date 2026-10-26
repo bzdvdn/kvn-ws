@@ -111,22 +111,55 @@ func (rs *RuleSet) SetTracker(t *dns.Tracker) {
 }
 
 // @sk-task dns-routing#T3.1: domain match for suffix + exact rules (AC-001, AC-002)
+// @sk-task routing-domain-precedence#T1.1: exact > longest suffix, tie -> exclude (AC-001..AC-004)
 func (rs *RuleSet) MatchDomain(domain string) RouteAction {
-	for action, exact := range rs.exactDomains {
-		if _, ok := exact[domain]; ok {
-			rs.logger.Debug("domain matched", zap.String("domain", domain), zap.String("type", "exact"), zap.Int("action", int(action)))
-			return action
-		}
+	if action, ok := rs.matchExactDomain(domain); ok {
+		return action
 	}
-	for action, suffixes := range rs.suffixDomains {
-		for _, suffix := range suffixes {
-			if strings.HasSuffix(domain, suffix) {
-				rs.logger.Debug("domain matched", zap.String("domain", domain), zap.String("suffix", suffix), zap.Int("action", int(action)))
-				return action
-			}
-		}
+	if action, suffix, ok := rs.matchSuffixDomain(domain); ok {
+		rs.logger.Debug("domain matched",
+			zap.String("domain", domain),
+			zap.String("suffix", suffix),
+			zap.Int("action", int(action)),
+		)
+		return action
 	}
 	return RouteNone
+}
+
+// @sk-task routing-domain-precedence#T1.1: exact rules win over suffix; exclude wins ties (AC-001, AC-003)
+func (rs *RuleSet) matchExactDomain(domain string) (RouteAction, bool) {
+	if _, ok := rs.exactDomains[RouteDirect][domain]; ok {
+		rs.logger.Debug("domain matched", zap.String("domain", domain), zap.String("type", "exact"), zap.Int("action", int(RouteDirect)))
+		return RouteDirect, true
+	}
+	if _, ok := rs.exactDomains[RouteServer][domain]; ok {
+		rs.logger.Debug("domain matched", zap.String("domain", domain), zap.String("type", "exact"), zap.Int("action", int(RouteServer)))
+		return RouteServer, true
+	}
+	return RouteNone, false
+}
+
+// @sk-task routing-domain-precedence#T1.1: longest suffix wins, exclude wins equal-length ties (AC-002, AC-003)
+func (rs *RuleSet) matchSuffixDomain(domain string) (RouteAction, string, bool) {
+	bestLen := 0
+	bestSuffix := ""
+	bestAction := RouteNone
+	for _, suffix := range rs.suffixDomains[RouteDirect] {
+		if len(suffix) > bestLen && strings.HasSuffix(domain, suffix) {
+			bestLen = len(suffix)
+			bestSuffix = suffix
+			bestAction = RouteDirect
+		}
+	}
+	for _, suffix := range rs.suffixDomains[RouteServer] {
+		if len(suffix) > bestLen && strings.HasSuffix(domain, suffix) {
+			bestLen = len(suffix)
+			bestSuffix = suffix
+			bestAction = RouteServer
+		}
+	}
+	return bestAction, bestSuffix, bestAction != RouteNone
 }
 
 // @sk-task routing-split-tunnel#T2.2: route decision (AC-001)
