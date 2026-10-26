@@ -4,5 +4,7 @@
   "base_sha": "bbb8b5672ea226288875971a029fa2f4e3d14d55",
   "base_branch": "master",
   "base_source": "inferred",
-  "created_at": "2026-10-26T12:33:36Z"
+  "created_at": "2026-10-26T12:33:36Z",
+  "head_sha": "d108658be9b3876976d5925821f9c968986c0aec",
+  "branch": "feature/routing-domain-precedence"
 }
