@@ -57,6 +57,11 @@ type ClientConfig struct {
 	UDPDatagrams *bool `json:"udp_datagrams,omitempty" mapstructure:"udp_datagrams"`
 	// @sk-task ws-media-queue-backpressure#T2.2: secondary batching window in ms (AC-001)
 	SecondaryBatchHoldMS *int `json:"secondary_batch_hold_ms,omitempty" yaml:"secondary_batch_hold_ms,omitempty" mapstructure:"secondary_batch_hold_ms"`
+	// @sk-task stealth-surface-hardening#T1.3: configurable WS subprotocol aliases and client surface profile (AC-009, AC-010)
+	MultiplexSubprotocols []string `json:"multiplex_subprotocols,omitempty" yaml:"multiplex_subprotocols,omitempty" mapstructure:"multiplex_subprotocols"`
+	HeadersProfile        string   `json:"headers_profile,omitempty" yaml:"headers_profile,omitempty" mapstructure:"headers_profile"`
+	KeepaliveJitterPct    int      `json:"keepalive_jitter_pct,omitempty" yaml:"keepalive_jitter_pct,omitempty" mapstructure:"keepalive_jitter_pct"`
+	ReconnectJitterPct    int      `json:"reconnect_jitter_pct,omitempty" yaml:"reconnect_jitter_pct,omitempty" mapstructure:"reconnect_jitter_pct"`
 }
 
 // @sk-task quic-datagrams#T3.4: datagram mode defaults to enabled (AC-001)
@@ -186,6 +191,53 @@ type PaddingCfg struct {
 	Size    int  `json:"size" mapstructure:"size"`
 	// @sk-task game-latency#T3.4: drop padding for real-time (secondary/UDP) framing (AC-001)
 	RealtimeUnpadded *bool `json:"realtime_unpadded,omitempty" mapstructure:"realtime_unpadded"`
+	// @sk-task stealth-surface-hardening#T1.1: fixed|random padding policy (AC-001, AC-003)
+	Mode string `json:"mode,omitempty" yaml:"mode,omitempty" mapstructure:"mode"`
+	// @sk-task stealth-surface-hardening#T1.3: configurable no-pad header aliases (AC-009)
+	NoPadHeaders []string `json:"no_pad_headers,omitempty" yaml:"no_pad_headers,omitempty" mapstructure:"no_pad_headers"`
+}
+
+// @sk-task stealth-surface-hardening#T1.1: padding mode defaults to fixed (AC-003)
+func (p *PaddingCfg) ModeOrDefault() string {
+	if p == nil || p.Mode == "" {
+		return "fixed"
+	}
+	return p.Mode
+}
+
+// @sk-task stealth-surface-hardening#T1.3: preserve the legacy no-pad header by default (AC-009)
+func (p *PaddingCfg) NoPadHeadersOrDefault() []string {
+	if p == nil || len(p.NoPadHeaders) == 0 {
+		return []string{"X-KVN-NoPad"}
+	}
+	return p.NoPadHeaders
+}
+
+// @sk-task stealth-surface-hardening#T1.3: preserve legacy multiplex subprotocol by default (AC-010)
+func (c *ClientConfig) MultiplexSubprotocolsOrDefault() []string {
+	if len(c.MultiplexSubprotocols) == 0 {
+		return []string{"kvn-ws-mux"}
+	}
+	return c.MultiplexSubprotocols
+}
+
+// @sk-task stealth-surface-hardening#T2.3: headers profile defaults to legacy (AC-006)
+func (c *ClientConfig) HeadersProfileOrDefault() string {
+	if c.HeadersProfile == "" {
+		return "legacy"
+	}
+	return c.HeadersProfile
+}
+
+// @sk-task stealth-surface-hardening#T2.2: clamp jitter to a safe range (AC-005)
+func clampJitterPct(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 50 {
+		return 50
+	}
+	return v
 }
 
 // @sk-task game-latency#T3.4: real-time unpadded mode defaults to enabled (AC-001)
@@ -530,6 +582,23 @@ func SetClientDefaults(cfg *ClientConfig) {
 	if len(cfg.DNSProxy.Upstreams) == 0 {
 		cfg.DNSProxy.Upstreams = append([]string{}, DefaultDNSUpstreams...)
 	}
+	// @sk-task stealth-surface-hardening#T1.3: legacy defaults for new surface settings (AC-003, AC-009, AC-010)
+	if cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil {
+		if cfg.Obfuscation.Padding.Mode == "" {
+			cfg.Obfuscation.Padding.Mode = "fixed"
+		}
+		if len(cfg.Obfuscation.Padding.NoPadHeaders) == 0 {
+			cfg.Obfuscation.Padding.NoPadHeaders = []string{"X-KVN-NoPad"}
+		}
+	}
+	if len(cfg.MultiplexSubprotocols) == 0 {
+		cfg.MultiplexSubprotocols = []string{"kvn-ws-mux"}
+	}
+	if cfg.HeadersProfile == "" {
+		cfg.HeadersProfile = "legacy"
+	}
+	cfg.KeepaliveJitterPct = clampJitterPct(cfg.KeepaliveJitterPct)
+	cfg.ReconnectJitterPct = clampJitterPct(cfg.ReconnectJitterPct)
 }
 
 // @sk-task kvn-web#T1.1: SaveClientConfig writes config to YAML (AC-005)

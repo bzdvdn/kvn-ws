@@ -29,23 +29,34 @@ func dialStreamWith(ctx context.Context, cfg *config.ClientConfig, logger *zap.L
 
 	paddingEnabled := cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil && cfg.Obfuscation.Padding.Enabled
 	paddingSize := 512
-	if cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil && cfg.Obfuscation.Padding.Size > 0 {
-		paddingSize = cfg.Obfuscation.Padding.Size
+	paddingMode := "fixed"
+	noPadHeaders := []string{"X-KVN-NoPad"}
+	if cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil {
+		if cfg.Obfuscation.Padding.Size > 0 {
+			paddingSize = cfg.Obfuscation.Padding.Size
+		}
+		paddingMode = cfg.Obfuscation.Padding.ModeOrDefault()
+		noPadHeaders = cfg.Obfuscation.Padding.NoPadHeadersOrDefault()
 	}
 	factoryCfg := &transport.FactoryConfig{
-		TLS:               tlsCfg,
-		Logger:            logger,
-		MaxMessageSize:    cfg.MaxMessageSize,
-		KeepaliveInterval: control.DefaultPingInterval,
-		KeepaliveTimeout:  control.DefaultPongTimeout,
-		Multiplex:         cfg.Multiplex,
-		MTU:               cfg.MTU,
-		UTLS:              cfg.Obfuscation != nil && cfg.Obfuscation.UTLS != nil && cfg.Obfuscation.UTLS.Enabled,
-		UTLSFallback:      cfg.Obfuscation != nil && cfg.Obfuscation.UTLS != nil && cfg.Obfuscation.UTLS.Fallback,
-		PaddingEnabled:    paddingEnabled,
-		PaddingSize:       paddingSize,
-		RequestNoPad:      requestNoPad,
-		Obfuscation:       cfg.Obfuscation != nil && cfg.Obfuscation.Enabled,
+		TLS:                   tlsCfg,
+		Logger:                logger,
+		MaxMessageSize:        cfg.MaxMessageSize,
+		KeepaliveInterval:     control.DefaultPingInterval,
+		KeepaliveTimeout:      control.DefaultPongTimeout,
+		Multiplex:             cfg.Multiplex,
+		MTU:                   cfg.MTU,
+		UTLS:                  cfg.Obfuscation != nil && cfg.Obfuscation.UTLS != nil && cfg.Obfuscation.UTLS.Enabled,
+		UTLSFallback:          cfg.Obfuscation != nil && cfg.Obfuscation.UTLS != nil && cfg.Obfuscation.UTLS.Fallback,
+		PaddingEnabled:        paddingEnabled,
+		PaddingSize:           paddingSize,
+		PaddingMode:           paddingMode,
+		NoPadHeaders:          noPadHeaders,
+		MultiplexSubprotocols: cfg.MultiplexSubprotocolsOrDefault(),
+		HeadersProfile:        cfg.HeadersProfileOrDefault(),
+		KeepaliveJitterPct:    cfg.KeepaliveJitterPct,
+		RequestNoPad:          requestNoPad,
+		Obfuscation:           cfg.Obfuscation != nil && cfg.Obfuscation.Enabled,
 	}
 
 	factory := transport.NewFactory(cfg.Transport, factoryCfg)

@@ -21,25 +21,26 @@ const DefaultServerMTU = 1400
 // @sk-task whitelist-obfuscation#T1.3: add WSPaths field (AC-003)
 // @sk-task doze-resilience#T1.1: add pong_timeout config (AC-005)
 type ServerConfig struct {
-	Listen       string          `mapstructure:"listen"`
-	Transport    string          `mapstructure:"transport"`
-	PongTimeout  time.Duration   `mapstructure:"pong_timeout"`
-	Obfuscation  *ObfuscationCfg `mapstructure:"obfuscation"`
-	WSPaths      []string        `mapstructure:"ws_paths"`
-	TLS          TLSCfg          `mapstructure:"tls"`
-	Network      NetworkCfg      `mapstructure:"network"`
-	Session      SessionCfg      `mapstructure:"session"`
-	Auth         ServerAuth      `mapstructure:"auth"`
-	Logging      LogConfig       `mapstructure:"logging"`
-	RateLimiting RateLimitCfg    `mapstructure:"rate_limiting"`
-	BoltDBPath   string          `mapstructure:"bolt_db_path"`
-	ACL          ACLCfg          `mapstructure:"acl"`
-	Origin       OriginCfg       `mapstructure:"origin"`
-	Admin        AdminCfg        `mapstructure:"admin"`
-	Multiplex    bool            `mapstructure:"multiplex"`
-	MTU          int             `mapstructure:"mtu"`
-	Crypto       CryptoCfg       `mapstructure:"crypto"`
-	DNSUpstreams []string        `mapstructure:"dns_upstreams"`
+	Listen                string          `mapstructure:"listen"`
+	Transport             string          `mapstructure:"transport"`
+	PongTimeout           time.Duration   `mapstructure:"pong_timeout"`
+	Obfuscation           *ObfuscationCfg `mapstructure:"obfuscation"`
+	WSPaths               []string        `mapstructure:"ws_paths"`
+	TLS                   TLSCfg          `mapstructure:"tls"`
+	Network               NetworkCfg      `mapstructure:"network"`
+	Session               SessionCfg      `mapstructure:"session"`
+	Auth                  ServerAuth      `mapstructure:"auth"`
+	Logging               LogConfig       `mapstructure:"logging"`
+	RateLimiting          RateLimitCfg    `mapstructure:"rate_limiting"`
+	BoltDBPath            string          `mapstructure:"bolt_db_path"`
+	ACL                   ACLCfg          `mapstructure:"acl"`
+	Origin                OriginCfg       `mapstructure:"origin"`
+	Admin                 AdminCfg        `mapstructure:"admin"`
+	Multiplex             bool            `mapstructure:"multiplex"`
+	MultiplexSubprotocols []string        `mapstructure:"multiplex_subprotocols"`
+	MTU                   int             `mapstructure:"mtu"`
+	Crypto                CryptoCfg       `mapstructure:"crypto"`
+	DNSUpstreams          []string        `mapstructure:"dns_upstreams"`
 	// @sk-task quic-datagrams#T3.4: unreliable QUIC datagrams for real-time UDP (AC-001)
 	UDPDatagrams *bool `mapstructure:"udp_datagrams"`
 }
@@ -255,6 +256,18 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	// @sk-task game-latency#T1.1: consistent default tunnel MTU (AC-003)
 	if cfg.MTU <= 0 {
 		cfg.MTU = DefaultServerMTU
+	}
+	// @sk-task stealth-surface-hardening#T1.3: legacy defaults for padding/subprotocol aliases (AC-003, AC-009, AC-010)
+	if cfg.Obfuscation != nil && cfg.Obfuscation.Padding != nil {
+		if cfg.Obfuscation.Padding.Mode == "" {
+			cfg.Obfuscation.Padding.Mode = "fixed"
+		}
+		if len(cfg.Obfuscation.Padding.NoPadHeaders) == 0 {
+			cfg.Obfuscation.Padding.NoPadHeaders = []string{"X-KVN-NoPad"}
+		}
+	}
+	if len(cfg.MultiplexSubprotocols) == 0 {
+		cfg.MultiplexSubprotocols = []string{"kvn-ws-mux"}
 	}
 	if cfg.Admin.Listen == "" {
 		cfg.Admin.Listen = "localhost:8443"

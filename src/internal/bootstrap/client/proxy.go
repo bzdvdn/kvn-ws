@@ -57,8 +57,9 @@ func (c *Client) runProxyMode(ctx context.Context) {
 
 		slots := c.dialProxySlots(ctx, numConns)
 		if slots == nil {
-			c.logger.Warn("dial failed", zap.Duration("retry_in", backoff))
-			sleepWithContext(ctx, backoff)
+			retryIn := jitterDelay(backoff, c.cfg.ReconnectJitterPct)
+			c.logger.Warn("dial failed", zap.Duration("retry_in", retryIn))
+			sleepWithContext(ctx, retryIn)
 			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
 			continue
 		}

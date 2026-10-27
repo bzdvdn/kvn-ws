@@ -20,6 +20,27 @@ func nextBackoff(current, minBackoff, maxBackoff time.Duration) time.Duration {
 	return next
 }
 
+// @sk-task stealth-surface-hardening#T2.2: bounded jitter for reconnect cadence (AC-005)
+func jitterDelay(base time.Duration, pct int) time.Duration {
+	if base <= 0 {
+		return base
+	}
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 50 {
+		pct = 50
+	}
+	if pct == 0 {
+		return base
+	}
+	delta := time.Duration(int64(base) * int64(pct) / 100)
+	if delta <= 0 {
+		return base
+	}
+	return base - delta + time.Duration(rand.Int63n(int64(2*delta)+1)) // #nosec G404 — timing jitter
+}
+
 // @sk-task fix-critical-leaks#T1.2: fix time.After leak (AC-008)
 func sleepWithContext(ctx context.Context, d time.Duration) {
 	timer := time.NewTimer(d)

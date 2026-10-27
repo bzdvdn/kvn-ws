@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Primary TCP снова работает через backpressure** — убрана drop-очередь primary из v1.4.1: TCP-кадры больше не теряются при заторе канала и не создают bufferbloat. Bounded drop-очередь осталась только для secondary UDP (real-time), где дроп старых пакетов — корректное поведение.
 - **TUN read/write без per-packet аллокаций** — `sizes` вынесен на стек, буферы записи с headroom переиспользуются через `sync.Pool`; меньше GC-джиттера на высоком pps.
 
+### Added
+
+- **Stealth surface hardening (opt-in)** — `obfuscation.padding.mode: random` паддит только малые кадры без изменения wire-формата; настраиваемые alias-списки `no_pad_headers` и `multiplex_subprotocols` сохраняют старых peer'ов; decoy API отвечает на активные probe; клиентские `headers_profile: browser`, `keepalive_jitter_pct`, `reconnect_jitter_pct`. Все дефолты legacy, mixed-version совместимость покрыта тестами.
+
 ## [1.4.1] 2026-10-23
 
 ### Fixed

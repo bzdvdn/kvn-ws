@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -36,7 +37,7 @@ func isTimeout(err error) bool {
 
 func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg websocket.WSConfig) {
 	if !isWebSocketRequest(r) {
-		http.Error(w, "404 not found", http.StatusNotFound)
+		s.handleDecoy(w, r)
 		return
 	}
 	wsConn, err := websocket.Accept(w, r, s.logger, s.originChecker, wsCfg)
@@ -52,6 +53,30 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 	}
 	wsConn.SetKeepalive(control.DefaultPingInterval, pongTimeout)
 	s.handleStream(r.Context(), wsConn, wsCfg.MTU, r.RemoteAddr)
+}
+
+// @sk-task stealth-surface-hardening#T2.1: plausible API responses for active probes (AC-004)
+func (s *Server) handleDecoy(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	switch r.URL.Path {
+	case "/", "/api/v1/health", "/api/v1/status":
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":  "ok",
+			"service": "events",
+		})
+	case "/api/v1/events":
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "unauthorized",
+		})
+	default:
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "not found",
+		})
+	}
 }
 
 // @sk-task decoy-hardening: return 404 for non-WebSocket requests

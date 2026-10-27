@@ -504,6 +504,34 @@ export default function TabbedForm(props: TabbedFormProps) {
         </div>
       </div>
 
+      {/* @sk-task stealth-surface-hardening#T4.1: surface aliases and jitter (AC-005, AC-006, AC-010) */}
+      <div style={subTitleStyle}>Stealth Surface</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Multiplex Subprotocols</span>
+          <input
+            style={inputStyle}
+            value={(serverConfig.multiplex_subprotocols ?? ["kvn-ws-mux"]).join(", ")}
+            onChange={(e) => props.onUpdateServer("multiplex_subprotocols", e.target.value.split(",").map((v) => v.trim()).filter(Boolean))}
+          />
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Headers Profile</span>
+          <select style={inputStyle} value={serverConfig.headers_profile ?? "legacy"} onChange={(e) => props.onUpdateServer("headers_profile", e.target.value)}>
+            <option value="legacy">legacy</option>
+            <option value="browser">browser</option>
+          </select>
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Keepalive Jitter %</span>
+          <input style={inputStyle} type="number" min={0} max={50} value={serverConfig.keepalive_jitter_pct ?? 0} onChange={(e) => props.onUpdateServer("keepalive_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Reconnect Jitter %</span>
+          <input style={inputStyle} type="number" min={0} max={50} value={serverConfig.reconnect_jitter_pct ?? 0} onChange={(e) => props.onUpdateServer("reconnect_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
+        </div>
+      </div>
+
       {serverConfig.obfuscation?.enabled && (
         <div style={{ ...subBlockStyle, borderLeft: `2px solid ${colors.accent}44`, marginTop: 2 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer", marginBottom: 2 }}>
@@ -525,6 +553,24 @@ export default function TabbedForm(props: TabbedFormProps) {
               <div style={fieldStyle()}>
                 <span style={labelStyle()}>Padding Size</span>
                 <input style={chipStyle} type="number" value={serverConfig.obfuscation?.padding?.size ?? 512} onChange={(e) => props.onNestServer2("obfuscation", "padding", "size", parseInt(e.target.value) || 512)} />
+              </div>
+              {/* @sk-task stealth-surface-hardening#T4.1: padding policy (AC-001) */}
+              <div style={fieldStyle()}>
+                <span style={labelStyle()}>Padding Mode</span>
+                <select style={inputStyle} value={serverConfig.obfuscation?.padding?.mode ?? "fixed"} onChange={(e) => props.onNestServer2("obfuscation", "padding", "mode", e.target.value)}>
+                  <option value="fixed">fixed</option>
+                  <option value="random">random (small frames)</option>
+                </select>
+              </div>
+              {/* @sk-task stealth-surface-hardening#T4.1: no-pad header aliases (AC-009) */}
+              <div style={fieldStyle()}>
+                <span style={labelStyle()}>No-Pad Headers</span>
+                <input
+                  style={inputStyle}
+                  value={(serverConfig.obfuscation?.padding?.no_pad_headers ?? ["X-KVN-NoPad"]).join(", ")}
+                  onChange={(e) => props.onNestServer2("obfuscation", "padding", "no_pad_headers", e.target.value.split(",").map((v) => v.trim()).filter(Boolean))}
+                />
+                <span style={{ fontSize: 10, color: colors.textDim }}>Comma-separated aliases; first legacy name stays compatible</span>
               </div>
             </div>
           )}
@@ -605,6 +651,34 @@ export default function TabbedForm(props: TabbedFormProps) {
           }}
         />
         <span style={{ fontSize: 10, color: colors.textDim }}>UDP coalescing on secondary; 0 = immediate, max 10</span>
+      </div>
+
+      {/* @sk-task stealth-surface-hardening#T4.1: global surface aliases and jitter (AC-005, AC-006, AC-010) */}
+      <div style={subTitleStyle}>Stealth Surface</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Multiplex Subprotocols</span>
+          <input
+            style={inputStyle}
+            value={(globalConfig.multiplex_subprotocols ?? ["kvn-ws-mux"]).join(", ")}
+            onChange={(e) => props.onUpdateGlobal("multiplex_subprotocols", e.target.value.split(",").map((v) => v.trim()).filter(Boolean))}
+          />
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Headers Profile</span>
+          <select style={inputStyle} value={globalConfig.headers_profile ?? "legacy"} onChange={(e) => props.onUpdateGlobal("headers_profile", e.target.value)}>
+            <option value="legacy">legacy</option>
+            <option value="browser">browser</option>
+          </select>
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Keepalive Jitter %</span>
+          <input style={inputStyle} type="number" min={0} max={50} value={globalConfig.keepalive_jitter_pct ?? 0} onChange={(e) => props.onUpdateGlobal("keepalive_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Reconnect Jitter %</span>
+          <input style={inputStyle} type="number" min={0} max={50} value={globalConfig.reconnect_jitter_pct ?? 0} onChange={(e) => props.onUpdateGlobal("reconnect_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
+        </div>
       </div>
 
       <div style={subTitleStyle}>DNS</div>

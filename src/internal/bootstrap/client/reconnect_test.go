@@ -48,3 +48,19 @@ func TestSleepWithContextTimerStops(t *testing.T) {
 		t.Fatal("timers not stopped properly")
 	}
 }
+
+// @sk-test stealth-surface-hardening#T3.2: reconnect jitter stays within bounds (AC-005)
+func TestJitterDelayBounds(t *testing.T) {
+	base := 10 * time.Second
+	pct := 20
+	delta := base / 5
+	for i := 0; i < 1000; i++ {
+		got := jitterDelay(base, pct)
+		if got < base-delta || got > base+delta {
+			t.Fatalf("jitter = %v, want [%v, %v]", got, base-delta, base+delta)
+		}
+	}
+	if got := jitterDelay(base, 0); got != base {
+		t.Fatalf("zero jitter = %v, want %v", got, base)
+	}
+}

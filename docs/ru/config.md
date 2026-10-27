@@ -141,6 +141,19 @@ logging:
 | `dns_proxy.upstreams` | []string | `[1.1.1.1:53, 8.8.8.8:53]` | Список вышестоящих DNS-серверов (fallback по порядку). Также принимает устаревший `upstream: string` |
 | `log.level` | string | `info` | Уровень логирования (`debug`, `info`, `warn`, `error`) |
 
+### Stealth surface
+
+| Ключ | Тип | По умолчанию | Описание |
+|------|-----|-------------|----------|
+| `obfuscation.padding.mode` | string | `fixed` | `fixed` или `random`; random паддит только малые кадры. Wire-формат не меняется, mixed-version совместим |
+| `obfuscation.padding.no_pad_headers` | []string | `["X-KVN-NoPad"]` | Alias-имена no-pad; клиент шлёт все, сервер принимает любое и отвечает совпавшим |
+| `multiplex_subprotocols` | []string | `["kvn-ws-mux"]` | Alias-имена subprotocol; порядок на сервере задаёт предпочтение |
+| `headers_profile` | string | `legacy` | `legacy` или `browser`; browser отправляет реалистичные WS-заголовки (opt-in) |
+| `keepalive_jitter_pct` | int | `0` | 0–50, jitter keepalive клиента |
+| `reconnect_jitter_pct` | int | `0` | 0–50, jitter reconnect клиента |
+
+`padding.mode`, `no_pad_headers` и `multiplex_subprotocols` используются и сервером; `headers_profile` и jitter — клиентские. Дефолты legacy, старые клиенты/серверы совместимы.
+
 ### Пример конфигурации клиента
 
 ```yaml

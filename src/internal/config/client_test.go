@@ -726,3 +726,31 @@ func TestSecondaryBatchHoldDefaultAndClamp(t *testing.T) {
 		t.Fatalf("server clamped hold = %dms, want 10ms", got)
 	}
 }
+
+// @sk-test stealth-surface-hardening#T3.1: legacy defaults for new surface settings (AC-003, AC-009, AC-010)
+func TestStealthSurfaceDefaults(t *testing.T) {
+	cfg := &ClientConfig{
+		Obfuscation: &ObfuscationCfg{
+			Padding: &PaddingCfg{Enabled: true},
+		},
+	}
+	SetClientDefaults(cfg)
+	if cfg.Obfuscation.Padding.Mode != "fixed" {
+		t.Fatalf("Padding.Mode = %q, want fixed", cfg.Obfuscation.Padding.Mode)
+	}
+	if len(cfg.Obfuscation.Padding.NoPadHeaders) != 1 || cfg.Obfuscation.Padding.NoPadHeaders[0] != "X-KVN-NoPad" {
+		t.Fatalf("NoPadHeaders = %v, want legacy header", cfg.Obfuscation.Padding.NoPadHeaders)
+	}
+	if len(cfg.MultiplexSubprotocols) != 1 || cfg.MultiplexSubprotocols[0] != "kvn-ws-mux" {
+		t.Fatalf("MultiplexSubprotocols = %v, want legacy subprotocol", cfg.MultiplexSubprotocols)
+	}
+	if cfg.HeadersProfile != "legacy" {
+		t.Fatalf("HeadersProfile = %q, want legacy", cfg.HeadersProfile)
+	}
+	cfg.KeepaliveJitterPct = 99
+	cfg.ReconnectJitterPct = -1
+	SetClientDefaults(cfg)
+	if cfg.KeepaliveJitterPct != 50 || cfg.ReconnectJitterPct != 0 {
+		t.Fatalf("jitter clamp = %d/%d, want 50/0", cfg.KeepaliveJitterPct, cfg.ReconnectJitterPct)
+	}
+}

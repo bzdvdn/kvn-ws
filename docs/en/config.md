@@ -141,6 +141,19 @@ logging:
 | `dns_proxy.upstreams` | []string | `[1.1.1.1:53, 8.8.8.8:53]` | List of upstream DNS servers (fallback in order). Also accepts deprecated `upstream: string` |
 | `log.level` | string | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
+### Stealth surface
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `obfuscation.padding.mode` | string | `fixed` | `fixed` or `random`; random pads only small frames. Wire format is unchanged and mixed-version compatible |
+| `obfuscation.padding.no_pad_headers` | []string | `["X-KVN-NoPad"]` | No-pad aliases; client sends all, server accepts any and echoes the matched one |
+| `multiplex_subprotocols` | []string | `["kvn-ws-mux"]` | Subprotocol aliases; server order defines preference |
+| `headers_profile` | string | `legacy` | `legacy` or `browser`; browser sends realistic WS headers (opt-in) |
+| `keepalive_jitter_pct` | int | `0` | 0–50, client keepalive jitter |
+| `reconnect_jitter_pct` | int | `0` | 0–50, client reconnect jitter |
+
+`padding.mode`, `no_pad_headers` and `multiplex_subprotocols` are used by the server too; `headers_profile` and jitter are client-side. Defaults are legacy, so old clients/servers remain compatible.
+
 ### Client example
 
 ```yaml

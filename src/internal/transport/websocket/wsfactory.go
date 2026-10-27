@@ -25,20 +25,25 @@ func NewWSFactory(cfg *transport.FactoryConfig) *WSFactory {
 
 func (f *WSFactory) Dial(ctx context.Context, endpoint string) (transport.StreamConn, error) {
 	wsCfg := WSConfig{
-		Multiplex:      f.tlsCfg.Multiplex,
-		MTU:            f.tlsCfg.MTU,
-		UTLS:           f.tlsCfg.UTLS,
-		UTLSFallback:   f.tlsCfg.UTLSFallback,
-		PaddingEnabled: f.tlsCfg.PaddingEnabled,
-		PaddingSize:    f.tlsCfg.PaddingSize,
-		RequestNoPad:   f.tlsCfg.RequestNoPad,
+		Multiplex:             f.tlsCfg.Multiplex,
+		MTU:                   f.tlsCfg.MTU,
+		UTLS:                  f.tlsCfg.UTLS,
+		UTLSFallback:          f.tlsCfg.UTLSFallback,
+		PaddingEnabled:        f.tlsCfg.PaddingEnabled,
+		PaddingSize:           f.tlsCfg.PaddingSize,
+		PaddingMode:           f.tlsCfg.PaddingMode,
+		NoPadHeaders:          f.tlsCfg.NoPadHeaders,
+		MultiplexSubprotocols: f.tlsCfg.MultiplexSubprotocols,
+		HeadersProfile:        f.tlsCfg.HeadersProfile,
+		KeepaliveJitterPct:    f.tlsCfg.KeepaliveJitterPct,
+		RequestNoPad:          f.tlsCfg.RequestNoPad,
 	}
 	conn, err := DialContext(ctx, endpoint, f.tlsCfg.TLS, f.tlsCfg.Logger, wsCfg)
 	if err != nil {
 		return nil, err
 	}
 	if f.keepaliveInt > 0 && f.keepaliveTimeout > 0 {
-		conn.SetKeepalive(f.keepaliveInt, f.keepaliveTimeout)
+		conn.SetKeepaliveWithJitter(f.keepaliveInt, f.keepaliveTimeout, f.tlsCfg.KeepaliveJitterPct)
 	}
 	return conn, nil
 }
