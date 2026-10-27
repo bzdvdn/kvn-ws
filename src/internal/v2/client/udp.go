@@ -67,6 +67,11 @@ func (m *udpManager) cleanup() {
 
 // @sk-task kvn-v2-transport#T4.1: parse IPv4 UDP and route it to a v2 datagram flow (AC-008)
 func (m *udpManager) Handle(packet []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Error("v2 udp handler panic", zap.Any("panic", r))
+		}
+	}()
 	if len(packet) < 28 || packet[0]>>4 != 4 || packet[9] != 17 {
 		return
 	}
@@ -92,6 +97,7 @@ func (m *udpManager) Handle(packet []byte) {
 			srcPort: srcPort,
 			dstPort: dstPort,
 			out:     make(chan []byte, udpFlowQueue),
+			done:    make(chan struct{}),
 		}
 		f.last.Store(time.Now().UnixNano())
 		m.flows[key] = f
@@ -125,6 +131,7 @@ type udpFlow struct {
 	srcPort uint16
 	dstPort uint16
 	out     chan []byte
+	done    chan struct{}
 	last    atomic.Int64
 
 	mu     sync.Mutex
@@ -154,10 +161,9 @@ func (f *udpFlow) run() {
 			case <-f.manager.ctx.Done():
 				_ = stream.Close()
 				return
-			case payload, ok := <-f.out:
-				if !ok {
-					return
-				}
+			case <-f.done:
+				return
+			case payload := <-f.out:
 				if err := stream.WritePacket(payload); err != nil {
 					_ = stream.Close()
 					return
@@ -181,7 +187,9 @@ func (f *udpFlow) run() {
 
 func (f *udpFlow) stop() {
 	f.once.Do(func() {
-		close(f.out)
+		// Do not close f.out: Handle may have obtained this flow just before
+		// removal and can still enqueue into it. Closing done stops the writer.
+		close(f.done)
 		f.mu.Lock()
 		if f.stream != nil {
 			_ = f.stream.Close()

@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"runtime"
@@ -136,6 +137,12 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 					s.state.setStatus(st)
 				}
 			}
+			defer func() {
+				if r := recover(); r != nil {
+					setStatus(StatusError)
+					s.state.PushLog(LogEntry{Line: "v2 client panic: " + fmt.Sprint(r), Level: "error"})
+				}
+			}()
 			setStatus(StatusConnected)
 			s.state.PushLog(LogEntry{Line: "v2 connected to " + cfg.Server, Level: "info"})
 			if err := cl.Run(ctx); err != nil {
