@@ -25,18 +25,30 @@ class WebSocketClient(
     private val noPadHeaders: List<String> = emptyList(),
     private val requestNoPad: Boolean = false,
     private val subprotocols: List<String> = emptyList(),
-    private val headersProfile: String = "legacy"
+    private val headersProfile: String = "legacy",
+    // @sk-task fallback-auth-stealth#T3.2: Bearer for stealth path and one legacy fallback (AC-006)
+    private val authorization: String = "",
+    private val fallbackUrl: String? = null,
+    private val fallbackAuthorization: String = ""
 ) : TransportClient {
     private var webSocket: WebSocket? = null
     private val connected = AtomicBoolean(false)
     private val rng = SecureRandom()
+    private val fallbackTried = AtomicBoolean(false)
     @Volatile
     private var paddingActive = paddingEnabled
 
     // @sk-task kvn-android#T2.2: connect WebSocket (AC-001)
     override fun connect() {
+        connectTo(url, authorization, allowFallback = true)
+    }
+
+    private fun connectTo(endpoint: String, auth: String, allowFallback: Boolean) {
         onStateChange(ConnectionState.CONNECTING)
-        val requestBuilder = Request.Builder().url(url)
+        val requestBuilder = Request.Builder().url(endpoint)
+        if (auth.isNotEmpty()) {
+            requestBuilder.header("Authorization", auth)
+        }
         WsNegotiation.subprotocolHeader(subprotocols.isNotEmpty(), subprotocols)?.let {
             requestBuilder.header("Sec-WebSocket-Protocol", it)
         }
@@ -87,6 +99,10 @@ class WebSocketClient(
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 connected.set(false)
+                if (allowFallback && fallbackUrl != null && !fallbackTried.getAndSet(true)) {
+                    connectTo(fallbackUrl, fallbackAuthorization, allowFallback = false)
+                    return
+                }
                 try { onFailure?.invoke(t) } catch (_: Exception) {}
                 try { onStateChange(ConnectionState.DISCONNECTED) } catch (_: Exception) {}
             }

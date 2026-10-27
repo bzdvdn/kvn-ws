@@ -3,11 +3,15 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"time"
 
@@ -53,6 +57,73 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request, wsCfg webs
 	}
 	wsConn.SetKeepalive(control.DefaultPingInterval, pongTimeout)
 	s.handleStream(r.Context(), wsConn, wsCfg.MTU, r.RemoteAddr)
+}
+
+// @sk-task fallback-auth-stealth#T1.2: validate standard Bearer before WS upgrade (AC-001, AC-002)
+func (s *Server) authorizedBearer(r *http.Request) (string, bool) {
+	const prefix = "Bearer "
+	h := r.Header.Get("Authorization")
+	if !strings.HasPrefix(h, prefix) {
+		return "", false
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(h, prefix))
+	if token == "" {
+		return "", false
+	}
+	for _, expected := range s.cfg.Auth.Tokens {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(expected.Secret)) == 1 {
+			return expected.Name, true
+		}
+	}
+	return "", false
+}
+
+// @sk-task fallback-auth-stealth#T1.3: fallback site or reverse proxy for unauthenticated requests (AC-002, AC-004)
+func (s *Server) handleFallback(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Fallback.Upstream != "" && !isWebSocketRequest(r) {
+		target, err := url.Parse(s.cfg.Fallback.Upstream)
+		if err == nil {
+			proxy := httputil.NewSingleHostReverseProxy(target)
+			original := proxy.Director
+			proxy.Director = func(req *http.Request) {
+				original(req)
+				req.Header.Del("Authorization")
+			}
+			proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = fmt.Fprint(w, "<!doctype html><html><body><h1>Bad gateway</h1></body></html>")
+			}
+			proxy.ServeHTTP(w, r)
+			return
+		}
+	}
+	title := strings.TrimSpace(s.cfg.Fallback.Title)
+	if title == "" {
+		title = "Welcome"
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprintf(w, "<!doctype html><html><head><title>%s</title></head><body><h1>%s</h1><p>Welcome.</p></body></html>", title, title)
+}
+
+// @sk-task fallback-auth-stealth#T1.3: use fallback when configured, otherwise keep the decoy API (AC-002)
+func (s *Server) handleFallbackOrDecoy(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Fallback.Upstream != "" || s.cfg.Fallback.Title != "" || s.cfg.StealthPath != "" {
+		s.handleFallback(w, r)
+		return
+	}
+	s.handleDecoy(w, r)
+}
+
+// @sk-task fallback-auth-stealth#T1.4: admin/health only from loopback in stealth mode (AC-008)
+func isLoopbackRemote(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // @sk-task stealth-surface-hardening#T2.1: plausible API responses for active probes (AC-004)

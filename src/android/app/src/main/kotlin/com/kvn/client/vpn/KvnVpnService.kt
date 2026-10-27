@@ -833,13 +833,23 @@ class KvnVpnService : VpnService() {
         networkCallback = null
     }
 
+    // @sk-task fallback-auth-stealth#T3.2: build stealth/legacy URLs (AC-006)
+    private fun urlWithPath(path: String): String {
+        val scheme = if (config.tlsVerifyMode == "none") "ws" else "wss"
+        val normalized = if (path.startsWith("/")) path else "/$path"
+        return "$scheme://${config.serverAddress}:${config.port}$normalized"
+    }
+
     // @sk-task kvn-android#T2.4: create transport client (AC-001)
     // @sk-task kvn-android#T3.1: extracted factory for reconnect (AC-005)
     // @sk-task kvn-android#T5.8: use TLS-configured OkHttp client (AC-009)
     // @sk-task android-dual-ws#T1.3: same OkHttpClient for primary and secondary (AC-006)
     private fun createTransport(): TransportClient {
-        val scheme = if (config.tlsVerifyMode == "none") "ws" else "wss"
-        val url = "$scheme://${config.serverAddress}:${config.port}${config.serverPath}"
+        val stealth = config.stealthEnabled && config.stealthPath.isNotBlank() && config.transport != "quic"
+        val url = if (stealth) urlWithPath(config.stealthPath) else urlWithPath(config.serverPath)
+        val legacyUrl = if (stealth) {
+            if (config.stealthLegacyPath.isNotBlank()) urlWithPath(config.stealthLegacyPath) else urlWithPath(config.serverPath)
+        } else null
         val okHttp = transportOkHttp ?: buildOkHttpClient().also { transportOkHttp = it }
 
         return WebSocketClient(
@@ -855,7 +865,9 @@ class KvnVpnService : VpnService() {
             paddingMode = config.obfuscationPaddingMode,
             noPadHeaders = config.obfuscationNoPadHeaders,
             subprotocols = if (config.multiplex) config.multiplexSubprotocols.ifEmpty { listOf("kvn-ws-mux") } else emptyList(),
-            headersProfile = config.headersProfile
+            headersProfile = config.headersProfile,
+            authorization = if (stealth) "Bearer ${config.token}" else "",
+            fallbackUrl = legacyUrl
         )
     }
 
@@ -903,8 +915,11 @@ class KvnVpnService : VpnService() {
     private fun openSecondaryChannel() {
         if (!config.multiChannel || serverSessionId.isEmpty()) return
         if (secondaryConnected.get()) return
-        val scheme = if (config.tlsVerifyMode == "none") "ws" else "wss"
-        val url = "$scheme://${config.serverAddress}:${config.port}${config.serverPath}"
+        val stealth = config.stealthEnabled && config.stealthPath.isNotBlank() && config.transport != "quic"
+        val url = if (stealth) urlWithPath(config.stealthPath) else urlWithPath(config.serverPath)
+        val legacyUrl = if (stealth) {
+            if (config.stealthLegacyPath.isNotBlank()) urlWithPath(config.stealthLegacyPath) else urlWithPath(config.serverPath)
+        } else null
 
         secondaryClient?.disconnect()
         secondaryClient = WebSocketClient(
@@ -929,7 +944,9 @@ class KvnVpnService : VpnService() {
             noPadHeaders = config.obfuscationNoPadHeaders,
             requestNoPad = config.obfuscationPaddingEnabled,
             subprotocols = if (config.multiplex) config.multiplexSubprotocols.ifEmpty { listOf("kvn-ws-mux") } else emptyList(),
-            headersProfile = config.headersProfile
+            headersProfile = config.headersProfile,
+            authorization = if (stealth) "Bearer ${config.token}" else "",
+            fallbackUrl = legacyUrl
         )
         secondaryClient?.connect()
     }

@@ -62,6 +62,15 @@ type ClientConfig struct {
 	HeadersProfile        string   `json:"headers_profile,omitempty" yaml:"headers_profile,omitempty" mapstructure:"headers_profile"`
 	KeepaliveJitterPct    int      `json:"keepalive_jitter_pct,omitempty" yaml:"keepalive_jitter_pct,omitempty" mapstructure:"keepalive_jitter_pct"`
 	ReconnectJitterPct    int      `json:"reconnect_jitter_pct,omitempty" yaml:"reconnect_jitter_pct,omitempty" mapstructure:"reconnect_jitter_pct"`
+	// @sk-task fallback-auth-stealth#T1.1: stealth path with Bearer auth and legacy fallback (AC-001, AC-006)
+	Stealth *StealthCfg `json:"stealth,omitempty" yaml:"stealth,omitempty" mapstructure:"stealth"`
+}
+
+// @sk-task fallback-auth-stealth#T1.1: client stealth settings (AC-001, AC-006)
+type StealthCfg struct {
+	Enabled    bool   `json:"enabled" yaml:"enabled" mapstructure:"enabled"`
+	Path       string `json:"path,omitempty" yaml:"path,omitempty" mapstructure:"path"`
+	LegacyPath string `json:"legacy_path,omitempty" yaml:"legacy_path,omitempty" mapstructure:"legacy_path"`
 }
 
 // @sk-task quic-datagrams#T3.4: datagram mode defaults to enabled (AC-001)
@@ -478,6 +487,10 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	if cfg.Crypto.Enabled && cfg.Crypto.Key == "" {
 		cfg.Crypto.Enabled = false
 	}
+	// @sk-task fallback-auth-stealth#T1.1: validate stealth path config (AC-001, AC-006)
+	if err := validateStealth(cfg); err != nil {
+		return nil, err
+	}
 
 	// @sk-task client-relay-mode#T1.1: relay config defaults and validation (AC-003)
 	// @sk-task quic-relay-mode#T1.1: RelayQuicCfg defaults and validation (AC-003)
@@ -515,6 +528,25 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 		log.Println("[config] WARNING: secrets (auth.token, crypto.key) loaded from config file. Use environment variables KVN_CLIENT_* for production.")
 	}
 	return cfg, nil
+}
+
+// @sk-task fallback-auth-stealth#T1.1: validate stealth path configuration (AC-001, AC-006)
+func validateStealth(cfg *ClientConfig) error {
+	if cfg.Stealth == nil {
+		return nil
+	}
+	cfg.Stealth.Path = strings.TrimSpace(cfg.Stealth.Path)
+	cfg.Stealth.LegacyPath = strings.TrimSpace(cfg.Stealth.LegacyPath)
+	if cfg.Stealth.Enabled && cfg.Stealth.Path == "" {
+		return fmt.Errorf("stealth.path is required when stealth.enabled is true")
+	}
+	if cfg.Stealth.Path != "" && !strings.HasPrefix(cfg.Stealth.Path, "/") {
+		return fmt.Errorf("stealth.path must start with /")
+	}
+	if cfg.Stealth.LegacyPath != "" && !strings.HasPrefix(cfg.Stealth.LegacyPath, "/") {
+		return fmt.Errorf("stealth.legacy_path must start with /")
+	}
+	return nil
 }
 
 // @sk-task kvn-web-config-update#T3.1: exported defaults for web UI (AC-005, AC-006)

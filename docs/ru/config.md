@@ -43,6 +43,10 @@ kvn-ws использует YAML-файлы конфигурации для се
 | `acl.deny_cidrs` | []string | `[]` | CIDR deny список (проверяется перед allow) |
 | `acl.allow_cidrs` | []string | `[]` | CIDR allow список (пусто = все разрешены) |
 | `ws_paths` | []string | `["/tunnel"]` | Разрешённые пути WebSocket endpoint (404 если не в списке) |
+| `stealth_path` | string | `""` | Доп. WS path с проверкой `Authorization: Bearer` до upgrade; пусто — выключено |
+| `stealth_hide_admin` | bool | `true` при `stealth_path` | Скрыть health/metrics от внешних запросов (loopback-only) |
+| `fallback.upstream` | string | `""` | Reverse-proxy для неавторизованных запросов (тот же TLS-сертификат) |
+| `fallback.title` | string | `""` | Заголовок статической fallback-страницы |
 | `transport` | string | `""` | Транспорт: `quic` или пусто (TCP/WebSocket) |
 | `obfuscation` | object | — | Настройки обфускации (anti-DPI). См. таблицу сервера |
 | `obfuscation.enabled` | bool | `false` | Включить обфускацию |
@@ -96,6 +100,9 @@ logging:
 | Ключ | Тип | По умолчанию | Описание |
 |------|-----|-------------|----------|
 | `server` | string | — | URL WebSocket-сервера (например `wss://example.com/tunnel`) |
+| `stealth.enabled` | bool | `false` | Использовать stealth path с Bearer перед upgrade |
+| `stealth.path` | string | `""` | Stealth WS path (обязателен при `enabled: true`) |
+| `stealth.legacy_path` | string | `""` | Legacy path для отката, если stealth path не подтверждён |
 | `mode` | string | `tun` | Режим клиента: `tun` (VPN) или `proxy` (локальный SOCKS5/HTTP прокси) |
 | `transport` | string | `""` | Транспорт: `quic` или пусто (TCP/WebSocket) |
 | `obfuscation` | object | — | Настройки обфускации (anti-DPI). См. таблицу сервера |

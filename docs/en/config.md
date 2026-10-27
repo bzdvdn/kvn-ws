@@ -43,6 +43,10 @@ kvn-ws uses YAML configuration files for both server and client.
 | `acl.deny_cidrs` | []string | `[]` | CIDR deny list (denied before allow check) |
 | `acl.allow_cidrs` | []string | `[]` | CIDR allow list (empty = allow all) |
 | `ws_paths` | []string | `["/tunnel"]` | Allowed WebSocket endpoint paths (404 if not in list) |
+| `stealth_path` | string | `""` | Extra WS path requiring `Authorization: Bearer` before upgrade; empty disables |
+| `stealth_hide_admin` | bool | `true` when `stealth_path` is set | Hide health/metrics from external requests (loopback-only) |
+| `fallback.upstream` | string | `""` | Reverse proxy for unauthenticated requests (same TLS certificate) |
+| `fallback.title` | string | `""` | Static fallback page title |
 | `transport` | string | `""` | Transport: `quic` or empty (TCP/WebSocket) |
 | `obfuscation` | object | — | Obfuscation settings (anti-DPI). See below |
 | `obfuscation.enabled` | bool | `false` | Enable obfuscation |
@@ -96,6 +100,9 @@ logging:
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `server` | string | — | WebSocket server URL (e.g. `wss://example.com/tunnel`) |
+| `stealth.enabled` | bool | `false` | Use a stealth path with Bearer before upgrade |
+| `stealth.path` | string | `""` | Stealth WS path (required when `enabled: true`) |
+| `stealth.legacy_path` | string | `""` | Legacy path to fall back to when stealth is not confirmed |
 | `mode` | string | `tun` | Client mode: `tun` (VPN tunnel) or `proxy` (local SOCKS5/HTTP proxy) |
 | `transport` | string | `""` | Transport: `quic` or empty (TCP/WebSocket) |
 | `obfuscation` | object | — | Obfuscation settings (anti-DPI). See server table |

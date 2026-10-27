@@ -531,6 +531,21 @@ export default function TabbedForm(props: TabbedFormProps) {
           <input style={inputStyle} type="number" min={0} max={50} value={serverConfig.reconnect_jitter_pct ?? 0} onChange={(e) => props.onUpdateServer("reconnect_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
         </div>
       </div>
+      {/* @sk-task fallback-auth-stealth#T3.1: stealth path with Bearer and legacy fallback (AC-006) */}
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer", marginTop: 4 }}>
+        <input type="checkbox" checked={serverConfig.stealth?.enabled ?? false} onChange={(e) => props.onNestServer("stealth", "enabled", e.target.checked)} />
+        Stealth path (Bearer before upgrade)
+      </label>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Stealth Path</span>
+          <input style={inputStyle} placeholder="/api/v1/telemetry" value={serverConfig.stealth?.path ?? ""} onChange={(e) => props.onNestServer("stealth", "path", e.target.value)} />
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Legacy Path</span>
+          <input style={inputStyle} placeholder="/api/v1/events" value={serverConfig.stealth?.legacy_path ?? ""} onChange={(e) => props.onNestServer("stealth", "legacy_path", e.target.value)} />
+        </div>
+      </div>
 
       {serverConfig.obfuscation?.enabled && (
         <div style={{ ...subBlockStyle, borderLeft: `2px solid ${colors.accent}44`, marginTop: 2 }}>
@@ -678,6 +693,21 @@ export default function TabbedForm(props: TabbedFormProps) {
         <div style={fieldStyle()}>
           <span style={labelStyle()}>Reconnect Jitter %</span>
           <input style={inputStyle} type="number" min={0} max={50} value={globalConfig.reconnect_jitter_pct ?? 0} onChange={(e) => props.onUpdateGlobal("reconnect_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
+        </div>
+      </div>
+      {/* @sk-task fallback-auth-stealth#T3.1: global stealth path settings (AC-006) */}
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer", marginTop: 4 }}>
+        <input type="checkbox" checked={globalConfig.stealth?.enabled ?? false} onChange={(e) => props.onNestGlobal("stealth", "enabled", e.target.checked)} />
+        Stealth path (Bearer before upgrade)
+      </label>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Stealth Path</span>
+          <input style={inputStyle} placeholder="/api/v1/telemetry" value={globalConfig.stealth?.path ?? ""} onChange={(e) => props.onNestGlobal("stealth", "path", e.target.value)} />
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Legacy Path</span>
+          <input style={inputStyle} placeholder="/api/v1/events" value={globalConfig.stealth?.legacy_path ?? ""} onChange={(e) => props.onNestGlobal("stealth", "legacy_path", e.target.value)} />
         </div>
       </div>
 

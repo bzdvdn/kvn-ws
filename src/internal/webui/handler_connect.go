@@ -218,6 +218,10 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	if server.HeadersProfile != "" {
 		merged.HeadersProfile = server.HeadersProfile
 	}
+	// @sk-task fallback-auth-stealth#T3.1: per-server stealth settings override global (AC-006)
+	if server.Stealth != nil {
+		merged.Stealth = server.Stealth
+	}
 	if server.KeepaliveJitterPct != 0 {
 		merged.KeepaliveJitterPct = server.KeepaliveJitterPct
 	}

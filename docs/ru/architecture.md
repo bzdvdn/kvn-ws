@@ -114,6 +114,7 @@ flowchart TB
 2. Клиент устанавливает TLS 1.3 соединение с сервером; если `uTLS.enabled` — использует Chrome JA3 fingerprint через `utls.HelloChrome_Auto`; если задан `tls.sni` — выбирает случайный домен при каждом connect
 3. Клиент отправляет WebSocket upgrade request с путём из URL (напр. `/api/v1/events`, а не жёстко `/ws`)
 4. Сервер проверяет path по `ws_paths` allowlist (404 если неизвестен), принимает WebSocket upgrade в бинарный режим
+   - для stealth path клиент добавляет `Authorization: Bearer`; сервер проверяет токен **до** upgrade, а невалидный запрос получает fallback-сайт, а не tunnel-ошибку; legacy path работает без Bearer
 5. Клиент отправляет `ClientHello` (версия протокола, поддерживаемые возможности)
 6. Сервер отвечает `ServerHello` (ID сессии, назначенный IP, возможности)
 7. Клиент настраивает TUN-интерфейс с полученным IP

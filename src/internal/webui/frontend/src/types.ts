@@ -26,6 +26,8 @@ export interface ClientConfig {
   headers_profile?: string;
   keepalive_jitter_pct?: number;
   reconnect_jitter_pct?: number;
+  // @sk-task fallback-auth-stealth#T3.1: Bearer stealth path and legacy fallback (AC-006)
+  stealth?: { enabled?: boolean; path?: string; legacy_path?: string };
   multi_channel?: boolean;
   // @sk-task quic-datagrams#T4.3: QUIC datagrams for real-time UDP (AC-001)
   udp_datagrams?: boolean;
