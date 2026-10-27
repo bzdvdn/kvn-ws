@@ -69,7 +69,7 @@ func (s *Server) handleTCP(w http.ResponseWriter, r *http.Request) {
 	dialer := net.Dialer{Timeout: s.dialTimeout}
 	targetConn, err := dialer.DialContext(r.Context(), "tcp", target)
 	if err != nil {
-		s.logger.Debug("v2 target dial failed", zap.String("target", target), zap.Error(err))
+		s.logger.Warn("v2 target dial failed", zap.String("target", target), zap.Error(err))
 		http.Error(w, "bad gateway", http.StatusBadGateway)
 		return
 	}
@@ -83,19 +83,25 @@ func (s *Server) handleTCP(w http.ResponseWriter, r *http.Request) {
 	if f, ok := w.(http.Flusher); ok {
 		fw.fw = f
 	}
-	done := make(chan struct{})
+	copyDone := make(chan struct{})
 	go func() {
-		defer close(done)
+		defer close(copyDone)
 		_, _ = io.CopyBuffer(fw, targetConn, make([]byte, 32<<10))
+	}()
+	go func() {
+		select {
+		case <-r.Context().Done():
+			_ = targetConn.Close()
+		case <-copyDone:
+		}
 	}()
 	_, _ = io.CopyBuffer(targetConn, r.Body, make([]byte, 32<<10))
 	if tc, ok := targetConn.(*net.TCPConn); ok {
 		_ = tc.CloseWrite()
 	}
-	select {
-	case <-done:
-	case <-r.Context().Done():
-	}
+	// Never return from the handler while the response goroutine may still
+	// write/flush: net/http HTTP/2 panics with "Header called after Handler finished".
+	<-copyDone
 }
 
 func (s *Server) handleUDP(w http.ResponseWriter, r *http.Request) {
@@ -129,9 +135,9 @@ func (s *Server) handleUDP(w http.ResponseWriter, r *http.Request) {
 		fw.fw = f
 	}
 	fw.fw.Flush()
-	done := make(chan struct{})
+	copyDone := make(chan struct{})
 	go func() {
-		defer close(done)
+		defer close(copyDone)
 		buf := make([]byte, MaxDatagramSize)
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -155,10 +161,8 @@ func (s *Server) handleUDP(w http.ResponseWriter, r *http.Request) {
 	readDatagramStream(r.Body, func(payload []byte) {
 		_, _ = conn.Write(payload)
 	})
-	select {
-	case <-done:
-	case <-r.Context().Done():
-	}
+	_ = conn.Close()
+	<-copyDone
 }
 
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) bool {

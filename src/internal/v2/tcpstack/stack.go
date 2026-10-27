@@ -98,7 +98,7 @@ func (s *Stack) bridge(local net.Conn, target string) {
 	defer cancel()
 	stream, err := s.dial(ctx, target)
 	if err != nil {
-		s.logger.Debug("v2 tcp flow dial failed", zap.String("target", target), zap.Error(err))
+		s.logger.Warn("v2 tcp flow dial failed target=" + target + ": " + err.Error())
 		return
 	}
 	defer func() { _ = stream.Close() }()
