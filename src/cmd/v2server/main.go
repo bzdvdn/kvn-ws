@@ -56,6 +56,23 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+	if cfg.QuicListen != "" {
+		cert, cerr := tls.LoadX509KeyPair(cfg.TLS.Cert, cfg.TLS.Key)
+		if cerr != nil {
+			logger.Warn("v2 QUIC disabled: load certificate", zap.Error(cerr))
+		} else {
+			quicSrv, qerr := transport.ListenQUIC(cfg.QuicListen, &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				MinVersion:   tls.VersionTLS13,
+			}, lookup, logger)
+			if qerr != nil {
+				logger.Warn("v2 QUIC listen failed", zap.String("addr", cfg.QuicListen), zap.Error(qerr))
+			} else {
+				logger.Info("v2 QUIC datagrams listening", zap.String("addr", cfg.QuicListen))
+				go func() { _ = quicSrv.Serve(ctx) }()
+			}
+		}
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

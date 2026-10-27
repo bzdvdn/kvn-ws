@@ -240,10 +240,22 @@ export default function TabbedForm(props: TabbedFormProps) {
         </div>
       </div>
       {serverConfig.protocol === "v2" && (
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>TUN Gateway (v2)</span>
-          <input style={inputStyle} value={serverConfig.tun_gateway || "10.66.0.1"} onChange={(e) => props.onUpdateServer("tun_gateway", e.target.value)} placeholder="10.66.0.1" />
-        </div>
+        <>
+          <div style={fieldStyle()}>
+            <span style={labelStyle()}>TUN Gateway (v2)</span>
+            <input style={inputStyle} value={serverConfig.tun_gateway || "10.66.0.1"} onChange={(e) => props.onUpdateServer("tun_gateway", e.target.value)} placeholder="10.66.0.1" />
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer" }}>
+            <input type="checkbox" checked={serverConfig.quic_enabled ?? false} onChange={(e) => props.onUpdateServer("quic_enabled", e.target.checked)} />
+            QUIC datagrams for UDP (optional)
+          </label>
+          {serverConfig.quic_enabled && (
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>QUIC Endpoint</span>
+              <input style={inputStyle} value={serverConfig.quic_endpoint || ""} onChange={(e) => props.onUpdateServer("quic_endpoint", e.target.value)} placeholder="host:8443 (default: server:443)" />
+            </div>
+          )}
+        </>
       )}
       <FormField label="Server URL" error={errors.serverUrl}>
         <input

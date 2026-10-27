@@ -15,6 +15,7 @@ type V2ServerConfig struct {
 	Auth       ServerAuth  `mapstructure:"auth"`
 	Fallback   FallbackCfg `mapstructure:"fallback"`
 	MaxStreams int         `mapstructure:"max_streams"`
+	QuicListen string      `mapstructure:"quic_listen"`
 }
 
 // @sk-task kvn-v2-transport#T1.1: v2 client multi-server entries (AC-005, AC-007)
@@ -31,6 +32,8 @@ type V2ClientConfig struct {
 	Mode          string          `json:"mode" mapstructure:"mode"`
 	TUNAddress    string          `json:"tun_address,omitempty" mapstructure:"tun_address"`
 	TUNGateway    string          `json:"tun_gateway,omitempty" mapstructure:"tun_gateway"`
+	QuicEnabled   bool            `json:"quic_enabled,omitempty" mapstructure:"quic_enabled"`
+	QuicEndpoint  string          `json:"quic_endpoint,omitempty" mapstructure:"quic_endpoint"`
 	IPv6          bool            `json:"ipv6" mapstructure:"ipv6"`
 	AutoReconnect *bool           `json:"auto_reconnect,omitempty" mapstructure:"auto_reconnect"`
 	ProxyListen   string          `json:"proxy_listen,omitempty" mapstructure:"proxy_listen"`
@@ -86,7 +89,7 @@ func (c *V2ServerConfig) Validate() error {
 
 // @sk-task kvn-v2-transport#T1.1: v2 client defaults and validation (AC-005, AC-007)
 func DefaultV2ClientConfig() V2ClientConfig {
-	return V2ClientConfig{MTU: 1400, Mode: "tun"}
+	return V2ClientConfig{MTU: 1200, Mode: "tun"}
 }
 
 func (c *V2ClientConfig) ApplyDefaults() {

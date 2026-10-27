@@ -267,9 +267,30 @@ func (c *Client) runTUN(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("v2 tcp stack: %w", err)
 	}
-	udpMgr := newUDPManager(ctx, dev, func(dctx context.Context, target string) (*transport.DatagramStream, error) {
+	var quicClient *transport.QUICClient
+	if c.cfg.QuicEnabled {
+		qep := c.cfg.QuicEndpoint
+		if qep == "" {
+			qep = defaultQUICEndpoint(endpoint)
+		}
+		qc, qerr := transport.NewQUICClient(ctx, qep, server.Token, tlsCfg, c.logger)
+		if qerr != nil {
+			c.logger.Warn("v2 QUIC datagrams unavailable, using HTTP/2 UDP fallback", zap.String("endpoint", qep), zap.Error(qerr))
+		} else {
+			quicClient = qc
+			defer func() { _ = qc.Close() }()
+			c.logger.Info("v2 QUIC datagram channel ready", zap.String("endpoint", qep))
+		}
+	}
+	dialUDP := packetDialer(func(dctx context.Context, target string) (packetFlow, error) {
+		if quicClient != nil {
+			if f, ferr := quicClient.DialFlow(dctx, target); ferr == nil {
+				return f, nil
+			}
+		}
 		return httpClient.DialUDP(dctx, target)
-	}, c.logger)
+	})
+	udpMgr := newUDPManager(ctx, dev, dialUDP, c.logger)
 	c.logger.Info("v2 TUN started",
 		zap.String("server", server.Name),
 		zap.String("tun_ip", c.cfg.TUNAddress),
@@ -298,6 +319,22 @@ func (c *Client) runTUN(ctx context.Context) error {
 		}
 		stack.Inject(packet)
 	}
+}
+
+// @sk-task kvn-v2-transport#T4.3: derive the QUIC UDP endpoint from the HTTPS endpoint (AC-008)
+func defaultQUICEndpoint(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return endpoint
+	}
+	if u.Port() != "" {
+		return u.Host
+	}
+	port := "443"
+	if u.Scheme == "https" {
+		port = "443"
+	}
+	return net.JoinHostPort(u.Hostname(), port)
 }
 
 // @sk-task kvn-v2-transport#T4.1: route IPv4 UDP packets to the best-effort manager (AC-008)

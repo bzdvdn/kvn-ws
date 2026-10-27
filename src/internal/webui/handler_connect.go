@@ -106,6 +106,8 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			Mode:          v2mode,
 			TUNAddress:    cfg.TUNAddress,
 			TUNGateway:    cfg.TUNGateway,
+			QuicEnabled:   cfg.QuicEnabled,
+			QuicEndpoint:  cfg.QuicEndpoint,
 			AutoReconnect: cfg.AutoReconnect,
 			ProxyListen:   cfg.ProxyListen,
 			ProxyAuth:     cfg.ProxyAuth,
@@ -311,6 +313,12 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	}
 	if server.TUNGateway != "" {
 		merged.TUNGateway = server.TUNGateway
+	}
+	if server.QuicEnabled {
+		merged.QuicEnabled = true
+	}
+	if server.QuicEndpoint != "" {
+		merged.QuicEndpoint = server.QuicEndpoint
 	}
 	// @sk-task fallback-auth-stealth#T3.1: per-server stealth settings override global (AC-006)
 	if server.Stealth != nil {

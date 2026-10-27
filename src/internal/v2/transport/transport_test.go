@@ -2,8 +2,14 @@ package transport
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -198,4 +204,79 @@ func TestSlowFlowDoesNotBlockAnother(t *testing.T) {
 	if string(got) != string(payload) {
 		t.Fatalf("fast echo = %q", got)
 	}
+}
+
+// @sk-test kvn-v2-transport#T4.3: UDP flow roundtrips over one QUIC datagram connection (AC-008)
+func TestQUICDatagramUDPFlow(t *testing.T) {
+	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer udpConn.Close()
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, addr, rerr := udpConn.ReadFromUDP(buf)
+			if rerr != nil {
+				return
+			}
+			_, _ = udpConn.WriteToUDP(buf[:n], addr)
+		}
+	}()
+
+	cert := selfSignedCert(t)
+	qs, err := ListenQUIC("127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h3"}},
+		func(token string) (string, bool) { return "t", token == "secret" }, zap.NewNop())
+	if err != nil {
+		t.Fatalf("ListenQUIC: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = qs.Serve(ctx) }()
+
+	client, err := NewQUICClient(ctx, qs.Addr().String(), "secret", &tls.Config{InsecureSkipVerify: true}, zap.NewNop())
+	if err != nil {
+		t.Fatalf("NewQUICClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	flow, err := client.DialFlow(ctx, udpConn.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = flow.Close() }()
+	payload := []byte("quic-udp")
+	if err := flow.WritePacket(payload); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, err := flow.ReadPacket()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("quic echo = %q", got)
+	}
+}
+
+func selfSignedCert(t *testing.T) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }

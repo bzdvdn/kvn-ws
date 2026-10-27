@@ -3,8 +3,10 @@ active_server: de
 mode: tun
 tun_address: 10.66.0.2/24
 tun_gateway: 10.66.0.1
+quic_enabled: true
+# quic_endpoint: vpn.example.com:8443
 proxy_listen: 127.0.0.1:2310
-mtu: 1400
+mtu: 1200
 tls:
   verify_mode: verify
 servers:

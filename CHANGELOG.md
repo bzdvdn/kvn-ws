@@ -31,7 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **KVN v2: TCP-first stealth transport (experimental)** — отдельный v2-протокол (несовместим с v1): TLS 1.3 + HTTP/2, TCP split-connection через gVisor netstack, отдельный stream на TCP-flow, UDP best-effort streams, Bearer до stream и fallback-сайт. kvn-web запускает v2 client in-process, поддерживает protocol selector v1/v2, TUN и полный Advanced (routing/DNS/TLS/proxy). v1-серверы и клиенты не затронуты.
+- **KVN v2: TCP-first stealth transport (experimental)** — отдельный v2-протокол (несовместим с v1): TLS 1.3 + HTTP/2, TCP split-connection через gVisor netstack, отдельный stream на TCP-flow, UDP best-effort streams, QUIC datagram side channel для UDP (одно общее QUIC-соединение, flow ID, fallback на HTTP/2), Bearer до stream и fallback-сайт. kvn-web запускает v2 client in-process, поддерживает protocol selector v1/v2, TUN и полный Advanced (routing/DNS/TLS/proxy). v1-серверы и клиенты не затронуты.
 
 ## [1.4.1] 2026-10-23
 

@@ -65,9 +65,11 @@ type ClientConfig struct {
 	// @sk-task fallback-auth-stealth#T1.1: stealth path with Bearer auth and legacy fallback (AC-001, AC-006)
 	Stealth *StealthCfg `json:"stealth,omitempty" yaml:"stealth,omitempty" mapstructure:"stealth"`
 	// @sk-task kvn-v2-transport#T3.2: v1/v2 engine selector and v2 TUN defaults (AC-005)
-	Protocol   string `json:"protocol,omitempty" yaml:"protocol,omitempty" mapstructure:"protocol"`
-	TUNAddress string `json:"tun_address,omitempty" yaml:"tun_address,omitempty" mapstructure:"tun_address"`
-	TUNGateway string `json:"tun_gateway,omitempty" yaml:"tun_gateway,omitempty" mapstructure:"tun_gateway"`
+	Protocol     string `json:"protocol,omitempty" yaml:"protocol,omitempty" mapstructure:"protocol"`
+	TUNAddress   string `json:"tun_address,omitempty" yaml:"tun_address,omitempty" mapstructure:"tun_address"`
+	TUNGateway   string `json:"tun_gateway,omitempty" yaml:"tun_gateway,omitempty" mapstructure:"tun_gateway"`
+	QuicEnabled  bool   `json:"quic_enabled,omitempty" yaml:"quic_enabled,omitempty" mapstructure:"quic_enabled"`
+	QuicEndpoint string `json:"quic_endpoint,omitempty" yaml:"quic_endpoint,omitempty" mapstructure:"quic_endpoint"`
 }
 
 // @sk-task fallback-auth-stealth#T1.1: client stealth settings (AC-001, AC-006)

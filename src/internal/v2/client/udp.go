@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
-	"github.com/bzdvdn/kvn-ws/src/internal/v2/transport"
 )
 
 const (
@@ -20,17 +19,26 @@ const (
 	udpCleanupEvery = 10 * time.Second
 )
 
+// packetFlow is implemented by HTTP/2 and QUIC datagram flows.
+type packetFlow interface {
+	WritePacket([]byte) error
+	ReadPacket() ([]byte, error)
+	Close() error
+}
+
+type packetDialer func(context.Context, string) (packetFlow, error)
+
 type udpManager struct {
 	ctx    context.Context
 	dev    tun.TunDevice
-	dial   func(context.Context, string) (*transport.DatagramStream, error)
+	dial   packetDialer
 	logger *zap.Logger
 
 	mu    sync.Mutex
 	flows map[string]*udpFlow
 }
 
-func newUDPManager(ctx context.Context, dev tun.TunDevice, dial func(context.Context, string) (*transport.DatagramStream, error), logger *zap.Logger) *udpManager {
+func newUDPManager(ctx context.Context, dev tun.TunDevice, dial packetDialer, logger *zap.Logger) *udpManager {
 	m := &udpManager{ctx: ctx, dev: dev, dial: dial, logger: logger, flows: make(map[string]*udpFlow)}
 	go m.cleanup()
 	return m
@@ -120,7 +128,7 @@ type udpFlow struct {
 	last    atomic.Int64
 
 	mu     sync.Mutex
-	stream *transport.DatagramStream
+	stream packetFlow
 	once   sync.Once
 }
 

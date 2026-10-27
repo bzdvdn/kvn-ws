@@ -66,7 +66,8 @@
       Proof: test src/internal/v2/transport/transport_test.go TestUDPStreamRoundTrip
 - [x] T4.2 Добавить benchmark/DPI-скрипты — outcome: v1 vs v2 throughput/p95/allocs и серия ClientHello/JA3/JA4. Touches: scripts/bench-v2.sh, scripts/dpi-check.sh
       Proof: docs scripts/bench-v2.sh
-- [ ] T4.3 Добавить H3 datagrams — outcome: при доступном UDP/HTTP3 UDP идёт unreliable datagrams, иначе best-effort stream. Touches: src/internal/v2/transport/
+- [x] T4.3 Добавить QUIC datagrams — outcome: одно общее QUIC-соединение на клиента, flow ID в datagram, fallback на HTTP/2 UDP при отказе. Touches: src/internal/v2/transport/, src/internal/v2/client/, src/cmd/v2server/
+      Proof: test src/internal/v2/transport/transport_test.go TestQUICDatagramUDPFlow
 
 ## Фаза 5: Валидация и docs
 

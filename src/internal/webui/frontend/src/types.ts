@@ -13,6 +13,8 @@ export interface ClientConfig {
   protocol?: string;
   tun_address?: string;
   tun_gateway?: string;
+  quic_enabled?: boolean;
+  quic_endpoint?: string;
   auth?: { token?: string };
   transport?: string;
   obfuscation?: {
@@ -77,6 +79,8 @@ export interface ServerEntry {
   protocol?: string;
   tun_address?: string;
   tun_gateway?: string;
+  quic_enabled?: boolean;
+  quic_endpoint?: string;
   auth?: { token?: string };
   transport?: string;
   [key: string]: any;
