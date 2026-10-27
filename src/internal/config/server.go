@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -21,26 +22,30 @@ const DefaultServerMTU = 1400
 // @sk-task whitelist-obfuscation#T1.3: add WSPaths field (AC-003)
 // @sk-task doze-resilience#T1.1: add pong_timeout config (AC-005)
 type ServerConfig struct {
-	Listen                string          `mapstructure:"listen"`
-	Transport             string          `mapstructure:"transport"`
-	PongTimeout           time.Duration   `mapstructure:"pong_timeout"`
-	Obfuscation           *ObfuscationCfg `mapstructure:"obfuscation"`
-	WSPaths               []string        `mapstructure:"ws_paths"`
-	TLS                   TLSCfg          `mapstructure:"tls"`
-	Network               NetworkCfg      `mapstructure:"network"`
-	Session               SessionCfg      `mapstructure:"session"`
-	Auth                  ServerAuth      `mapstructure:"auth"`
-	Logging               LogConfig       `mapstructure:"logging"`
-	RateLimiting          RateLimitCfg    `mapstructure:"rate_limiting"`
-	BoltDBPath            string          `mapstructure:"bolt_db_path"`
-	ACL                   ACLCfg          `mapstructure:"acl"`
-	Origin                OriginCfg       `mapstructure:"origin"`
-	Admin                 AdminCfg        `mapstructure:"admin"`
-	Multiplex             bool            `mapstructure:"multiplex"`
-	MultiplexSubprotocols []string        `mapstructure:"multiplex_subprotocols"`
-	MTU                   int             `mapstructure:"mtu"`
-	Crypto                CryptoCfg       `mapstructure:"crypto"`
-	DNSUpstreams          []string        `mapstructure:"dns_upstreams"`
+	Listen      string          `mapstructure:"listen"`
+	Transport   string          `mapstructure:"transport"`
+	PongTimeout time.Duration   `mapstructure:"pong_timeout"`
+	Obfuscation *ObfuscationCfg `mapstructure:"obfuscation"`
+	WSPaths     []string        `mapstructure:"ws_paths"`
+	// @sk-task fallback-auth-stealth#T1.1: stealth path, fallback site and admin hiding (AC-001..AC-004, AC-008)
+	StealthPath           string       `mapstructure:"stealth_path"`
+	StealthHideAdmin      *bool        `mapstructure:"stealth_hide_admin"`
+	Fallback              FallbackCfg  `mapstructure:"fallback"`
+	TLS                   TLSCfg       `mapstructure:"tls"`
+	Network               NetworkCfg   `mapstructure:"network"`
+	Session               SessionCfg   `mapstructure:"session"`
+	Auth                  ServerAuth   `mapstructure:"auth"`
+	Logging               LogConfig    `mapstructure:"logging"`
+	RateLimiting          RateLimitCfg `mapstructure:"rate_limiting"`
+	BoltDBPath            string       `mapstructure:"bolt_db_path"`
+	ACL                   ACLCfg       `mapstructure:"acl"`
+	Origin                OriginCfg    `mapstructure:"origin"`
+	Admin                 AdminCfg     `mapstructure:"admin"`
+	Multiplex             bool         `mapstructure:"multiplex"`
+	MultiplexSubprotocols []string     `mapstructure:"multiplex_subprotocols"`
+	MTU                   int          `mapstructure:"mtu"`
+	Crypto                CryptoCfg    `mapstructure:"crypto"`
+	DNSUpstreams          []string     `mapstructure:"dns_upstreams"`
 	// @sk-task quic-datagrams#T3.4: unreliable QUIC datagrams for real-time UDP (AC-001)
 	UDPDatagrams *bool `mapstructure:"udp_datagrams"`
 }
@@ -51,6 +56,12 @@ func (c *ServerConfig) UDPDatagramsEnabled() bool {
 		return true
 	}
 	return *c.UDPDatagrams
+}
+
+// @sk-task fallback-auth-stealth#T1.1: fallback site/reverse-proxy for unauthenticated requests (AC-002, AC-004)
+type FallbackCfg struct {
+	Upstream string `mapstructure:"upstream"`
+	Title    string `mapstructure:"title"`
 }
 
 type CryptoCfg struct {
@@ -233,6 +244,32 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	// default ws_paths
 	if cfg.WSPaths == nil {
 		cfg.WSPaths = []string{"/tunnel"}
+	}
+	// @sk-task fallback-auth-stealth#T1.1: normalize stealth path and fallback defaults (AC-001, AC-002)
+	if cfg.StealthPath != "" {
+		if !strings.HasPrefix(cfg.StealthPath, "/") {
+			cfg.StealthPath = "/" + cfg.StealthPath
+		}
+		found := false
+		for _, p := range cfg.WSPaths {
+			if p == cfg.StealthPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cfg.WSPaths = append(cfg.WSPaths, cfg.StealthPath)
+		}
+		if cfg.StealthHideAdmin == nil {
+			v := true
+			cfg.StealthHideAdmin = &v
+		}
+	}
+	if cfg.Fallback.Upstream != "" {
+		u, err := url.Parse(cfg.Fallback.Upstream)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return nil, fmt.Errorf("fallback.upstream must be an http(s) URL")
+		}
 	}
 
 	if rawTokens, ok := v.Get("auth.tokens").([]interface{}); ok && len(cfg.Auth.Tokens) == 0 {

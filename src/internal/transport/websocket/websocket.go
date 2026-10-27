@@ -43,6 +43,8 @@ type WSConfig struct {
 	MultiplexSubprotocols []string
 	HeadersProfile        string
 	KeepaliveJitterPct    int
+	// @sk-task fallback-auth-stealth#T2.1: standard Bearer auth before upgrade (AC-001, AC-005)
+	Authorization string
 	// @sk-task game-latency#T3.2: unpadded-secondary negotiation via upgrade header (AC-001)
 	RequestNoPad bool // client: request the peer to disable padding
 	AllowNoPad   bool // server: honor an unpadded request
@@ -464,6 +466,9 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 		for _, h := range noPadHeaders {
 			reqHeader.Set(h, "1")
 		}
+	}
+	if wsCfg.Authorization != "" {
+		reqHeader.Set("Authorization", wsCfg.Authorization)
 	}
 	// @sk-task stealth-surface-hardening#T2.3: optional realistic header profile (AC-006)
 	if strings.EqualFold(wsCfg.HeadersProfile, "browser") {

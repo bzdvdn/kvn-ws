@@ -754,3 +754,24 @@ func TestStealthSurfaceDefaults(t *testing.T) {
 		t.Fatalf("jitter clamp = %d/%d, want 50/0", cfg.KeepaliveJitterPct, cfg.ReconnectJitterPct)
 	}
 }
+
+// @sk-test fallback-auth-stealth#T4.2: stealth config validation/defaults (AC-006, AC-007)
+func TestStealthConfigValidation(t *testing.T) {
+	cfg := &ClientConfig{Stealth: &StealthCfg{Enabled: true}}
+	SetClientDefaults(cfg)
+	if cfg.Stealth.Path != "" {
+		t.Fatalf("unexpected default path %q", cfg.Stealth.Path)
+	}
+	if err := validateStealth(cfg); err == nil {
+		t.Fatal("expected error for enabled stealth without path")
+	}
+	cfg.Stealth.Path = "api/v1/telemetry"
+	if err := validateStealth(cfg); err == nil {
+		t.Fatal("expected error for path without leading slash")
+	}
+	cfg.Stealth.Path = "/api/v1/telemetry"
+	cfg.Stealth.LegacyPath = "/api/v1/events"
+	if err := validateStealth(cfg); err != nil {
+		t.Fatalf("valid stealth config: %v", err)
+	}
+}

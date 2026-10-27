@@ -84,6 +84,10 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
     var multiplexSubprotocols by remember(activeCfg) { mutableStateOf((activeCfg?.multiplexSubprotocols ?: emptyList()).joinToString(",")) }
     var headersProfile by remember(activeCfg) { mutableStateOf(activeCfg?.headersProfile ?: "legacy") }
     var reconnectJitterPct by remember(activeCfg) { mutableStateOf((activeCfg?.reconnectJitterPct ?: 0).toString()) }
+    // @sk-task fallback-auth-stealth#T3.2: stealth path settings (AC-006)
+    var stealthEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.stealthEnabled ?: false) }
+    var stealthPath by remember(activeCfg) { mutableStateOf(activeCfg?.stealthPath ?: "") }
+    var stealthLegacyPath by remember(activeCfg) { mutableStateOf(activeCfg?.stealthLegacyPath ?: "") }
     var dnsCacheEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.dnsCacheEnabled ?: false) }
 
     // @sk-task doze-resilience#T3.2: keep-awake toggle for screen-off stability (AC-007)
@@ -134,6 +138,9 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
             multiplexSubprotocols = multiplexSubprotocols.split(",").map { it.trim() }.filter { it.isNotBlank() },
             headersProfile = headersProfile.ifBlank { "legacy" },
             reconnectJitterPct = (reconnectJitterPct.toIntOrNull() ?: 0).coerceIn(0, 50),
+            stealthEnabled = stealthEnabled,
+            stealthPath = stealthPath.trim(),
+            stealthLegacyPath = stealthLegacyPath.trim(),
             dnsCacheEnabled = dnsCacheEnabled,
             routingDomainsEnabled = routingDomainsEnabled,
             routingExcludeDomains = routingExcludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() },
@@ -614,6 +621,26 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Stealth path (Bearer before upgrade)", modifier = Modifier.weight(1f))
+                Switch(checked = stealthEnabled, onCheckedChange = { stealthEnabled = it })
+            }
+            if (stealthEnabled) {
+                OutlinedTextField(
+                    value = stealthPath,
+                    onValueChange = { stealthPath = it },
+                    label = { Text("Stealth Path") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = stealthLegacyPath,
+                    onValueChange = { stealthLegacyPath = it },
+                    label = { Text("Legacy Path") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
 
         // Save Config button

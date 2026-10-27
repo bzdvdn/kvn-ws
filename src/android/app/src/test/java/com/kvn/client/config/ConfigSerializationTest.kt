@@ -45,6 +45,9 @@ class ConfigSerializationTest {
             multiplexSubprotocols = listOf("telemetry.v1", "kvn-ws-mux"),
             headersProfile = "browser",
             reconnectJitterPct = 20,
+            stealthEnabled = true,
+            stealthPath = "/api/v1/telemetry",
+            stealthLegacyPath = "/api/v1/events",
             dnsServers = listOf("1.1.1.1", "8.8.8.8"),
             appIncludeList = listOf("com.example.allowed"),
             appExcludeList = listOf("com.example.blocked")
@@ -78,6 +81,9 @@ class ConfigSerializationTest {
         assertEquals(listOf("telemetry.v1", "kvn-ws-mux"), deserialized.multiplexSubprotocols)
         assertEquals("browser", deserialized.headersProfile)
         assertEquals(20, deserialized.reconnectJitterPct)
+        assertTrue(deserialized.stealthEnabled)
+        assertEquals("/api/v1/telemetry", deserialized.stealthPath)
+        assertEquals("/api/v1/events", deserialized.stealthLegacyPath)
         assertEquals(config.dnsServers, deserialized.dnsServers)
         assertEquals(config.appIncludeList, deserialized.appIncludeList)
         assertEquals(config.appExcludeList, deserialized.appExcludeList)
@@ -245,7 +251,8 @@ class QrConfigTest {
             "multiplex": true,
             "multiplex_subprotocols": ["telemetry.v1", "kvn-ws-mux"],
             "headers_profile": "browser",
-            "reconnect_jitter_pct": 20
+            "reconnect_jitter_pct": 20,
+            "stealth": {"enabled": true, "path": "/api/v1/telemetry", "legacy_path": "/api/v1/events"}
         }"""
         val cfg = parseQrConfig(jsonStr)
         assertNotNull(cfg)
@@ -254,6 +261,9 @@ class QrConfigTest {
         assertEquals(listOf("telemetry.v1", "kvn-ws-mux"), cfg.multiplexSubprotocols)
         assertEquals("browser", cfg.headersProfile)
         assertEquals(20, cfg.reconnectJitterPct)
+        assertTrue(cfg.stealthEnabled)
+        assertEquals("/api/v1/telemetry", cfg.stealthPath)
+        assertEquals("/api/v1/events", cfg.stealthLegacyPath)
 
         val exported = configToWebJson(cfg)
         val roundTrip = parseQrConfig(exported)
@@ -263,6 +273,9 @@ class QrConfigTest {
         assertEquals(listOf("telemetry.v1", "kvn-ws-mux"), roundTrip.multiplexSubprotocols)
         assertEquals("browser", roundTrip.headersProfile)
         assertEquals(20, roundTrip.reconnectJitterPct)
+        assertTrue(roundTrip.stealthEnabled)
+        assertEquals("/api/v1/telemetry", roundTrip.stealthPath)
+        assertEquals("/api/v1/events", roundTrip.stealthLegacyPath)
     }
 }
 

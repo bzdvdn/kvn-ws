@@ -133,6 +133,8 @@ type FactoryConfig struct {
 	MultiplexSubprotocols []string
 	HeadersProfile        string
 	KeepaliveJitterPct    int
+	// @sk-task fallback-auth-stealth#T2.1: standard Bearer auth before upgrade (AC-001, AC-005)
+	Authorization string
 	// @sk-task game-latency#T3.2: request unpadded secondary framing (AC-001)
 	RequestNoPad bool
 

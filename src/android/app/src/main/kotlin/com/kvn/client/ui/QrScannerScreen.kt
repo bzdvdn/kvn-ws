@@ -118,6 +118,14 @@ data class WebReconnectCfg(val min_backoff_sec: Int = 1, val max_backoff_sec: In
 @Serializable
 data class WebCryptoCfg(val enabled: Boolean = false, val key: String = "")
 
+// @sk-task fallback-auth-stealth#T3.2: web JSON stealth path config (AC-006)
+@Serializable
+data class WebStealthCfg(
+    val enabled: Boolean = false,
+    val path: String = "",
+    val legacy_path: String = ""
+)
+
 // @sk-task android-web-config-alignment#T1.1: web JSON config model with name + log (web-compat)
 @Serializable
 private data class WebConfig(
@@ -143,7 +151,8 @@ private data class WebConfig(
     // @sk-task stealth-surface-hardening#T5.1: web JSON parity for aliases/headers/jitter (AC-011..AC-014)
     val multiplex_subprotocols: List<String>? = null,
     val headers_profile: String? = null,
-    val reconnect_jitter_pct: Int = 0
+    val reconnect_jitter_pct: Int = 0,
+    val stealth: WebStealthCfg? = null
 )
 
 // @sk-task kvn-android#T5.2: QR code scanner screen with finder overlay (AC-007, RQ-011)
@@ -639,6 +648,9 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         multiplexSubprotocols = web.multiplex_subprotocols ?: emptyList(),
         headersProfile = web.headers_profile ?: "legacy",
         reconnectJitterPct = web.reconnect_jitter_pct.coerceIn(0, 50),
+        stealthEnabled = web.stealth?.enabled ?: false,
+        stealthPath = web.stealth?.path ?: "",
+        stealthLegacyPath = web.stealth?.legacy_path ?: "",
         // @sk-task android-web-config-alignment#T1.1: map dns_routing (preferred) or dns_cache (backward compat) from QR JSON
         dnsCacheEnabled = routing?.dns_routing?.enabled ?: routing?.dns_cache?.enabled ?: false,
         // @sk-task android-web-config-alignment#T1.1: map dns_routing.ttl from QR JSON
@@ -713,6 +725,13 @@ fun configToWebJson(config: ConnectionConfig): String {
     }
     if (config.reconnectJitterPct != 0) {
         root.put("reconnect_jitter_pct", config.reconnectJitterPct)
+    }
+    if (config.stealthEnabled || config.stealthPath.isNotBlank()) {
+        root.put("stealth", JSONObject().apply {
+            put("enabled", config.stealthEnabled)
+            put("path", config.stealthPath)
+            put("legacy_path", config.stealthLegacyPath)
+        })
     }
 
     return root.toString()

@@ -114,6 +114,7 @@ Transport is selected by the `transport` config field:
 2. Client establishes TLS 1.3 connection to server URL; if `uTLS.enabled` — uses Chrome JA3 fingerprint via `utls.HelloChrome_Auto`; if `tls.sni` is set — picks a random domain per-connect
 3. Client sends WebSocket upgrade request with path from URL (e.g. `/api/v1/events`, not hardcoded `/ws`)
 4. Server validates path against `ws_paths` allowlist (404 if unknown), accepts WebSocket upgrade to binary mode
+   - for a stealth path the client adds `Authorization: Bearer`; the server validates it **before** upgrade, and an invalid request gets the fallback site instead of a tunnel error; the legacy path works without Bearer
 5. Client sends `ClientHello` frame (protocol version, supported features)
 6. Server responds with `ServerHello` (session ID, assigned IP, capabilities)
 7. Client configures TUN interface with assigned IP

@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 
 	"go.uber.org/zap"
 
@@ -21,7 +23,48 @@ func realtimeUnpadded(cfg *config.ClientConfig) bool {
 		cfg.Obfuscation.Padding.Enabled && cfg.Obfuscation.Padding.RealtimeUnpaddedEnabled()
 }
 
+// @sk-task fallback-auth-stealth#T2.2: try stealth path with Bearer, then fall back to legacy (AC-001, AC-006)
 func dialStreamWith(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger, requestNoPad bool) (transport.StreamConn, error) {
+	if cfg.Stealth != nil && cfg.Stealth.Enabled && cfg.Stealth.Path != "" && cfg.Transport != "quic" {
+		stealthURL, serr := replaceURLPath(cfg.Server, cfg.Stealth.Path)
+		if serr != nil {
+			return nil, fmt.Errorf("stealth url: %w", serr)
+		}
+		conn, derr := dialStreamURL(ctx, cfg, logger, requestNoPad, stealthURL, "Bearer "+cfg.Auth.Token)
+		if derr == nil {
+			return conn, nil
+		}
+		legacyURL := cfg.Server
+		if cfg.Stealth.LegacyPath != "" {
+			if u, lerr := replaceURLPath(cfg.Server, cfg.Stealth.LegacyPath); lerr == nil {
+				legacyURL = u
+			}
+		}
+		logger.Warn("stealth path unavailable, falling back to legacy",
+			zap.String("stealth_path", cfg.Stealth.Path),
+			zap.String("legacy_url", legacyURL),
+			zap.Error(derr),
+		)
+		return dialStreamURL(ctx, cfg, logger, requestNoPad, legacyURL, "")
+	}
+	return dialStreamURL(ctx, cfg, logger, requestNoPad, cfg.Server, "")
+}
+
+// @sk-task fallback-auth-stealth#T2.2: build a URL with the same host/scheme and a new path (AC-006)
+func replaceURLPath(rawURL, path string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("server URL has no host")
+	}
+	u.Path = path
+	u.RawQuery = ""
+	return u.String(), nil
+}
+
+func dialStreamURL(ctx context.Context, cfg *config.ClientConfig, logger *zap.Logger, requestNoPad bool, endpoint, authorization string) (transport.StreamConn, error) {
 	tlsCfg, err := clientTLSConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -56,6 +99,7 @@ func dialStreamWith(ctx context.Context, cfg *config.ClientConfig, logger *zap.L
 		HeadersProfile:        cfg.HeadersProfileOrDefault(),
 		KeepaliveJitterPct:    cfg.KeepaliveJitterPct,
 		RequestNoPad:          requestNoPad,
+		Authorization:         authorization,
 		Obfuscation:           cfg.Obfuscation != nil && cfg.Obfuscation.Enabled,
 	}
 
@@ -64,5 +108,5 @@ func dialStreamWith(ctx context.Context, cfg *config.ClientConfig, logger *zap.L
 		wsFactory := transport.NewFactory("ws", factoryCfg)
 		factory = transport.NewFallbackFactory(factory, wsFactory, logger)
 	}
-	return factory.Dial(ctx, cfg.Server)
+	return factory.Dial(ctx, endpoint)
 }

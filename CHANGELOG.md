@@ -25,6 +25,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Stealth surface hardening (opt-in)** — `obfuscation.padding.mode: random` паддит только малые кадры без изменения wire-формата; настраиваемые alias-списки `no_pad_headers` и `multiplex_subprotocols` сохраняют старых peer'ов; decoy API отвечает на активные probe; клиентские `headers_profile: browser`, `keepalive_jitter_pct`, `reconnect_jitter_pct`. Все дефолты legacy, mixed-version совместимость покрыта тестами.
 
+### Added
+
+- **Stealth fallback и Bearer-auth до upgrade** — новый opt-in `stealth_path`: `Authorization: Bearer` проверяется до WebSocket upgrade; невалидный/пустой токен получает fallback-сайт или reverse-proxy (`fallback.upstream`/`fallback.title`), а не tunnel-ошибку. Legacy path и ClientHello-auth сохранены для старых клиентов; клиент пробует stealth path и откатывается на legacy. В stealth-режиме health/metrics скрыты от внешних запросов. Добавлены настройки kvn-web и Android (Bearer + fallback).
+
 ## [1.4.1] 2026-10-23
 
 ### Fixed

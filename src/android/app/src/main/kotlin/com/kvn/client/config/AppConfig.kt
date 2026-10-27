@@ -75,6 +75,10 @@ data class ConnectionConfig(
     val multiplexSubprotocols: List<String> = emptyList(),
     val headersProfile: String = "legacy",
     val reconnectJitterPct: Int = 0,
+    // @sk-task fallback-auth-stealth#T3.2: stealth path with Bearer and legacy fallback (AC-006)
+    val stealthEnabled: Boolean = false,
+    val stealthPath: String = "",
+    val stealthLegacyPath: String = "",
     // @sk-task android-dns-cache#T4.1: DNS cache toggle field (AC-008)
     val dnsCacheEnabled: Boolean = false,
     // @sk-task android-web-config-alignment#T1.1: DNS cache TTL in seconds (web export compat)

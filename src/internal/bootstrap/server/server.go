@@ -282,18 +282,40 @@ func New(configPath string) (*Server, error) {
 	return s, nil
 }
 
+// @sk-task fallback-auth-stealth#T1.2: shared WS config for legacy and stealth routes (AC-001)
+func (s *Server) wsConfig() websocket.WSConfig {
+	paddingEnabled := s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Padding != nil && s.cfg.Obfuscation.Padding.Enabled
+	allowNoPad := paddingEnabled && s.cfg.Obfuscation.Padding.RealtimeUnpaddedEnabled()
+	paddingMode := "fixed"
+	noPadHeaders := []string{"X-KVN-NoPad"}
+	if s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Padding != nil {
+		paddingMode = s.cfg.Obfuscation.Padding.ModeOrDefault()
+		noPadHeaders = s.cfg.Obfuscation.Padding.NoPadHeadersOrDefault()
+	}
+	return websocket.WSConfig{
+		Multiplex:             s.cfg.Multiplex,
+		MTU:                   s.cfg.MTU,
+		PaddingEnabled:        paddingEnabled,
+		PaddingSize:           paddingSizeOrDefault(s.cfg.Obfuscation),
+		PaddingMode:           paddingMode,
+		NoPadHeaders:          noPadHeaders,
+		MultiplexSubprotocols: s.cfg.MultiplexSubprotocols,
+		AllowNoPad:            allowNoPad,
+	}
+}
+
 // @sk-task whitelist-obfuscation#T3.2: padding config in WSConfig (AC-005)
 func (s *Server) buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	tunnelHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isWebSocketRequest(r) {
-			s.handleDecoy(w, r)
+			s.handleFallbackOrDecoy(w, r)
 			return
 		}
 		// @sk-task whitelist-obfuscation#T2.2: WS path allowlist check (AC-003)
 		if !s.allowedWSPath(r.URL.Path) {
-			s.handleDecoy(w, r)
+			s.handleFallbackOrDecoy(w, r)
 			return
 		}
 		if !s.rl.Allow(r.RemoteAddr) {
@@ -304,26 +326,7 @@ func (s *Server) buildMux() *http.ServeMux {
 			http.Error(w, "429 too many requests", http.StatusTooManyRequests)
 			return
 		}
-		paddingEnabled := s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Padding != nil && s.cfg.Obfuscation.Padding.Enabled
-		// @sk-task game-latency#T3.4: honor unpadded requests for real-time (secondary) framing (AC-001)
-		allowNoPad := paddingEnabled && s.cfg.Obfuscation.Padding.RealtimeUnpaddedEnabled()
-		paddingMode := "fixed"
-		noPadHeaders := []string{"X-KVN-NoPad"}
-		if s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Padding != nil {
-			paddingMode = s.cfg.Obfuscation.Padding.ModeOrDefault()
-			noPadHeaders = s.cfg.Obfuscation.Padding.NoPadHeadersOrDefault()
-		}
-		wsCfg := websocket.WSConfig{
-			Multiplex:             s.cfg.Multiplex,
-			MTU:                   s.cfg.MTU,
-			PaddingEnabled:        paddingEnabled,
-			PaddingSize:           paddingSizeOrDefault(s.cfg.Obfuscation),
-			PaddingMode:           paddingMode,
-			NoPadHeaders:          noPadHeaders,
-			MultiplexSubprotocols: s.cfg.MultiplexSubprotocols,
-			AllowNoPad:            allowNoPad,
-		}
-		s.handleTunnel(w, r, wsCfg)
+		s.handleTunnel(w, r, s.wsConfig())
 	})
 
 	cidrMiddleware := func(next http.Handler) http.Handler {
@@ -345,10 +348,43 @@ func (s *Server) buildMux() *http.ServeMux {
 		})
 	}
 
+	if s.cfg.StealthPath != "" {
+		// @sk-task fallback-auth-stealth#T1.2: Bearer is checked before upgrade; invalid gets fallback (AC-001, AC-002)
+		mux.HandleFunc(s.cfg.StealthPath, func(w http.ResponseWriter, r *http.Request) {
+			if !isWebSocketRequest(r) {
+				s.handleFallback(w, r)
+				return
+			}
+			if _, ok := s.authorizedBearer(r); !ok {
+				s.handleFallback(w, r)
+				return
+			}
+			if !s.rl.Allow(r.RemoteAddr) {
+				s.handleFallback(w, r)
+				return
+			}
+			s.handleTunnel(w, r, s.wsConfig())
+		})
+	}
+
 	mux.Handle("/", cidrMiddleware(tunnelHandler))
-	mux.HandleFunc("/livez", s.handleLivez)
-	mux.HandleFunc("/readyz", s.handleReadyz)
-	mux.HandleFunc("/health", s.handleHealth)
+
+	hideAdmin := s.cfg.StealthPath != "" && (s.cfg.StealthHideAdmin == nil || *s.cfg.StealthHideAdmin)
+	guard := func(next http.HandlerFunc) http.HandlerFunc {
+		if !hideAdmin {
+			return next
+		}
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !isLoopbackRemote(r.RemoteAddr) {
+				s.handleFallback(w, r)
+				return
+			}
+			next(w, r)
+		}
+	}
+	mux.HandleFunc("/livez", guard(s.handleLivez))
+	mux.HandleFunc("/readyz", guard(s.handleReadyz))
+	mux.HandleFunc("/health", guard(s.handleHealth))
 
 	mrl := ratelimit.NewIPRateLimiter(100, 100)
 	metricsHandler := admin.TokenMiddleware(s.cfg.Admin.Token)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -358,7 +394,7 @@ func (s *Server) buildMux() *http.ServeMux {
 		}
 		promhttp.Handler().ServeHTTP(w, r)
 	}))
-	mux.Handle("/metrics", metricsHandler)
+	mux.Handle("/metrics", guard(func(w http.ResponseWriter, r *http.Request) { metricsHandler.ServeHTTP(w, r) }))
 
 	return mux
 }

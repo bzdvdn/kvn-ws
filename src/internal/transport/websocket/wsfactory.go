@@ -36,6 +36,7 @@ func (f *WSFactory) Dial(ctx context.Context, endpoint string) (transport.Stream
 		MultiplexSubprotocols: f.tlsCfg.MultiplexSubprotocols,
 		HeadersProfile:        f.tlsCfg.HeadersProfile,
 		KeepaliveJitterPct:    f.tlsCfg.KeepaliveJitterPct,
+		Authorization:         f.tlsCfg.Authorization,
 		RequestNoPad:          f.tlsCfg.RequestNoPad,
 	}
 	conn, err := DialContext(ctx, endpoint, f.tlsCfg.TLS, f.tlsCfg.Logger, wsCfg)
