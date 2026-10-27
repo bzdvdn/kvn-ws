@@ -64,6 +64,10 @@ type ClientConfig struct {
 	ReconnectJitterPct    int      `json:"reconnect_jitter_pct,omitempty" yaml:"reconnect_jitter_pct,omitempty" mapstructure:"reconnect_jitter_pct"`
 	// @sk-task fallback-auth-stealth#T1.1: stealth path with Bearer auth and legacy fallback (AC-001, AC-006)
 	Stealth *StealthCfg `json:"stealth,omitempty" yaml:"stealth,omitempty" mapstructure:"stealth"`
+	// @sk-task kvn-v2-transport#T3.2: v1/v2 engine selector and v2 TUN defaults (AC-005)
+	Protocol   string `json:"protocol,omitempty" yaml:"protocol,omitempty" mapstructure:"protocol"`
+	TUNAddress string `json:"tun_address,omitempty" yaml:"tun_address,omitempty" mapstructure:"tun_address"`
+	TUNGateway string `json:"tun_gateway,omitempty" yaml:"tun_gateway,omitempty" mapstructure:"tun_gateway"`
 }
 
 // @sk-task fallback-auth-stealth#T1.1: client stealth settings (AC-001, AC-006)
@@ -628,6 +632,15 @@ func SetClientDefaults(cfg *ClientConfig) {
 	}
 	if cfg.HeadersProfile == "" {
 		cfg.HeadersProfile = "legacy"
+	}
+	if cfg.Protocol == "" {
+		cfg.Protocol = "v1"
+	}
+	if cfg.TUNAddress == "" {
+		cfg.TUNAddress = "10.66.0.2/24"
+	}
+	if cfg.TUNGateway == "" {
+		cfg.TUNGateway = "10.66.0.1"
 	}
 	cfg.KeepaliveJitterPct = clampJitterPct(cfg.KeepaliveJitterPct)
 	cfg.ReconnectJitterPct = clampJitterPct(cfg.ReconnectJitterPct)

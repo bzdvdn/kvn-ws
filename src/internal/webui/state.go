@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/bootstrap/client"
 	metricclient "github.com/bzdvdn/kvn-ws/src/internal/metrics/client"
 )
 
@@ -26,9 +25,14 @@ type LogEntry struct {
 }
 
 // @sk-task kvn-web#T1.3: app state management (AC-003, AC-004)
+// managedClient is the subset of v1/v2 clients used by webui lifecycle.
+type managedClient interface {
+	StopTun()
+}
+
 type AppState struct {
 	mu              sync.Mutex
-	cl              *client.Client
+	cl              managedClient
 	cancel          context.CancelFunc
 	doneCh          chan struct{}
 	status          Status
@@ -70,13 +74,13 @@ func (s *AppState) setStatus(st Status) {
 	}
 }
 
-func (s *AppState) Client() *client.Client {
+func (s *AppState) Client() managedClient {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cl
 }
 
-func (s *AppState) setClient(cl *client.Client) {
+func (s *AppState) setClient(cl managedClient) {
 	s.mu.Lock()
 	s.cl = cl
 	s.mu.Unlock()

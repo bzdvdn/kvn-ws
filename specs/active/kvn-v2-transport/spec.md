@@ -24,6 +24,7 @@
 - P2: как пользователь, я хочу добавить несколько серверов и переключаться между ними.
 - P3: как пользователь, я не хочу настраивать padding/multiplex/secondary — stealth должен работать сам.
 - P4: как оператор, я хочу, чтобы probe видел обычный сайт, а не VPN.
+- P5: как пользователь, я хочу запускать VPN из kvn-web, без отдельного client-бинарника.
 - P5: как владелец старых клиентов, я не хочу, чтобы v2 ломал v1-серверы.
 
 ## MVP Slice
@@ -44,7 +45,8 @@
 - TCP termination на клиенте (userspace stack) и открытие target TCP на сервере.
 - UDP MVP: best-effort stream; H3 datagrams — следующая фаза.
 - Stealth by default: Bearer до upgrade/stream, fallback, стандартные заголовки, без кастомных subprotocol/маркеров.
-- Упрощённый primary UI: multi-server, имя/endpoint/токен; Advanced доступен отдельными вкладками (Routing, DNS, TLS, Proxy).
+- kvn-web — единый entrypoint v2: запускает v2 client in-process; CLI-клиент остаётся только для диагностики.
+- Primary UI: multi-server, имя/endpoint/токен; Advanced доступен отдельными вкладками (Routing, DNS, TLS, Proxy).
 - Benchmark и DPI-проверки.
 
 ## Контекст
@@ -67,7 +69,7 @@
 - RQ-004 UDP ДОЛЖЕН иметь явный best-effort путь в MVP и H3 datagrams при доступном UDP в следующей фазе.
 - RQ-005 Stealth ДОЛЖЕН быть включён по умолчанию: стандартный TLS/HTTP2, Bearer до stream, fallback-сайт, без legacy path и кастомных маркеров.
 - RQ-006 TLS-профиль ДОЛЖЕН быть консистентным между соединениями; случайная смена браузера на каждый connect запрещена.
-- RQ-007 UI ДОЛЖЕН иметь минимальный primary flow (имя, endpoint, токен), поддерживать несколько серверов и сохранять доступ к Advanced: routing/DNS/TLS/proxy обязательны и не скрыты.
+- RQ-007 kvn-web ДОЛЖЕН запускать v2 client in-process и поддерживать несколько серверов; primary flow минимальный, но Advanced (routing/DNS/TLS/proxy) обязателен и не скрыт. Отдельный CLI client — только диагностика.
 - RQ-008 v2 НЕ ДОЛЖЕН ухудшать throughput/p95 latency относительно v1 на сопоставимом канале.
 - RQ-009 v1-серверы и v1-клиенты ДОЛЖНЫ продолжать работать независимо; миграция поэтапная.
 - RQ-010 Диагностика ДОЛЖНА показывать flow/stream ошибки без токенов и без раскрытия v2-сигнатур.
@@ -118,12 +120,12 @@
 ### AC-005 Упрощённый multi-server UI
 
 - Почему важно: текущий UI перегружен.
-- **Given** пользователь открывает v2 UI
-- **When** добавляет сервер
-- **Then** primary flow требует только имя, endpoint и токен; серверы перечислены и выбираются
+- **Given** пользователь открывает kvn-web
+- **When** добавляет v2-сервер и нажимает Connect
+- **Then** kvn-web сам запускает v2 client, показывает статус/логи и не требует отдельного бинарника
 - **When** открывает Advanced
-- **Then** доступны Routing (include/exclude CIDR/IP/domain), DNS, TLS и proxy-настройки; stealth остаётся всегда on и не требует ручного включения
-- Evidence: frontend build + UI-тест/скриншот + config roundtrip.
+- **Then** доступны Routing (include/exclude CIDR/IP/domain), DNS, TLS и proxy-настройки; stealth всегда on
+- Evidence: webui integration-тест + frontend build + ручной запуск TUN из UI.
 
 ### AC-006 Производительность не хуже v1
 
@@ -163,6 +165,8 @@
 
 - v2 может быть несовместим с v1; старые серверы остаются отдельно.
 - Пользователь готов тестировать на нескольких серверах и мигрировать постепенно.
+- kvn-web запускается с правами root/CAP_NET_ADMIN для v2 TUN.
+- v2 CLI client остаётся для диагностики, но не является пользовательским entrypoint.
 - Userspace TCP stack (gVisor/lwIP) приемлем по CPU/RAM; иначе fallback на OS-level transparent proxy.
 - TLS-сертификат/домен валидны в production; fallback-сайт реально существует.
 - UDP может быть недоступен; TCP-first MVP обязателен.

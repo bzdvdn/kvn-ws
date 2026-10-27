@@ -29,7 +29,7 @@ Outputs: `plan.md`; v2 несовместим с v1, v1 остаётся отд�
 - Userspace TCP termination (gVisor) or OS transparent proxy fallback.
 - UDP MVP best-effort stream; H3 datagrams phase 2.
 - Stealth default: standard path/Bearer/fallback, no legacy path.
-- Minimal primary UI + multi-server; Advanced (routing/DNS/TLS/proxy) доступен.
+- kvn-web как единый entrypoint: запускает v2 client in-process; multi-server; Advanced (routing/DNS/TLS/proxy) доступен.
 - Benchmarks/DPI checks.
 
 ## Performance Budget
@@ -47,7 +47,8 @@ Outputs: `plan.md`; v2 несовместим с v1, v1 остаётся отд�
 - `src/internal/v2/session/` — flow lifecycle, stream limits, backpressure.
 - `src/internal/v2/client/`, `src/internal/v2/server/` — bootstrap, config, TUN/proxy.
 - `src/internal/config/` — v2 config schema, multi-server, defaults.
-- `src/internal/webui/` — v2 UI: multi-server, 3 поля в primary, Advanced-вкладки Routing/DNS/TLS/Proxy.
+- `src/internal/webui/` — kvn-web v2: protocol selector, запуск v2 client in-process, статус/логи, Advanced Routing/DNS/TLS/Proxy.
+- `src/cmd/v2client/` — только diagnostics/CLI.
 - `src/cmd/web/`, `src/cmd/server/` — v2 entrypoints (separate binaries or `--v2`).
 - Tests/bench/DPI.
 
@@ -62,7 +63,7 @@ Outputs: `plan.md`; v2 несовместим с v1, v1 остаётся отд�
 - TCP flows больше не идут raw IP через TUN; TUN используется как вход в userspace TCP stack.
 - UDP остаётся raw IP/TUN в MVP; позже H3 datagrams.
 - v1 и v2 работают на разных endpoints/серверах; общий код только инфраструктурный.
-- UI v2 не показывает padding/multiplex/secondary/stealth-toggle, но сохраняет routing/DNS/TLS/proxy в Advanced.
+- UI v2 не показывает padding/multiplex/secondary/stealth-toggle, но сохраняет routing/DNS/TLS/proxy в Advanced и запускает v2 client из kvn-web.
 
 ## Acceptance Approach
 
@@ -122,11 +123,17 @@ Outputs: `plan.md`; v2 несовместим с v1, v1 остаётся отд�
   Affects: `v2/transport`, uTLS config.
   Validation: AC-004.
 
-- DEC-007 UI: 3 поля в primary + Advanced-вкладки
-  Why: primary flow должен быть простым, но routing/DNS/TLS/proxy — важные фичи VPN и не должны исчезать.
-  Tradeoff: UI остаётся насыщенным; нужно аккуратно сгруппировать настройки, а не скрывать их.
-  Affects: webui frontend, v2 config.
-  Validation: AC-005.
+- DEC-007 kvn-web — единый entrypoint v2
+  Why: пользователю не нужен отдельный client; kvn-web уже управляет lifecycle, логами и UI.
+  Tradeoff: webui должен уметь запускать два engine (v1/v2) и держать TUN lifecycle.
+  Affects: webui backend/frontend, v2 client package, config.
+  Validation: AC-005 + ручной запуск из UI.
+
+- DEC-010 v2 CLI — diagnostics only
+  Why: быстрый ручной тест без UI, но не пользовательский сценарий.
+  Tradeoff: поддерживаем два entrypoint'а.
+  Affects: cmd/v2client, docs.
+  Validation: docs/AC-005.
 
 - DEC-008 v1 не трогаем
   Why: старые серверы и клиенты должны работать.

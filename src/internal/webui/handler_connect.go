@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -14,6 +15,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
 	metricclient "github.com/bzdvdn/kvn-ws/src/internal/metrics/client"
+	v2client "github.com/bzdvdn/kvn-ws/src/internal/v2/client"
 )
 
 type connectResponse struct {
@@ -59,6 +61,88 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if cfg.Server == "" {
 		s.state.setStatus(StatusError)
 		s.state.PushLog(LogEntry{Line: "no server URL configured for active server", Level: "error"})
+		return
+	}
+
+	// @sk-task kvn-v2-transport#T3.2: kvn-web starts the v2 engine in-process (AC-005)
+	if strings.EqualFold(cfg.Protocol, "v2") {
+		v2mode := cfg.Mode
+		if v2mode == "" {
+			v2mode = "tun"
+		}
+		if v2mode == "tun" && runtime.GOOS != "linux" && runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+			s.state.setStatus(StatusError)
+			s.state.PushLog(LogEntry{Line: "v2 TUN mode is not supported on " + runtime.GOOS, Level: "error"})
+			return
+		}
+		if v2mode == "tun" && runtime.GOOS == "linux" && os.Geteuid() != 0 {
+			s.state.setStatus(StatusError)
+			s.state.PushLog(LogEntry{Line: "v2 TUN mode requires root privileges (run kvn-web with sudo or CAP_NET_ADMIN)", Level: "error"})
+			return
+		}
+		logLevel := cfg.Log.Level
+		if logLevel == "" {
+			logLevel = "info"
+		}
+		baseLogger, _, lerr := logger.New(logLevel)
+		if lerr != nil {
+			s.state.setStatus(StatusError)
+			s.state.PushLog(LogEntry{Line: "create v2 logger: " + lerr.Error(), Level: "error"})
+			return
+		}
+		pushLog := s.state.PushLog
+		hookLogger := baseLogger.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
+			return zapcore.NewTee(&uiLogCore{pushLog: pushLog}, core)
+		}))
+		active := wcfg.ActiveServer
+		v2cfg := &config.V2ClientConfig{
+			ActiveServer: active,
+			Servers: []config.V2ServerEntry{{
+				Name:     active,
+				Endpoint: cfg.Server,
+				Token:    cfg.Auth.Token,
+			}},
+			MTU:           cfg.MTU,
+			Mode:          v2mode,
+			TUNAddress:    cfg.TUNAddress,
+			TUNGateway:    cfg.TUNGateway,
+			AutoReconnect: cfg.AutoReconnect,
+			ProxyListen:   cfg.ProxyListen,
+			ProxyAuth:     cfg.ProxyAuth,
+			Routing:       cfg.Routing,
+			DNSProxy:      cfg.DNSProxy,
+			TLS:           cfg.TLS,
+			Reconnect:     cfg.Reconnect,
+			Log:           cfg.Log,
+		}
+		v2cfg.ApplyDefaults()
+		if err := v2cfg.Validate(); err != nil {
+			s.state.setStatus(StatusError)
+			s.state.PushLog(LogEntry{Line: "invalid v2 config: " + err.Error(), Level: "error"})
+			return
+		}
+		cl := v2client.New(v2cfg, hookLogger)
+		ctx, cancel := context.WithCancel(s.baseCtx)
+		s.state.SetCancel(cancel)
+		s.state.setClient(cl)
+		doneCh := make(chan struct{})
+		s.state.SetDoneCh(doneCh)
+		go func() {
+			defer close(doneCh)
+			setStatus := func(st Status) {
+				if s.state.Client() == cl {
+					s.state.setStatus(st)
+				}
+			}
+			setStatus(StatusConnected)
+			s.state.PushLog(LogEntry{Line: "v2 connected to " + cfg.Server, Level: "info"})
+			if err := cl.Run(ctx); err != nil {
+				setStatus(StatusError)
+				s.state.PushLog(LogEntry{Line: "v2 client error: " + err.Error(), Level: "error"})
+				return
+			}
+			setStatus(StatusDisconnected)
+		}()
 		return
 	}
 
@@ -217,6 +301,16 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	}
 	if server.HeadersProfile != "" {
 		merged.HeadersProfile = server.HeadersProfile
+	}
+	// @sk-task kvn-v2-transport#T3.2: per-server engine and TUN fields (AC-005)
+	if server.Protocol != "" {
+		merged.Protocol = server.Protocol
+	}
+	if server.TUNAddress != "" {
+		merged.TUNAddress = server.TUNAddress
+	}
+	if server.TUNGateway != "" {
+		merged.TUNGateway = server.TUNGateway
 	}
 	// @sk-task fallback-auth-stealth#T3.1: per-server stealth settings override global (AC-006)
 	if server.Stealth != nil {

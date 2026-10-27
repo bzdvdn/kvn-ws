@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 
@@ -29,6 +30,8 @@ import (
 type Client struct {
 	cfg    *config.V2ClientConfig
 	logger *zap.Logger
+	tunMu  sync.Mutex
+	tunDev tun.TunDevice
 }
 
 func New(cfg *config.V2ClientConfig, logger *zap.Logger) *Client {
@@ -36,6 +39,17 @@ func New(cfg *config.V2ClientConfig, logger *zap.Logger) *Client {
 		logger = zap.NewNop()
 	}
 	return &Client{cfg: cfg, logger: logger}
+}
+
+// @sk-task kvn-v2-transport#T3.3: release TUN during webui disconnect/reconnect (AC-005)
+func (c *Client) StopTun() {
+	c.tunMu.Lock()
+	dev := c.tunDev
+	c.tunDev = nil
+	c.tunMu.Unlock()
+	if dev != nil {
+		_ = dev.Close()
+	}
 }
 
 // ActiveServer returns the selected server entry.
@@ -123,7 +137,17 @@ func (c *Client) runTUN(ctx context.Context) error {
 	if err := dev.Open(); err != nil {
 		return fmt.Errorf("open v2 tun: %w", err)
 	}
-	defer func() { _ = dev.Close() }()
+	c.tunMu.Lock()
+	c.tunDev = dev
+	c.tunMu.Unlock()
+	defer func() {
+		c.tunMu.Lock()
+		if c.tunDev == dev {
+			c.tunDev = nil
+		}
+		c.tunMu.Unlock()
+		_ = dev.Close()
+	}()
 
 	ip, subnet, err := net.ParseCIDR(c.cfg.TUNAddress)
 	if err != nil {

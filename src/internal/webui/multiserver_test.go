@@ -480,3 +480,13 @@ func TestMergeConfigStealthSurface(t *testing.T) {
 		t.Fatalf("jitter = %d/%d", merged.KeepaliveJitterPct, merged.ReconnectJitterPct)
 	}
 }
+
+// @sk-test kvn-v2-transport#T3.2: per-server protocol and TUN fields merge (AC-005)
+func TestMergeConfigV2Protocol(t *testing.T) {
+	global := config.ClientConfig{Protocol: "v1", TUNAddress: "10.66.0.2/24"}
+	server := config.ClientConfig{Protocol: "v2", TUNAddress: "10.77.0.2/24", TUNGateway: "10.77.0.1"}
+	merged := mergeConfig(&global, &server)
+	if merged.Protocol != "v2" || merged.TUNAddress != "10.77.0.2/24" || merged.TUNGateway != "10.77.0.1" {
+		t.Fatalf("v2 merge = %+v", merged)
+	}
+}

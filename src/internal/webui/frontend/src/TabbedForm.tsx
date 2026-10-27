@@ -225,13 +225,33 @@ export default function TabbedForm(props: TabbedFormProps) {
         <span style={labelStyle()}>Name</span>
         <input style={inputStyle} value={props.serverName} onChange={(e) => props.onServerNameChange(e.target.value)} placeholder="Server name" />
       </div>
+      {/* @sk-task kvn-v2-transport#T3.1: v1/v2 engine selector (AC-005) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Protocol</span>
+          <select style={selectStyle} value={serverConfig.protocol || "v1"} onChange={(e) => { props.onUpdateServer("protocol", e.target.value); if (e.target.value === "v2" && (!serverConfig.mode || serverConfig.mode === "proxy")) props.onUpdateServer("mode", "tun"); }}>
+            <option value="v1">v1 (legacy)</option>
+            <option value="v2">v2 (HTTP/2 + TUN)</option>
+          </select>
+        </div>
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>TUN Address (v2)</span>
+          <input style={inputStyle} value={serverConfig.tun_address || "10.66.0.2/24"} onChange={(e) => props.onUpdateServer("tun_address", e.target.value)} placeholder="10.66.0.2/24" />
+        </div>
+      </div>
+      {serverConfig.protocol === "v2" && (
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>TUN Gateway (v2)</span>
+          <input style={inputStyle} value={serverConfig.tun_gateway || "10.66.0.1"} onChange={(e) => props.onUpdateServer("tun_gateway", e.target.value)} placeholder="10.66.0.1" />
+        </div>
+      )}
       <FormField label="Server URL" error={errors.serverUrl}>
         <input
           style={errors.serverUrl ? { ...inputStyle, borderColor: colors.error, boxShadow: `0 0 0 1px ${colors.error}33` } : inputStyle}
           value={serverConfig.server || ""}
           onChange={(e) => { props.onUpdateServer("server", e.target.value); validate("serverUrl", e.target.value, [rules.wsUrl()]); }}
           onBlur={(e) => validate("serverUrl", e.target.value, [rules.wsUrl()], true)}
-          placeholder="ws(s)://host:port"
+          placeholder="wss://host/path or https://host"
         />
       </FormField>
       <div style={fieldStyle()}>

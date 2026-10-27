@@ -9,6 +9,10 @@ export interface SourceRule {
 
 export interface ClientConfig {
   server?: string;
+  // @sk-task kvn-v2-transport#T3.1: v1/v2 engine selector and v2 TUN fields (AC-005)
+  protocol?: string;
+  tun_address?: string;
+  tun_gateway?: string;
   auth?: { token?: string };
   transport?: string;
   obfuscation?: {
@@ -69,6 +73,10 @@ export interface ClientConfig {
 export interface ServerEntry {
   name: string;
   server?: string;
+  // @sk-task kvn-v2-transport#T3.1: v1/v2 engine selector and v2 TUN fields (AC-005)
+  protocol?: string;
+  tun_address?: string;
+  tun_gateway?: string;
   auth?: { token?: string };
   transport?: string;
   [key: string]: any;
