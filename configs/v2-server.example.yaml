@@ -10,4 +10,6 @@ auth:
 fallback:
   title: Acme Telemetry
   # upstream: https://real-site.example
-max_streams: 4096
+max_streams: 512
+# Optional QUIC datagram side channel for UDP
+# quic_listen: 0.0.0.0:8443
