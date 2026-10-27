@@ -36,7 +36,7 @@
 - [x] T1.1 Добавить v2 config schema — outcome: multi-server entries (name/endpoint/token), stealth defaults, без v1-полей. Touches: src/internal/config/v2.go
       Proof: code src/internal/config/v2.go V2ServerConfig
 - [x] T1.2 Создать v2 protocol/transport skeleton — outcome: HTTP/2 stream, Bearer, fallback, фиксированный TLS/ALPN. Touches: src/internal/v2/protocol/, src/internal/v2/transport/
-      Proof: code src/internal/v2/transport/transport.go Dial
+      Proof: code src/internal/v2/transport/client.go NewClient
 - [x] T1.3 Создать v2 server entrypoint — outcome: listener, auth, target dial, fallback, stream limit. Touches: src/internal/v2/server/, src/cmd/v2server/
       Proof: code src/cmd/v2server/main.go main
 
