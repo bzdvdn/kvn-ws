@@ -19,6 +19,12 @@
 | src/internal/webui/frontend/src/TabbedForm.tsx | T2.4 |
 | src/internal/webui/handler_connect.go | T2.4 |
 | src/internal/webui/multiserver_test.go | T2.4 |
+| src/android/app/src/main/kotlin/com/kvn/client/config/AppConfig.kt | T5.1 |
+| src/android/app/src/main/kotlin/com/kvn/client/transport/WebSocketClient.kt | T5.2, T5.3 |
+| src/android/app/src/main/kotlin/com/kvn/client/transport/reconnect/ReconnectManager.kt | T5.3 |
+| src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt | T5.2, T5.4 |
+| src/android/app/src/main/kotlin/com/kvn/client/ui/SettingsScreen.kt, src/android/app/src/main/kotlin/com/kvn/client/ui/QrScannerScreen.kt | T5.1 |
+| src/android/app/src/test/java/com/kvn/client/config/ConfigSerializationTest.kt, src/android/app/src/test/java/com/kvn/client/transport/ | T5.5 |
 | CHANGELOG.md, docs/ru|en/config.md, docs/ru|en/architecture.md | T4.1 |
 | src/internal/transport/websocket/, src/internal/bootstrap/client/, src/integration/ | T4.2 |
 
@@ -71,6 +77,21 @@
 - [x] T4.2 Прогнать gate — outcome: race-тесты и `go vet ./...` зелёные. Touches: src/internal/transport/websocket/, src/internal/bootstrap/client/, src/integration/
       Proof: test src/internal/transport/websocket/websocket_test.go TestWSPaddingRandomMode
 
+## Фаза 5: Android parity
+
+- [x] T5.1 Добавить Android config/QR/UI поля — outcome: mode, no-pad headers, subprotocols, headers profile и jitter сохраняются/экспортируются. Touches: src/android/app/src/main/kotlin/com/kvn/client/config/AppConfig.kt, src/android/app/src/main/kotlin/com/kvn/client/ui/SettingsScreen.kt, src/android/app/src/main/kotlin/com/kvn/client/ui/QrScannerScreen.kt
+      Proof: code src/android/app/src/main/kotlin/com/kvn/client/config/AppConfig.kt ConnectionConfig
+- [x] T5.2 Добавить random padding и no-pad aliases в WebSocketClient — outcome: mixed fixed/random работает, secondary снимает padding только после подтверждения alias. Touches: src/android/app/src/main/kotlin/com/kvn/client/transport/WebSocketClient.kt, src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt
+      Proof: code src/android/app/src/main/kotlin/com/kvn/client/transport/WebSocketClient.kt requestNoPad
+- [x] T5.3 Добавить subprotocol/headers/reconnect jitter — outcome: alias subprotocol, browser headers и jitter применяются только по конфигу. Touches: src/android/app/src/main/kotlin/com/kvn/client/transport/WebSocketClient.kt, src/android/app/src/main/kotlin/com/kvn/client/transport/reconnect/ReconnectManager.kt
+      Proof: code src/android/app/src/main/kotlin/com/kvn/client/transport/reconnect/ReconnectManager.kt delayForAttempt
+- [x] T5.4 Прокинуть поля через KvnVpnService — outcome: primary/secondary получают mode/headers/subprotocols/jitter из ConnectionConfig. Touches: src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt
+      Proof: code src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt createTransport
+- [x] T5.5 Покрыть Android тестами — outcome: padding, aliases, config/QR roundtrip и jitter покрыты unit-тестами. Touches: src/android/app/src/test/java/com/kvn/client/config/ConfigSerializationTest.kt, src/android/app/src/test/java/com/kvn/client/transport/
+      Proof: test src/android/app/src/test/java/com/kvn/client/transport/WsPaddingTest.kt WsPaddingTest
+- [x] T5.6 Прогнать Android gate — outcome: `./gradlew test assembleDebug` зелёный. Touches: src/android/app/
+      Proof: test src/android/app/src/test/java/com/kvn/client/transport/ReconnectJitterTest.kt ReconnectJitterTest
+
 ## Покрытие критериев приемки
 
 - AC-001 -> T1.1, T1.2, T3.1
@@ -83,6 +104,10 @@
 - AC-008 -> T1.2, T3.3
 - AC-009 -> T1.3, T2.4, T3.4
 - AC-010 -> T1.3, T2.4, T3.4
+- AC-011 -> T5.1, T5.2, T5.5
+- AC-012 -> T5.1, T5.2, T5.4, T5.5
+- AC-013 -> T5.1, T5.5
+- AC-014 -> T5.1, T5.3, T5.5
 
 ## Заметки
 

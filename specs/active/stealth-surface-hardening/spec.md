@@ -42,6 +42,7 @@
 - Alias-негоциация no-pad: клиент отправляет список имён, сервер принимает любое из своего списка и отвечает совпавшим именем.
 - Тесты mixed-version и бенчмарк throughput/allocs.
 - Настройки в kvn-web: per-server и global поля для mode/aliases/headers/jitter.
+- Android-клиент: random padding, no-pad aliases, subprotocol/headers profile, reconnect jitter, настройки/QR.
 
 ## Контекст
 
@@ -70,12 +71,15 @@
 - RQ-008 Throughput случайного padding НЕ ДОЛЖЕН быть хуже fixed при том же профиле трафика.
 - RQ-009 Списки no-pad заголовков ДОЛЖНЫ сохранять дефолт `X-KVN-NoPad` и поддерживать mixed-version в обе стороны.
 - RQ-010 Списки multiplex subprotocol ДОЛЖНЫ сохранять дефолт `kvn-ws-mux` и не ломать старых клиентов.
+- RQ-011 Android ДОЛЖЕН поддерживать `padding.mode: random` с тем же wire-форматом и mixed-version совместимостью.
+- RQ-012 Android secondary ДОЛЖЕН участвовать в no-pad alias-негоциации и безопасно оставаться padded при отказе.
+- RQ-013 Android настройки/QR ДОЛЖНЫ сохранять mode/aliases/subprotocols/headers/jitter без потери legacy-полей.
 
 ## Вне scope
 
 - HTTP/2 WebSocket, HTTP/3, telemetry-envelope, protobuf-обёртки.
 - Split-connection / tun2socks.
-- Android-клиент, relay bridge/terminator.
+- Relay bridge/terminator. Android keepalive jitter (ограничение OkHttp pingInterval) — вне scope.
 - Изменение дефолтного ALPN и семантики no-pad; меняются только имена заголовков через alias-списки.
 - Отключение padding по умолчанию.
 - Cover traffic и тяжёлый traffic shaping.
@@ -148,6 +152,38 @@
 - **Then** throughput random не хуже fixed более чем на 5%, allocs не растут
 - Evidence: benchmark-результат в отчёте.
 
+### AC-011 Android random padding
+
+- Почему важно: Android не должен оставаться единственным клиентом с fixed 512.
+- **Given** Android `obfuscationPaddingMode=random`
+- **When** отправляются малые кадры
+- **Then** размеры случайны в диапазоне, крупные без fixed-выравнивания, Go-сервер читает payload
+- Evidence: Android unit-тест wrap/unwrap + mixed fixed/random.
+
+### AC-012 Android no-pad aliases для secondary
+
+- Почему важно: иначе Android secondary всегда padded и теряет real-time выигрыш.
+- **Given** Android secondary с `noPadHeaders` и Go-сервер с тем же alias
+- **When** сервер подтверждает заголовок
+- **Then** padding отключается только для secondary; при отказе остаётся padded
+- Evidence: Android unit-тест request/response headers + fallback.
+
+### AC-013 Android настройки и QR
+
+- Почему важно: пользователь должен включить режим на телефоне без ручного JSON.
+- **Given** Android Settings/QR с новыми полями
+- **When** конфиг сохраняется, экспортируется и импортируется
+- **Then** mode/aliases/subprotocols/headers/jitter сохраняются, legacy-поля не теряются
+- Evidence: ConfigSerializationTest/QR roundtrip.
+
+### AC-014 Android reconnect jitter
+
+- Почему важно: ровный backoff — fingerprint, но jitter не должен ломать переподключение.
+- **Given** `reconnectJitterPct`
+- **When** считаются задержки backoff
+- **Then** значения в границах, reconnect-тесты зелёные
+- Evidence: unit-тест ReconnectManager.
+
 ### AC-009 Alias no-pad заголовков совместим со старыми
 
 - Почему важно: уйти от конкретного имени, не сломав secondary-клиенты.
@@ -182,6 +218,7 @@
 - SC-001 Mixed-version матрица (old/new client × old/new server) проходит без ошибок.
 - SC-002 Random padding снижает средний размер малых сообщений по сравнению с fixed 512.
 - SC-003 Throughput/alloc regression ≤5%.
+- SC-004 Android mixed-version: старый APK ↔ новый сервер и новый APK ↔ старый сервер.
 
 ## Краевые случаи
 

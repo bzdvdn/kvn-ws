@@ -44,7 +44,8 @@ Outputs: `plan.md`; wire-формат не меняется, дефолты ос
 - `src/internal/transport/control` или bootstrap — jitter helper.
 - `src/internal/webui/frontend/src/types.ts`, `TabbedForm.tsx` — per-server/global поля.
 - `src/internal/webui/handler_connect.go` — mergeConfig новых полей.
-- Тесты: `websocket_test.go`, `client_test.go`, `server`/`integration`, benchmark.
+- Android: `config/AppConfig.kt`, `transport/WebSocketClient.kt`, `transport/reconnect/ReconnectManager.kt`, `vpn/KvnVpnService.kt`, `ui/SettingsScreen.kt`, `ui/QrScannerScreen.kt`.
+- Тесты: Go websocket/client/server/integration + Android unit tests, benchmark.
 
 ## Bootstrapping Surfaces
 
@@ -112,6 +113,12 @@ Outputs: `plan.md`; wire-формат не меняется, дефолты ос
   Affects: `DialContext`, client config.
   Validation: AC-006.
 
+- DEC-007 Android повторяет wire-контракт Go
+  Why: случайный padding и alias-негоциация не меняют формат, поэтому Android может включить их без серверных изменений.
+  Tradeoff: OkHttp не даёт jitter для pingInterval; Android получает reconnect jitter, keepalive остаётся фиксированным.
+  Affects: `WebSocketClient.kt`, `AppConfig.kt`, `KvnVpnService.kt`, UI/QR.
+  Validation: Android unit tests + mixed-version с Go.
+
 - DEC-006 Настраиваемые alias-списки вместо удаления маркеров
   Why: `X-KVN-NoPad`/`kvn-ws-mux` внутри TLS и не видны пассивному DPI; alias-списки убирают конкретные строки для HTTP-слоя/CDN, сохраняя старые имена дефолтом.
   Tradeoff: клиент отправляет несколько имён; сервер отвечает совпавшим; при отсутствии подтверждения остаётся padded.
@@ -129,6 +136,11 @@ Outputs: `plan.md`; wire-формат не меняется, дефолты ос
 
 - Decoy API, jitter, headers profile.
 - Готовность: AC-004, AC-005, AC-006, AC-007.
+
+### Android parity
+
+- Config/QR/UI, WebSocketClient random padding + no-pad aliases, subprotocol/headers, reconnect jitter.
+- Готовность: AC-011–AC-014.
 
 ## Порядок реализации
 

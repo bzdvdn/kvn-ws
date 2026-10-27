@@ -69,6 +69,12 @@ data class ConnectionConfig(
     val obfuscationUtls: Boolean = false,
     val obfuscationPaddingEnabled: Boolean = false,
     val obfuscationPaddingSize: Int = 0,
+    // @sk-task stealth-surface-hardening#T5.1: Android parity for padding/aliases/headers/jitter (AC-011..AC-014)
+    val obfuscationPaddingMode: String = "fixed",
+    val obfuscationNoPadHeaders: List<String> = emptyList(),
+    val multiplexSubprotocols: List<String> = emptyList(),
+    val headersProfile: String = "legacy",
+    val reconnectJitterPct: Int = 0,
     // @sk-task android-dns-cache#T4.1: DNS cache toggle field (AC-008)
     val dnsCacheEnabled: Boolean = false,
     // @sk-task android-web-config-alignment#T1.1: DNS cache TTL in seconds (web export compat)

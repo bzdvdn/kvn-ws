@@ -851,7 +851,11 @@ class KvnVpnService : VpnService() {
                 errorCallback?.invoke("WS: ${t.message ?: t.javaClass.simpleName}")
             },
             paddingEnabled = config.obfuscationPaddingEnabled,
-            paddingSize = config.obfuscationPaddingSize
+            paddingSize = config.obfuscationPaddingSize,
+            paddingMode = config.obfuscationPaddingMode,
+            noPadHeaders = config.obfuscationNoPadHeaders,
+            subprotocols = if (config.multiplex) config.multiplexSubprotocols.ifEmpty { listOf("kvn-ws-mux") } else emptyList(),
+            headersProfile = config.headersProfile
         )
     }
 
@@ -920,7 +924,12 @@ class KvnVpnService : VpnService() {
                 notifyDualChannel(false)
             },
             paddingEnabled = config.obfuscationPaddingEnabled,
-            paddingSize = config.obfuscationPaddingSize
+            paddingSize = config.obfuscationPaddingSize,
+            paddingMode = config.obfuscationPaddingMode,
+            noPadHeaders = config.obfuscationNoPadHeaders,
+            requestNoPad = config.obfuscationPaddingEnabled,
+            subprotocols = if (config.multiplex) config.multiplexSubprotocols.ifEmpty { listOf("kvn-ws-mux") } else emptyList(),
+            headersProfile = config.headersProfile
         )
         secondaryClient?.connect()
     }

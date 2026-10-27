@@ -6,7 +6,6 @@ import com.kvn.client.protocol.toFrames
 import okhttp3.*
 import okio.Buffer
 import okio.ByteString
-import java.nio.ByteBuffer
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -19,23 +18,45 @@ class WebSocketClient(
     private val onFrame: OnFrameCallback,
     private val onStateChange: OnStateChange,
     private val onFailure: ((Throwable) -> Unit)? = null,
-    private val paddingEnabled: Boolean = false,
-    private val paddingSize: Int = 512
+    paddingEnabled: Boolean = false,
+    private val paddingSize: Int = 512,
+    // @sk-task stealth-surface-hardening#T5.2: Android parity for padding/aliases/headers (AC-011..AC-013)
+    private val paddingMode: String = "fixed",
+    private val noPadHeaders: List<String> = emptyList(),
+    private val requestNoPad: Boolean = false,
+    private val subprotocols: List<String> = emptyList(),
+    private val headersProfile: String = "legacy"
 ) : TransportClient {
     private var webSocket: WebSocket? = null
     private val connected = AtomicBoolean(false)
     private val rng = SecureRandom()
+    @Volatile
+    private var paddingActive = paddingEnabled
 
     // @sk-task kvn-android#T2.2: connect WebSocket (AC-001)
     override fun connect() {
         onStateChange(ConnectionState.CONNECTING)
-        val request = Request.Builder()
-            .url(url)
-            .build()
+        val requestBuilder = Request.Builder().url(url)
+        WsNegotiation.subprotocolHeader(subprotocols.isNotEmpty(), subprotocols)?.let {
+            requestBuilder.header("Sec-WebSocket-Protocol", it)
+        }
+        if (headersProfile.equals("browser", ignoreCase = true)) {
+            requestBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36")
+            requestBuilder.header("Accept", "*/*")
+            requestBuilder.header("Accept-Language", "en-US,en;q=0.9")
+            requestBuilder.header("Cache-Control", "no-cache")
+        }
+        if (requestNoPad) {
+            WsNegotiation.noPadHeaders(noPadHeaders).forEach { requestBuilder.header(it, "1") }
+        }
+        val request = requestBuilder.build()
 
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             // @sk-task android-crash-fix#T1: never let a callback exception kill the app (AC-001)
             override fun onOpen(ws: WebSocket, response: Response) {
+                if (requestNoPad && WsNegotiation.noPadConfirmed({ response.header(it) }, noPadHeaders)) {
+                    paddingActive = false
+                }
                 connected.set(true)
                 try { onStateChange(ConnectionState.CONNECTED) } catch (_: Exception) {}
             }
@@ -45,7 +66,7 @@ class WebSocketClient(
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
                 try {
                     val data = bytes.toByteArray()
-                    val frameData = if (paddingEnabled) unwrapPadding(data) else data
+                    val frameData = if (paddingActive) WsPadding.unwrap(data) else data
                     for (frame in frameData.toFrames()) {
                         onFrame(frame)
                     }
@@ -77,7 +98,7 @@ class WebSocketClient(
     override fun send(frame: Frame): Boolean {
         if (!connected.get()) return false
         val data = frame.encode()
-        val wireData = if (paddingEnabled) wrapPadding(data) else data
+        val wireData = WsPadding.wrap(data, paddingActive, paddingSize, paddingMode, rng)
         val b = Buffer()
         b.write(wireData)
         return webSocket?.send(b.readByteString()) ?: false
@@ -86,38 +107,10 @@ class WebSocketClient(
     // @sk-task secondary-batching#T5.3: send raw bytes as one WS message (batched secondary) (AC-002)
     fun sendRaw(data: ByteArray): Boolean {
         if (!connected.get()) return false
-        val wireData = if (paddingEnabled) wrapPadding(data) else data
+        val wireData = WsPadding.wrap(data, paddingActive, paddingSize, paddingMode, rng)
         val b = Buffer()
         b.write(wireData)
         return webSocket?.send(b.readByteString()) ?: false
-    }
-
-    // @sk-task kvn-android#T5.20: match server WSConn WriteMessage padding (AC-006)
-    private fun wrapPadding(data: ByteArray): ByteArray {
-        val padSize = if (paddingSize <= 0) 512 else paddingSize
-        val totalLen = 4 + data.size
-        val padding = (padSize - totalLen % padSize) % padSize
-        val buf = ByteBuffer.allocate(totalLen + padding)
-        buf.putInt(data.size)
-        buf.put(data)
-        if (padding > 0) {
-            val pad = ByteArray(padding)
-            rng.nextBytes(pad)
-            buf.put(pad)
-        }
-        return buf.array()
-    }
-
-    // @sk-task kvn-android#T5.20: match server WSConn ReadMessage padding unwrap (AC-006)
-    private fun unwrapPadding(wireData: ByteArray): ByteArray {
-        if (wireData.size < 4) {
-            throw IllegalArgumentException("padding frame too short: ${wireData.size}")
-        }
-        val payloadLen = ByteBuffer.wrap(wireData, 0, 4).getInt()
-        if (payloadLen < 0 || payloadLen > wireData.size - 4) {
-            throw IllegalArgumentException("invalid padding payload length: $payloadLen (max ${wireData.size - 4})")
-        }
-        return wireData.copyOfRange(4, 4 + payloadLen)
     }
 
     // @sk-task kvn-android#T2.2: graceful disconnect (AC-006)

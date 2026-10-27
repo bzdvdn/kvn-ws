@@ -23,6 +23,7 @@ class ReconnectManager(
 
     private val baseDelayMs = (config.minBackoffSec * 1000L).coerceAtLeast(100)
     private val maxDelayMs = (config.maxBackoffSec * 1000L).coerceAtLeast(baseDelayMs)
+    private val jitterPct = config.reconnectJitterPct.coerceIn(0, 50)
 
     // @sk-task kvn-android#T3.1: start reconnecting (AC-005)
     fun start() {
@@ -59,10 +60,19 @@ class ReconnectManager(
     }
 
     // @sk-task kvn-android#T5.18: exponential backoff with jitter (AC-005)
-    private fun currentDelay(): Long {
-        val base = baseDelayMs * 2.0.pow(retryCount.toDouble()).toLong()
+    // @sk-task stealth-surface-hardening#T5.3: configurable bounded reconnect jitter (AC-014)
+    private fun currentDelay(): Long = delayForAttempt(retryCount)
+
+    internal fun delayForAttempt(attempt: Int): Long {
+        val base = baseDelayMs * 2.0.pow(attempt.toDouble()).toLong()
         val capped = min(base, maxDelayMs)
-        val jitter = Random.nextLong(0, capped / 4)
-        return capped + jitter
+        if (jitterPct == 0) {
+            // Legacy behavior: keep the original positive-only jitter.
+            val legacy = Random.nextLong(0, (capped / 4).coerceAtLeast(1))
+            return capped + legacy
+        }
+        val delta = capped * jitterPct / 100
+        if (delta <= 0) return capped
+        return (capped - delta + Random.nextLong(0, 2 * delta + 1)).coerceAtLeast(0)
     }
 }
