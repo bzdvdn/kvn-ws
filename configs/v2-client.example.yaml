@@ -1,0 +1,22 @@
+# KVN v2 client example. v2 is not compatible with v1 servers.
+active_server: de
+mode: proxy
+proxy_listen: 127.0.0.1:2310
+mtu: 1400
+tls:
+  verify_mode: verify
+servers:
+  - name: de
+    endpoint: https://vpn.example.com
+    token: change-me
+  - name: backup
+    endpoint: https://backup.example.com
+    token: change-me
+routing:
+  default_route: server
+  exclude_ranges: []
+  exclude_domains: []
+dns_proxy:
+  listen: 127.0.0.153:53
+  upstreams:
+    - 1.1.1.1:53

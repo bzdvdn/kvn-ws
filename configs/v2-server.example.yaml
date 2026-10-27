@@ -1,0 +1,13 @@
+# KVN v2 server example. v2 is intentionally not wire-compatible with v1.
+listen: 0.0.0.0:443
+tls:
+  cert: /etc/kvn-ws/certs/server.pem
+  key: /etc/kvn-ws/certs/server-key.pem
+auth:
+  tokens:
+    - name: default
+      secret: change-me
+fallback:
+  title: Acme Telemetry
+  # upstream: https://real-site.example
+max_streams: 4096
