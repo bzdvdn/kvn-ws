@@ -171,6 +171,11 @@ func (c *Client) runTUN(ctx context.Context) error {
 	if err := dev.SetMTU(c.cfg.MTU); err != nil {
 		return fmt.Errorf("set tun mtu: %w", err)
 	}
+	// @sk-task kvn-v2-transport#T5.1: disable GSO/GRO, otherwise wireguard tun
+	// returns ErrTooManySegments on Read.
+	if err := dev.DisableGSO(); err != nil {
+		c.logger.Warn("v2 tun gso/gro disable failed", zap.Error(err))
+	}
 	phyGW, phyIface, err := tun.SaveDefaultRoute()
 	if err != nil {
 		return fmt.Errorf("save physical route: %w", err)
