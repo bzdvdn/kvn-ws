@@ -29,6 +29,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Stealth fallback и Bearer-auth до upgrade** — новый opt-in `stealth_path`: `Authorization: Bearer` проверяется до WebSocket upgrade; невалидный/пустой токен получает fallback-сайт или reverse-proxy (`fallback.upstream`/`fallback.title`), а не tunnel-ошибку. Legacy path и ClientHello-auth сохранены для старых клиентов; клиент пробует stealth path и откатывается на legacy. В stealth-режиме health/metrics скрыты от внешних запросов. Добавлены настройки kvn-web и Android (Bearer + fallback).
 
+### Added
+
+- **KVN v2: TCP-first stealth transport (experimental)** — отдельный v2-протокол (несовместим с v1): TLS 1.3 + HTTP/2, TCP split-connection через gVisor netstack, отдельный stream на TCP-flow, UDP best-effort streams, Bearer до stream и fallback-сайт. kvn-web запускает v2 client in-process, поддерживает protocol selector v1/v2, TUN и полный Advanced (routing/DNS/TLS/proxy). v1-серверы и клиенты не затронуты.
+
 ## [1.4.1] 2026-10-23
 
 ### Fixed

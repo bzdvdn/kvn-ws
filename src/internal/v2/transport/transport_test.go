@@ -138,3 +138,64 @@ func TestUDPStreamRoundTrip(t *testing.T) {
 		t.Fatalf("udp echo = %q, want %q", got, payload)
 	}
 }
+
+// @sk-test kvn-v2-transport#T5.1: slow TCP flow does not block another flow (AC-002)
+func TestSlowFlowDoesNotBlockAnother(t *testing.T) {
+	slowLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slowLn.Close()
+	go func() {
+		for {
+			c, err := slowLn.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close() // hold the connection open without reading
+		}
+	}()
+	fastTarget, closeFast := echoTarget(t)
+	defer closeFast()
+
+	srv := NewServer(func(token string) (string, bool) { return "t", token == "secret" },
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }), 64, zap.NewNop())
+	ts := httptest.NewUnstartedServer(srv)
+	ts.EnableHTTP2 = true
+	ts.StartTLS()
+	defer ts.Close()
+
+	tlsCfg := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2"}}
+	client, err := NewClient(ts.URL+Path, "secret", tlsCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	slow, err := client.DialTCP(ctx, slowLn.Addr().String())
+	if err != nil {
+		t.Fatalf("slow dial: %v", err)
+	}
+	defer func() { _ = slow.Close() }()
+	if _, err := slow.Write([]byte("hold")); err != nil {
+		t.Fatalf("slow write: %v", err)
+	}
+
+	fast, err := client.DialTCP(ctx, fastTarget)
+	if err != nil {
+		t.Fatalf("fast dial while slow flow open: %v", err)
+	}
+	defer func() { _ = fast.Close() }()
+	payload := []byte("fast")
+	if _, err := fast.Write(payload); err != nil {
+		t.Fatalf("fast write: %v", err)
+	}
+	got := make([]byte, len(payload))
+	if _, err := io.ReadFull(fast, got); err != nil {
+		t.Fatalf("fast read: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("fast echo = %q", got)
+	}
+}

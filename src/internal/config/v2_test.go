@@ -25,3 +25,22 @@ func TestV2ClientValidation(t *testing.T) {
 		t.Fatal("http endpoint accepted")
 	}
 }
+
+// @sk-test kvn-v2-transport#T5.2: v1 and v2 configs coexist independently (AC-007)
+func TestV1V2ConfigCoexist(t *testing.T) {
+	v1 := &ClientConfig{Server: "wss://v1.example.com/tunnel", Auth: AuthCfg{Token: "v1"}, Protocol: "v1"}
+	SetClientDefaults(v1)
+	if v1.Protocol != "v1" {
+		t.Fatalf("v1 protocol = %q", v1.Protocol)
+	}
+	v2 := &V2ClientConfig{
+		Servers: []V2ServerEntry{{Name: "v2", Endpoint: "https://v2.example.com", Token: "v2"}},
+	}
+	v2.ApplyDefaults()
+	if err := v2.Validate(); err != nil {
+		t.Fatalf("v2 config: %v", err)
+	}
+	if v2.Servers[0].Endpoint == v1.Server {
+		t.Fatal("v1/v2 endpoints unexpectedly coupled")
+	}
+}

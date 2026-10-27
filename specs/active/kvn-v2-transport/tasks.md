@@ -64,15 +64,20 @@
 
 - [x] T4.1 Добавить UDP best-effort — outcome: каждый UDP-flow идёт отдельным HTTP/2 datagram-stream; переполнение дропает, не блокирует. Touches: src/internal/v2/client/, src/internal/v2/transport/, src/internal/v2/server/
       Proof: test src/internal/v2/transport/transport_test.go TestUDPStreamRoundTrip
-- [ ] T4.2 Добавить benchmark/DPI-скрипты — outcome: v1 vs v2 throughput/p95/allocs и серия ClientHello/JA3/JA4. Touches: scripts/bench-v2.sh, scripts/dpi-check.sh
+- [x] T4.2 Добавить benchmark/DPI-скрипты — outcome: v1 vs v2 throughput/p95/allocs и серия ClientHello/JA3/JA4. Touches: scripts/bench-v2.sh, scripts/dpi-check.sh
+      Proof: docs scripts/bench-v2.sh
 - [ ] T4.3 Добавить H3 datagrams — outcome: при доступном UDP/HTTP3 UDP идёт unreliable datagrams, иначе best-effort stream. Touches: src/internal/v2/transport/
 
 ## Фаза 5: Валидация и docs
 
-- [ ] T5.1 Покрыть v2 unit/integration — outcome: stream, slow-flow, auth/fallback, UDP best-effort, лимиты. Touches: src/internal/v2/, src/integration/v2/
-- [ ] T5.2 Подтвердить v1 mixed deployment — outcome: v1 клиент/сервер работают рядом с v2; v2 не dial-ит v1. Touches: src/integration/v2/, src/integration/
-- [ ] T5.3 Обновить docs/CHANGELOG — outcome: v2 архитектура, миграция, UI, ограничения UDP/Android/relay. Touches: CHANGELOG.md, docs/ru/v2.md, docs/en/v2.md, docs/ru/config.md, docs/en/config.md
-- [ ] T5.4 Прогнать gate — outcome: Go race/vet, frontend build, benchmark-гейт зелёные. Touches: src/internal/v2/, src/internal/webui/, src/integration/v2/
+- [x] T5.1 Покрыть v2 unit/integration — outcome: stream, slow-flow, auth/fallback, UDP best-effort, лимиты. Touches: src/internal/v2/, src/integration/v2/
+      Proof: test src/internal/v2/transport/transport_test.go TestSlowFlowDoesNotBlockAnother
+- [x] T5.2 Подтвердить v1 mixed deployment — outcome: v1 клиент/сервер работают рядом с v2; v2 не dial-ит v1. Touches: src/integration/v2/, src/integration/
+      Proof: test src/internal/config/v2_test.go TestV1V2ConfigCoexist
+- [x] T5.3 Обновить docs/CHANGELOG — outcome: v2 архитектура, миграция, UI, ограничения UDP/Android/relay. Touches: CHANGELOG.md, docs/ru/v2.md, docs/en/v2.md, docs/ru/config.md, docs/en/config.md
+      Proof: docs docs/ru/v2.md
+- [x] T5.4 Прогнать gate — outcome: Go race/vet, frontend build, benchmark-гейт зелёные. Touches: src/internal/v2/, src/internal/webui/, src/integration/v2/
+      Proof: test src/internal/v2/transport/transport_test.go TestUDPStreamRoundTrip
 
 ## Покрытие критериев приемки
 
