@@ -454,3 +454,29 @@ func TestClientConfigMultiChannelJSONRoundTrip(t *testing.T) {
 		t.Errorf("MultiChannel = %v, want true after round-trip", decoded.MultiChannel)
 	}
 }
+
+// @sk-test stealth-surface-hardening#T4.1: per-server surface settings override global (AC-006, AC-009, AC-010)
+func TestMergeConfigStealthSurface(t *testing.T) {
+	global := config.ClientConfig{
+		MultiplexSubprotocols: []string{"kvn-ws-mux"},
+		HeadersProfile:        "legacy",
+		KeepaliveJitterPct:    5,
+		ReconnectJitterPct:    5,
+	}
+	server := config.ClientConfig{
+		MultiplexSubprotocols: []string{"telemetry.v1"},
+		HeadersProfile:        "browser",
+		KeepaliveJitterPct:    10,
+		ReconnectJitterPct:    15,
+	}
+	merged := mergeConfig(&global, &server)
+	if len(merged.MultiplexSubprotocols) != 1 || merged.MultiplexSubprotocols[0] != "telemetry.v1" {
+		t.Fatalf("MultiplexSubprotocols = %v", merged.MultiplexSubprotocols)
+	}
+	if merged.HeadersProfile != "browser" {
+		t.Fatalf("HeadersProfile = %q", merged.HeadersProfile)
+	}
+	if merged.KeepaliveJitterPct != 10 || merged.ReconnectJitterPct != 15 {
+		t.Fatalf("jitter = %d/%d", merged.KeepaliveJitterPct, merged.ReconnectJitterPct)
+	}
+}

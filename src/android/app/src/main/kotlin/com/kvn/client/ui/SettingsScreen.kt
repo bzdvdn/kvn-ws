@@ -78,6 +78,12 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
     var obfuscationUtls by remember(activeCfg) { mutableStateOf(activeCfg?.obfuscationUtls ?: false) }
     var obfuscationPaddingEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.obfuscationPaddingEnabled ?: false) }
     var obfuscationPaddingSize by remember(activeCfg) { mutableStateOf((activeCfg?.obfuscationPaddingSize ?: 0).toString()) }
+    // @sk-task stealth-surface-hardening#T5.1: stealth surface settings (AC-011..AC-014)
+    var obfuscationPaddingMode by remember(activeCfg) { mutableStateOf(activeCfg?.obfuscationPaddingMode ?: "fixed") }
+    var obfuscationNoPadHeaders by remember(activeCfg) { mutableStateOf((activeCfg?.obfuscationNoPadHeaders ?: emptyList()).joinToString(",")) }
+    var multiplexSubprotocols by remember(activeCfg) { mutableStateOf((activeCfg?.multiplexSubprotocols ?: emptyList()).joinToString(",")) }
+    var headersProfile by remember(activeCfg) { mutableStateOf(activeCfg?.headersProfile ?: "legacy") }
+    var reconnectJitterPct by remember(activeCfg) { mutableStateOf((activeCfg?.reconnectJitterPct ?: 0).toString()) }
     var dnsCacheEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.dnsCacheEnabled ?: false) }
 
     // @sk-task doze-resilience#T3.2: keep-awake toggle for screen-off stability (AC-007)
@@ -123,6 +129,11 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
             obfuscationUtls = obfuscationUtls,
             obfuscationPaddingEnabled = obfuscationPaddingEnabled,
             obfuscationPaddingSize = obfuscationPaddingSize.toIntOrNull() ?: 0,
+            obfuscationPaddingMode = obfuscationPaddingMode.ifBlank { "fixed" },
+            obfuscationNoPadHeaders = obfuscationNoPadHeaders.split(",").map { it.trim() }.filter { it.isNotBlank() },
+            multiplexSubprotocols = multiplexSubprotocols.split(",").map { it.trim() }.filter { it.isNotBlank() },
+            headersProfile = headersProfile.ifBlank { "legacy" },
+            reconnectJitterPct = (reconnectJitterPct.toIntOrNull() ?: 0).coerceIn(0, 50),
             dnsCacheEnabled = dnsCacheEnabled,
             routingDomainsEnabled = routingDomainsEnabled,
             routingExcludeDomains = routingExcludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() },
@@ -564,6 +575,45 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                     )
                 }
             }
+        }
+
+        SettingsSection(title = "Stealth Surface") {
+            OutlinedTextField(
+                value = obfuscationPaddingMode,
+                onValueChange = { obfuscationPaddingMode = it },
+                label = { Text("Padding Mode (fixed/random)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = obfuscationNoPadHeaders,
+                onValueChange = { obfuscationNoPadHeaders = it },
+                label = { Text("No-Pad Headers (comma-separated)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = multiplexSubprotocols,
+                onValueChange = { multiplexSubprotocols = it },
+                label = { Text("Multiplex Subprotocols (comma-separated)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = headersProfile,
+                onValueChange = { headersProfile = it },
+                label = { Text("Headers Profile (legacy/browser)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = reconnectJitterPct,
+                onValueChange = { reconnectJitterPct = it },
+                label = { Text("Reconnect Jitter % (0-50)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         // Save Config button

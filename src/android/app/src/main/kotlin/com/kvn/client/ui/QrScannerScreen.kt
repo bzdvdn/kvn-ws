@@ -65,7 +65,12 @@ data class WebObfuscationCfg(
 data class WebUtlsCfg(val enabled: Boolean = false)
 
 @Serializable
-data class WebPaddingCfg(val enabled: Boolean = false, val size: Int = 0)
+data class WebPaddingCfg(
+    val enabled: Boolean = false,
+    val size: Int = 0,
+    val mode: String = "fixed",
+    val no_pad_headers: List<String>? = null
+)
 
 @Serializable
 data class WebAuthCfg(val token: String = "")
@@ -134,7 +139,11 @@ private data class WebConfig(
     val name: String? = null,
     val log: WebLogCfg? = null,
     // @sk-task android-dual-ws#T1.1: web JSON field for dual WS channel (AC-002)
-    val multi_channel: Boolean = false
+    val multi_channel: Boolean = false,
+    // @sk-task stealth-surface-hardening#T5.1: web JSON parity for aliases/headers/jitter (AC-011..AC-014)
+    val multiplex_subprotocols: List<String>? = null,
+    val headers_profile: String? = null,
+    val reconnect_jitter_pct: Int = 0
 )
 
 // @sk-task kvn-android#T5.2: QR code scanner screen with finder overlay (AC-007, RQ-011)
@@ -625,6 +634,11 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         obfuscationUtls = ob?.utls?.enabled ?: false,
         obfuscationPaddingEnabled = ob?.padding?.enabled ?: false,
         obfuscationPaddingSize = ob?.padding?.size ?: 0,
+        obfuscationPaddingMode = ob?.padding?.mode ?: "fixed",
+        obfuscationNoPadHeaders = ob?.padding?.no_pad_headers ?: emptyList(),
+        multiplexSubprotocols = web.multiplex_subprotocols ?: emptyList(),
+        headersProfile = web.headers_profile ?: "legacy",
+        reconnectJitterPct = web.reconnect_jitter_pct.coerceIn(0, 50),
         // @sk-task android-web-config-alignment#T1.1: map dns_routing (preferred) or dns_cache (backward compat) from QR JSON
         dnsCacheEnabled = routing?.dns_routing?.enabled ?: routing?.dns_cache?.enabled ?: false,
         // @sk-task android-web-config-alignment#T1.1: map dns_routing.ttl from QR JSON
@@ -684,8 +698,21 @@ fun configToWebJson(config: ConnectionConfig): String {
             put("padding", JSONObject().apply {
                 put("enabled", config.obfuscationPaddingEnabled)
                 put("size", config.obfuscationPaddingSize)
+                put("mode", config.obfuscationPaddingMode)
+                if (config.obfuscationNoPadHeaders.isNotEmpty()) {
+                    put("no_pad_headers", JSONArray(config.obfuscationNoPadHeaders))
+                }
             })
         })
+    }
+    if (config.multiplexSubprotocols.isNotEmpty()) {
+        root.put("multiplex_subprotocols", JSONArray(config.multiplexSubprotocols))
+    }
+    if (config.headersProfile != "legacy") {
+        root.put("headers_profile", config.headersProfile)
+    }
+    if (config.reconnectJitterPct != 0) {
+        root.put("reconnect_jitter_pct", config.reconnectJitterPct)
     }
 
     return root.toString()

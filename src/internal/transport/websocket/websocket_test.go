@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/binary"
 	"encoding/pem"
 	"math/big"
 	"net"
@@ -1347,6 +1348,343 @@ func TestPaddingActiveReflectsNegotiation(t *testing.T) {
 			}
 			if got := serverConn.PaddingActive(); got != tt.wantActive {
 				t.Errorf("server PaddingActive = %v, want %v", got, tt.wantActive)
+			}
+		})
+	}
+}
+
+// @sk-test stealth-surface-hardening#T3.1: random padding varies small frames and leaves large ones alone (AC-001)
+func TestWSPaddingRandomMode(t *testing.T) {
+	serverCh := make(chan *WSConn, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := Accept(w, r, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 1024, PaddingMode: "random"})
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			serverCh <- nil
+			return
+		}
+		serverCh <- conn
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	client, err := Dial(wsURL, nil, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 1024, PaddingMode: "random"})
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	serverConn := <-serverCh
+	if serverConn == nil {
+		t.Fatal("server conn is nil")
+	}
+	defer func() { _ = serverConn.Close() }()
+
+	payload := []byte("small-event")
+	sizes := make(map[int]struct{})
+	for i := 0; i < 20; i++ {
+		if err := client.WriteMessage(payload); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+		_, raw, err := serverConn.Underlying().ReadMessage()
+		if err != nil {
+			t.Fatalf("raw read %d: %v", i, err)
+		}
+		if len(raw) < 4 {
+			t.Fatalf("raw frame too short: %d", len(raw))
+		}
+		n := int(binary.BigEndian.Uint32(raw[:4]))
+		if n != len(payload) || !bytes.Equal(raw[4:4+n], payload) {
+			t.Fatalf("payload mismatch: n=%d", n)
+		}
+		if len(raw) > 1024 || len(raw) < 4+len(payload) {
+			t.Fatalf("small frame size = %d, want in [%d, 1024]", len(raw), 4+len(payload))
+		}
+		sizes[len(raw)] = struct{}{}
+	}
+	if len(sizes) < 2 {
+		t.Fatalf("random padding produced a single size: %v", sizes)
+	}
+
+	large := bytes.Repeat([]byte{0x42}, 1100)
+	if err := client.WriteMessage(large); err != nil {
+		t.Fatalf("large write: %v", err)
+	}
+	_, raw, err := serverConn.Underlying().ReadMessage()
+	if err != nil {
+		t.Fatalf("large raw read: %v", err)
+	}
+	if len(raw) != 4+len(large) {
+		t.Fatalf("large frame size = %d, want %d (no fixed padding)", len(raw), 4+len(large))
+	}
+}
+
+// @sk-test stealth-surface-hardening#T3.1: random and fixed padding read each other (AC-002)
+func TestWSPaddingMixedModes(t *testing.T) {
+	tests := []struct {
+		name       string
+		clientMode string
+		serverMode string
+	}{
+		{name: "random client fixed server", clientMode: "random", serverMode: "fixed"},
+		{name: "fixed client random server", clientMode: "fixed", serverMode: "random"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverCh := make(chan *WSConn, 1)
+			mux := http.NewServeMux()
+			mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+				conn, err := Accept(w, r, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 128, PaddingMode: tt.serverMode})
+				if err != nil {
+					t.Errorf("Accept: %v", err)
+					serverCh <- nil
+					return
+				}
+				serverCh <- conn
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+			wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+			client, err := Dial(wsURL, nil, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 128, PaddingMode: tt.clientMode})
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+			serverConn := <-serverCh
+			if serverConn == nil {
+				t.Fatal("server conn is nil")
+			}
+			defer func() { _ = serverConn.Close() }()
+
+			payload := []byte("mixed-mode-payload")
+			if err := client.WriteMessage(payload); err != nil {
+				t.Fatalf("client write: %v", err)
+			}
+			got, err := serverConn.ReadMessage()
+			if err != nil {
+				t.Fatalf("server read: %v", err)
+			}
+			if !bytes.Equal(got, payload) {
+				t.Fatalf("payload = %q, want %q", got, payload)
+			}
+			if err := serverConn.WriteMessage(payload); err != nil {
+				t.Fatalf("server write: %v", err)
+			}
+			got, err = client.ReadMessage()
+			if err != nil {
+				t.Fatalf("client read: %v", err)
+			}
+			if !bytes.Equal(got, payload) {
+				t.Fatalf("reverse payload = %q, want %q", got, payload)
+			}
+		})
+	}
+}
+
+// @sk-test stealth-surface-hardening#T3.4: no-pad aliases work in both directions (AC-009)
+func TestNoPadHeaderAliases(t *testing.T) {
+	tests := []struct {
+		name         string
+		clientHeader []string
+		serverHeader []string
+		wantUnpadded bool
+	}{
+		{name: "new alias both sides", clientHeader: []string{"X-Client-Flags"}, serverHeader: []string{"X-Client-Flags"}, wantUnpadded: true},
+		{name: "old client new server", clientHeader: []string{"X-KVN-NoPad"}, serverHeader: []string{"X-KVN-NoPad", "X-Client-Flags"}, wantUnpadded: true},
+		{name: "new client old server with old alias included", clientHeader: []string{"X-KVN-NoPad", "X-Client-Flags"}, serverHeader: []string{"X-KVN-NoPad"}, wantUnpadded: true},
+		{name: "no matching alias", clientHeader: []string{"X-Client-Flags"}, serverHeader: []string{"X-KVN-NoPad"}, wantUnpadded: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverCh := make(chan *WSConn, 1)
+			mux := http.NewServeMux()
+			mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+				conn, err := Accept(w, r, nopLogger, WSConfig{
+					PaddingEnabled: true, PaddingSize: 64, AllowNoPad: true, NoPadHeaders: tt.serverHeader,
+				})
+				if err != nil {
+					t.Errorf("Accept: %v", err)
+					serverCh <- nil
+					return
+				}
+				serverCh <- conn
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+			wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+			client, err := Dial(wsURL, nil, nopLogger, WSConfig{
+				PaddingEnabled: true, PaddingSize: 64, RequestNoPad: true, NoPadHeaders: tt.clientHeader,
+			})
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+			serverConn := <-serverCh
+			if serverConn == nil {
+				t.Fatal("server conn is nil")
+			}
+			defer func() { _ = serverConn.Close() }()
+
+			wantActive := !tt.wantUnpadded
+			if got := client.PaddingActive(); got != wantActive {
+				t.Errorf("client PaddingActive = %v, want %v", got, wantActive)
+			}
+			if got := serverConn.PaddingActive(); got != wantActive {
+				t.Errorf("server PaddingActive = %v, want %v", got, wantActive)
+			}
+
+			payload := []byte("alias-payload")
+			if err := client.WriteMessage(payload); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			got, err := serverConn.ReadMessage()
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if !bytes.Equal(got, payload) {
+				t.Fatalf("payload = %q, want %q", got, payload)
+			}
+		})
+	}
+}
+
+// @sk-test stealth-surface-hardening#T3.4: subprotocol aliases keep old clients working (AC-010)
+func TestMultiplexSubprotocolAliases(t *testing.T) {
+	tests := []struct {
+		name       string
+		clientSubs []string
+		wantSub    string
+	}{
+		{name: "new alias preferred", clientSubs: []string{"telemetry.v1", "kvn-ws-mux"}, wantSub: "telemetry.v1"},
+		{name: "old client alias", clientSubs: []string{"kvn-ws-mux"}, wantSub: "kvn-ws-mux"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverCh := make(chan *WSConn, 1)
+			mux := http.NewServeMux()
+			mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+				conn, err := Accept(w, r, nopLogger, WSConfig{
+					Multiplex: true, MultiplexSubprotocols: []string{"telemetry.v1", "kvn-ws-mux"},
+				})
+				if err != nil {
+					t.Errorf("Accept: %v", err)
+					serverCh <- nil
+					return
+				}
+				serverCh <- conn
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+			wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+			client, err := Dial(wsURL, nil, nopLogger, WSConfig{
+				Multiplex: true, MultiplexSubprotocols: tt.clientSubs,
+			})
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+			serverConn := <-serverCh
+			if serverConn == nil {
+				t.Fatal("server conn is nil")
+			}
+			defer func() { _ = serverConn.Close() }()
+			if got := client.Subprotocol(); got != tt.wantSub {
+				t.Errorf("client subprotocol = %q, want %q", got, tt.wantSub)
+			}
+			if got := serverConn.Subprotocol(); got != tt.wantSub {
+				t.Errorf("server subprotocol = %q, want %q", got, tt.wantSub)
+			}
+		})
+	}
+}
+
+// @sk-test stealth-surface-hardening#T3.2: jitter stays within bounds (AC-005)
+func TestJitterDurationBounds(t *testing.T) {
+	base := 30 * time.Second
+	pct := 20
+	delta := base / 5
+	for i := 0; i < 1000; i++ {
+		got := jitterDuration(base, pct)
+		if got < base-delta || got > base+delta {
+			t.Fatalf("jitter = %v, want [%v, %v]", got, base-delta, base+delta)
+		}
+	}
+	if got := jitterDuration(base, 0); got != base {
+		t.Fatalf("zero jitter = %v, want %v", got, base)
+	}
+}
+
+// @sk-test stealth-surface-hardening#T3.2: browser header profile is sent on upgrade (AC-006)
+func TestHeadersProfileBrowser(t *testing.T) {
+	headerCh := make(chan http.Header, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		headerCh <- r.Header.Clone()
+		conn, err := Accept(w, r, nopLogger)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	wsURL := "ws" + server.URL[len("http"):] + "/ws"
+
+	client, err := Dial(wsURL, nil, nopLogger, WSConfig{HeadersProfile: "browser"})
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	headers := <-headerCh
+	if ua := headers.Get("User-Agent"); !strings.Contains(ua, "Mozilla/5.0") {
+		t.Errorf("User-Agent = %q, want browser profile", ua)
+	}
+	if headers.Get("Accept-Language") == "" {
+		t.Error("Accept-Language is empty")
+	}
+}
+
+// @sk-test stealth-surface-hardening#T3.3: fixed vs random padding throughput benchmark (AC-008)
+func BenchmarkWSPaddingModes(b *testing.B) {
+	payload := bytes.Repeat([]byte{0x5a}, 256)
+	for _, mode := range []string{"fixed", "random"} {
+		b.Run(mode, func(b *testing.B) {
+			serverCh := make(chan *WSConn, 1)
+			mux := http.NewServeMux()
+			mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+				conn, err := Accept(w, r, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 512, PaddingMode: mode})
+				if err != nil {
+					serverCh <- nil
+					return
+				}
+				serverCh <- conn
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+			wsURL := "ws" + server.URL[len("http"):] + "/ws"
+			client, err := Dial(wsURL, nil, nopLogger, WSConfig{PaddingEnabled: true, PaddingSize: 512, PaddingMode: mode})
+			if err != nil {
+				b.Fatalf("Dial: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+			serverConn := <-serverCh
+			if serverConn == nil {
+				b.Fatal("server conn is nil")
+			}
+			defer func() { _ = serverConn.Close() }()
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := client.WriteMessage(payload); err != nil {
+					b.Fatalf("write: %v", err)
+				}
+				if _, err := serverConn.ReadMessage(); err != nil {
+					b.Fatalf("read: %v", err)
+				}
 			}
 		})
 	}

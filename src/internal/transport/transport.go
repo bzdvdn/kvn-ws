@@ -126,6 +126,13 @@ type FactoryConfig struct {
 	UTLSFallback   bool
 	PaddingEnabled bool
 	PaddingSize    int
+	// @sk-task stealth-surface-hardening#T1.1: fixed|random padding policy (AC-001)
+	PaddingMode string
+	// @sk-task stealth-surface-hardening#T1.3: configurable no-pad/subprotocol aliases (AC-009, AC-010)
+	NoPadHeaders          []string
+	MultiplexSubprotocols []string
+	HeadersProfile        string
+	KeepaliveJitterPct    int
 	// @sk-task game-latency#T3.2: request unpadded secondary framing (AC-001)
 	RequestNoPad bool
 

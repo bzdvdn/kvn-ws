@@ -1,6 +1,7 @@
 package com.kvn.client.config
 
 import com.kvn.client.ui.MainViewModel
+import com.kvn.client.ui.configToWebJson
 import com.kvn.client.ui.parseQrConfig
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -37,8 +38,13 @@ class ConfigSerializationTest {
             killSwitchEnabled = true,
             obfuscationEnabled = false,
             obfuscationUtls = false,
-            obfuscationPaddingEnabled = false,
-            obfuscationPaddingSize = 0,
+            obfuscationPaddingEnabled = true,
+            obfuscationPaddingSize = 512,
+            obfuscationPaddingMode = "random",
+            obfuscationNoPadHeaders = listOf("X-KVN-NoPad", "X-Client-Flags"),
+            multiplexSubprotocols = listOf("telemetry.v1", "kvn-ws-mux"),
+            headersProfile = "browser",
+            reconnectJitterPct = 20,
             dnsServers = listOf("1.1.1.1", "8.8.8.8"),
             appIncludeList = listOf("com.example.allowed"),
             appExcludeList = listOf("com.example.blocked")
@@ -67,6 +73,11 @@ class ConfigSerializationTest {
         assertEquals(config.cryptoEnabled, deserialized.cryptoEnabled)
         assertEquals(config.cryptoKey, deserialized.cryptoKey)
         assertEquals(config.killSwitchEnabled, deserialized.killSwitchEnabled)
+        assertEquals("random", deserialized.obfuscationPaddingMode)
+        assertEquals(listOf("X-KVN-NoPad", "X-Client-Flags"), deserialized.obfuscationNoPadHeaders)
+        assertEquals(listOf("telemetry.v1", "kvn-ws-mux"), deserialized.multiplexSubprotocols)
+        assertEquals("browser", deserialized.headersProfile)
+        assertEquals(20, deserialized.reconnectJitterPct)
         assertEquals(config.dnsServers, deserialized.dnsServers)
         assertEquals(config.appIncludeList, deserialized.appIncludeList)
         assertEquals(config.appExcludeList, deserialized.appExcludeList)
@@ -224,6 +235,34 @@ class QrConfigTest {
         assertEquals("", config.geoipUrl)
         assertFalse(config.dnsCacheEnabled)
         assertEquals(3600, config.dnsCacheTtl)
+    }
+
+    @Test
+    fun testStealthSurfaceWebRoundTrip() {
+        val jsonStr = """{
+            "server": "wss://example.com:443/kvn",
+            "obfuscation": {"enabled": true, "padding": {"enabled": true, "size": 512, "mode": "random", "no_pad_headers": ["X-Client-Flags"]}},
+            "multiplex": true,
+            "multiplex_subprotocols": ["telemetry.v1", "kvn-ws-mux"],
+            "headers_profile": "browser",
+            "reconnect_jitter_pct": 20
+        }"""
+        val cfg = parseQrConfig(jsonStr)
+        assertNotNull(cfg)
+        assertEquals("random", cfg!!.obfuscationPaddingMode)
+        assertEquals(listOf("X-Client-Flags"), cfg.obfuscationNoPadHeaders)
+        assertEquals(listOf("telemetry.v1", "kvn-ws-mux"), cfg.multiplexSubprotocols)
+        assertEquals("browser", cfg.headersProfile)
+        assertEquals(20, cfg.reconnectJitterPct)
+
+        val exported = configToWebJson(cfg)
+        val roundTrip = parseQrConfig(exported)
+        assertNotNull(roundTrip)
+        assertEquals("random", roundTrip!!.obfuscationPaddingMode)
+        assertEquals(listOf("X-Client-Flags"), roundTrip.obfuscationNoPadHeaders)
+        assertEquals(listOf("telemetry.v1", "kvn-ws-mux"), roundTrip.multiplexSubprotocols)
+        assertEquals("browser", roundTrip.headersProfile)
+        assertEquals(20, roundTrip.reconnectJitterPct)
     }
 }
 

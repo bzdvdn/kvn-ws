@@ -14,13 +14,18 @@ export interface ClientConfig {
   obfuscation?: {
     enabled?: boolean;
     utls?: { enabled?: boolean; fallback?: boolean };
-    padding?: { enabled?: boolean; size?: number };
+    padding?: { enabled?: boolean; size?: number; mode?: string; no_pad_headers?: string[] };
   };
   mode?: string;
   mtu?: number;
   ipv6?: boolean;
   auto_reconnect?: boolean;
   multiplex?: boolean;
+  // @sk-task stealth-surface-hardening#T4.1: configurable aliases and surface settings (AC-006, AC-009, AC-010)
+  multiplex_subprotocols?: string[];
+  headers_profile?: string;
+  keepalive_jitter_pct?: number;
+  reconnect_jitter_pct?: number;
   multi_channel?: boolean;
   // @sk-task quic-datagrams#T4.3: QUIC datagrams for real-time UDP (AC-001)
   udp_datagrams?: boolean;

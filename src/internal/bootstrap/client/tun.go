@@ -64,9 +64,10 @@ func (c *Client) reconnectLoop(ctx context.Context, tunDev tun.TunDevice) {
 
 		stream, err := dialStream(ctx, c.cfg, c.logger)
 		if err != nil {
-			c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", backoff))
+			retryIn := jitterDelay(backoff, c.cfg.ReconnectJitterPct)
+			c.logger.Warn("dial failed", zap.Error(err), zap.Duration("retry_in", retryIn))
 			applyKillSwitch(c.cfg, c.logger)
-			sleepWithContext(ctx, backoff)
+			sleepWithContext(ctx, retryIn)
 			backoff = nextBackoff(backoff, minBackoff, maxBackoff)
 			continue
 		}

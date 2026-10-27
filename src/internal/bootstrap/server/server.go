@@ -287,9 +287,13 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	tunnelHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isWebSocketRequest(r) {
+			s.handleDecoy(w, r)
+			return
+		}
 		// @sk-task whitelist-obfuscation#T2.2: WS path allowlist check (AC-003)
 		if !s.allowedWSPath(r.URL.Path) {
-			http.Error(w, "404 not found", http.StatusNotFound)
+			s.handleDecoy(w, r)
 			return
 		}
 		if !s.rl.Allow(r.RemoteAddr) {
@@ -303,12 +307,21 @@ func (s *Server) buildMux() *http.ServeMux {
 		paddingEnabled := s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Padding != nil && s.cfg.Obfuscation.Padding.Enabled
 		// @sk-task game-latency#T3.4: honor unpadded requests for real-time (secondary) framing (AC-001)
 		allowNoPad := paddingEnabled && s.cfg.Obfuscation.Padding.RealtimeUnpaddedEnabled()
+		paddingMode := "fixed"
+		noPadHeaders := []string{"X-KVN-NoPad"}
+		if s.cfg.Obfuscation != nil && s.cfg.Obfuscation.Padding != nil {
+			paddingMode = s.cfg.Obfuscation.Padding.ModeOrDefault()
+			noPadHeaders = s.cfg.Obfuscation.Padding.NoPadHeadersOrDefault()
+		}
 		wsCfg := websocket.WSConfig{
-			Multiplex:      s.cfg.Multiplex,
-			MTU:            s.cfg.MTU,
-			PaddingEnabled: paddingEnabled,
-			PaddingSize:    paddingSizeOrDefault(s.cfg.Obfuscation),
-			AllowNoPad:     allowNoPad,
+			Multiplex:             s.cfg.Multiplex,
+			MTU:                   s.cfg.MTU,
+			PaddingEnabled:        paddingEnabled,
+			PaddingSize:           paddingSizeOrDefault(s.cfg.Obfuscation),
+			PaddingMode:           paddingMode,
+			NoPadHeaders:          noPadHeaders,
+			MultiplexSubprotocols: s.cfg.MultiplexSubprotocols,
+			AllowNoPad:            allowNoPad,
 		}
 		s.handleTunnel(w, r, wsCfg)
 	})

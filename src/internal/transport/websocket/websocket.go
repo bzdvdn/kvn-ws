@@ -36,6 +36,13 @@ type WSConfig struct {
 	UTLSFallback   bool
 	PaddingEnabled bool
 	PaddingSize    int
+	// @sk-task stealth-surface-hardening#T1.1: fixed|random padding policy (AC-001)
+	PaddingMode string
+	// @sk-task stealth-surface-hardening#T1.3: configurable no-pad/subprotocol aliases (AC-009, AC-010)
+	NoPadHeaders          []string
+	MultiplexSubprotocols []string
+	HeadersProfile        string
+	KeepaliveJitterPct    int
 	// @sk-task game-latency#T3.2: unpadded-secondary negotiation via upgrade header (AC-001)
 	RequestNoPad bool // client: request the peer to disable padding
 	AllowNoPad   bool // server: honor an unpadded request
@@ -268,6 +275,14 @@ func (c *WSConn) writeMessageLocked(data []byte) error {
 			padSize = 512
 		}
 		padding := (padSize - totalLen%padSize) % padSize
+		// @sk-task stealth-surface-hardening#T1.2: randomize padding for small frames (AC-001)
+		if strings.EqualFold(c.cfg.PaddingMode, "random") {
+			if totalLen < padSize {
+				padding = rand.IntN(padSize - totalLen + 1)
+			} else {
+				padding = 0
+			}
+		}
 
 		msg := getMsgBuf(totalLen + padding)
 		binary.BigEndian.PutUint32(msg[:4], uint32(payloadLen))
@@ -335,21 +350,48 @@ func (c *WSConn) Subprotocol() string {
 // @sk-task fix-ping-drops#T1.1: retry ping on transient error, set write deadline to prevent wmu lockup
 // @sk-task performance-scope-p2#T3.2: ping via controlCh, not wmu (AC-009)
 func (c *WSConn) SetKeepalive(interval, timeout time.Duration) {
+	c.SetKeepaliveWithJitter(interval, timeout, 0)
+}
+
+// @sk-task stealth-surface-hardening#T2.2: bounded jitter for keepalive cadence (AC-005)
+func (c *WSConn) SetKeepaliveWithJitter(interval, timeout time.Duration, jitterPct int) {
 	c.conn.SetPongHandler(func(string) error {
 		return c.conn.SetReadDeadline(time.Now().Add(timeout))
 	})
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
 		for {
+			wait := jitterDuration(interval, jitterPct)
+			timer := time.NewTimer(wait)
 			select {
 			case <-c.stopCh:
+				timer.Stop()
 				return
-			case <-ticker.C:
+			case <-timer.C:
 				c.controlCh <- controlMsg{msgType: websocket.PingMessage}
 			}
 		}
 	}()
+}
+
+// @sk-task stealth-surface-hardening#T2.2: clamp jitter and avoid sub-second timers (AC-005)
+func jitterDuration(base time.Duration, pct int) time.Duration {
+	if base <= 0 {
+		return base
+	}
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 50 {
+		pct = 50
+	}
+	if pct == 0 {
+		return base
+	}
+	delta := time.Duration(int64(base) * int64(pct) / 100)
+	if delta <= 0 {
+		return base
+	}
+	return base - delta + time.Duration(rand.Int64N(int64(2*delta)+1))
 }
 
 // @sk-task production-hardening#T4.1: set ping handler with write mutex (AC-002)
@@ -382,8 +424,12 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 	d := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
+	subprotocols := wsCfg.MultiplexSubprotocols
+	if len(subprotocols) == 0 {
+		subprotocols = []string{MultiplexSubprotocol}
+	}
 	if wsCfg.Multiplex {
-		d.Subprotocols = []string{MultiplexSubprotocol}
+		d.Subprotocols = subprotocols
 	}
 	if wsCfg.UTLS {
 		d.NetDialTLSContext = closeOnContextCancel(ctx, func(dialCtx context.Context, network, addr string) (net.Conn, error) {
@@ -408,9 +454,27 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 	})
 	// @sk-task game-latency#T3.2: request unpadded framing; only honored if the
 	// server confirms with the same upgrade header (AC-001).
-	var reqHeader http.Header
+	// @sk-task stealth-surface-hardening#T1.3: send every configured alias (AC-009)
+	noPadHeaders := wsCfg.NoPadHeaders
+	if len(noPadHeaders) == 0 {
+		noPadHeaders = []string{NoPadHeader}
+	}
+	reqHeader := http.Header{}
 	if wsCfg.RequestNoPad {
-		reqHeader = http.Header{NoPadHeader: []string{"1"}}
+		for _, h := range noPadHeaders {
+			reqHeader.Set(h, "1")
+		}
+	}
+	// @sk-task stealth-surface-hardening#T2.3: optional realistic header profile (AC-006)
+	if strings.EqualFold(wsCfg.HeadersProfile, "browser") {
+		reqHeader.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
+		reqHeader.Set("Accept", "*/*")
+		reqHeader.Set("Accept-Language", "en-US,en;q=0.9")
+		reqHeader.Set("Cache-Control", "no-cache")
+		reqHeader.Set("Pragma", "no-cache")
+	}
+	if len(reqHeader) == 0 {
+		reqHeader = nil
 	}
 	conn, resp, err := d.DialContext(ctx, serverURL, reqHeader)
 	if err != nil {
@@ -425,10 +489,15 @@ func DialContext(ctx context.Context, serverURL string, tlsConfig *tls.Config, l
 		controlCh: make(chan controlMsg, 8),
 	}
 	wc.paddingEnabled.Store(wsCfg.PaddingEnabled)
-	if wsCfg.RequestNoPad && resp != nil && strings.EqualFold(resp.Header.Get(NoPadHeader), "1") {
-		wc.SetPadding(false)
-		// @sk-task game-latency: visibility for the unpadded-secondary negotiation (client side)
-		logger.Info("no-pad framing negotiated", zap.String("side", "client"), zap.String("url", serverURL))
+	if wsCfg.RequestNoPad && resp != nil {
+		for _, h := range noPadHeaders {
+			if strings.EqualFold(resp.Header.Get(h), "1") {
+				wc.SetPadding(false)
+				// @sk-task game-latency: visibility for the unpadded-secondary negotiation (client side)
+				logger.Info("no-pad framing negotiated", zap.String("side", "client"), zap.String("url", serverURL), zap.String("header", h))
+				break
+			}
+		}
 	}
 	wc.startControlWriter()
 	return wc, nil
@@ -529,14 +598,31 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 	upgrader := websocket.Upgrader{
 		CheckOrigin: checkOrigin,
 	}
+	subprotocols := cfg.MultiplexSubprotocols
+	if len(subprotocols) == 0 {
+		subprotocols = []string{MultiplexSubprotocol}
+	}
 	if cfg.Multiplex {
-		upgrader.Subprotocols = []string{MultiplexSubprotocol}
+		upgrader.Subprotocols = subprotocols
 	}
 	// @sk-task game-latency#T3.2: confirm unpadded framing when requested and allowed (AC-001)
-	allowNoPad := cfg.AllowNoPad && strings.EqualFold(r.Header.Get(NoPadHeader), "1")
+	// @sk-task stealth-surface-hardening#T1.3: accept any configured alias and echo it (AC-009)
+	noPadHeaders := cfg.NoPadHeaders
+	if len(noPadHeaders) == 0 {
+		noPadHeaders = []string{NoPadHeader}
+	}
+	matchedNoPadHeader := ""
+	if cfg.AllowNoPad {
+		for _, h := range noPadHeaders {
+			if strings.EqualFold(r.Header.Get(h), "1") {
+				matchedNoPadHeader = h
+				break
+			}
+		}
+	}
 	var respHeader http.Header
-	if allowNoPad {
-		respHeader = http.Header{NoPadHeader: []string{"1"}}
+	if matchedNoPadHeader != "" {
+		respHeader = http.Header{http.CanonicalHeaderKey(matchedNoPadHeader): []string{"1"}}
 	}
 	conn, err := upgrader.Upgrade(w, r, respHeader)
 	if err != nil {
@@ -556,10 +642,10 @@ func Accept(w http.ResponseWriter, r *http.Request, logger *zap.Logger, originCh
 		controlCh: make(chan controlMsg, 8),
 	}
 	wsConn.paddingEnabled.Store(cfg.PaddingEnabled)
-	if allowNoPad {
+	if matchedNoPadHeader != "" {
 		wsConn.SetPadding(false)
 		// @sk-task game-latency: visibility for the unpadded-secondary negotiation (server side)
-		logger.Info("no-pad framing negotiated", zap.String("side", "server"), zap.String("remote", r.RemoteAddr))
+		logger.Info("no-pad framing negotiated", zap.String("side", "server"), zap.String("remote", r.RemoteAddr), zap.String("header", matchedNoPadHeader))
 	}
 	wsConn.startControlWriter()
 	wsConn.SetPingHandler(func(appData string) error {

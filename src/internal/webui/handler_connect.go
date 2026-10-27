@@ -211,6 +211,19 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	if server.Obfuscation != nil {
 		merged.Obfuscation = server.Obfuscation
 	}
+	// @sk-task stealth-surface-hardening#T4.1: per-server surface settings override global (AC-009, AC-010)
+	if len(server.MultiplexSubprotocols) > 0 {
+		merged.MultiplexSubprotocols = server.MultiplexSubprotocols
+	}
+	if server.HeadersProfile != "" {
+		merged.HeadersProfile = server.HeadersProfile
+	}
+	if server.KeepaliveJitterPct != 0 {
+		merged.KeepaliveJitterPct = server.KeepaliveJitterPct
+	}
+	if server.ReconnectJitterPct != 0 {
+		merged.ReconnectJitterPct = server.ReconnectJitterPct
+	}
 	if server.TLS.CAFile != "" || server.TLS.ServerName != "" || server.TLS.VerifyMode != "" || len(server.TLS.SNI) > 0 {
 		merged.TLS = server.TLS
 	}
