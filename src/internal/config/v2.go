@@ -29,6 +29,8 @@ type V2ClientConfig struct {
 	Servers       []V2ServerEntry `json:"servers" mapstructure:"servers"`
 	MTU           int             `json:"mtu" mapstructure:"mtu"`
 	Mode          string          `json:"mode" mapstructure:"mode"`
+	TUNAddress    string          `json:"tun_address,omitempty" mapstructure:"tun_address"`
+	TUNGateway    string          `json:"tun_gateway,omitempty" mapstructure:"tun_gateway"`
 	IPv6          bool            `json:"ipv6" mapstructure:"ipv6"`
 	AutoReconnect *bool           `json:"auto_reconnect,omitempty" mapstructure:"auto_reconnect"`
 	ProxyListen   string          `json:"proxy_listen,omitempty" mapstructure:"proxy_listen"`
@@ -84,7 +86,7 @@ func (c *V2ServerConfig) Validate() error {
 
 // @sk-task kvn-v2-transport#T1.1: v2 client defaults and validation (AC-005, AC-007)
 func DefaultV2ClientConfig() V2ClientConfig {
-	return V2ClientConfig{MTU: 1400, Mode: "proxy"}
+	return V2ClientConfig{MTU: 1400, Mode: "tun"}
 }
 
 func (c *V2ClientConfig) ApplyDefaults() {
@@ -94,6 +96,12 @@ func (c *V2ClientConfig) ApplyDefaults() {
 	}
 	if c.Mode == "" {
 		c.Mode = d.Mode
+	}
+	if c.TUNAddress == "" {
+		c.TUNAddress = "10.66.0.2/24"
+	}
+	if c.TUNGateway == "" {
+		c.TUNGateway = "10.66.0.1"
 	}
 	if c.ActiveServer == "" && len(c.Servers) > 0 {
 		c.ActiveServer = c.Servers[0].Name

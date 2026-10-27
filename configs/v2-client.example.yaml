@@ -1,6 +1,8 @@
 # KVN v2 client example. v2 is not compatible with v1 servers.
 active_server: de
-mode: proxy
+mode: tun
+tun_address: 10.66.0.2/24
+tun_gateway: 10.66.0.1
 proxy_listen: 127.0.0.1:2310
 mtu: 1400
 tls:

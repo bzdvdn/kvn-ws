@@ -42,9 +42,12 @@
 
 - [x] T2.0 Сделать v2 proxy-first клиент для раннего теста — outcome: SOCKS5/HTTP CONNECT через HTTP/2 stream до target, без TUN. Touches: src/internal/v2/client/, src/cmd/v2client/, configs/v2-client.example.yaml
       Proof: test src/internal/v2/client/client_test.go TestProxyClientEndToEnd
-- [ ] T2.1 Подключить userspace TCP stack — outcome: TCP flow из TUN терминируется локально через gVisor/netstack. Touches: src/internal/v2/tcpstack/
-- [ ] T2.2 Реализовать flow↔stream mapping — outcome: каждый TCP flow получает отдельный HTTP/2 stream, backpressure и лимит. Touches: src/internal/v2/protocol/, src/internal/v2/transport/, src/internal/v2/server/, src/internal/v2/client/
-- [ ] T2.3 Подключить v2 client/TUN — outcome: TUN направляет TCP в tcpstack, UDP — в best-effort путь. Touches: src/internal/v2/client/, src/internal/v2/tcpstack/, src/cmd/v2client/
+- [x] T2.1 Подключить userspace TCP stack — outcome: TCP flow из TUN терминируется локально через gVisor/netstack. Touches: src/internal/v2/tcpstack/
+      Proof: code src/internal/v2/tcpstack/stack.go New
+- [x] T2.2 Реализовать flow↔stream mapping — outcome: каждый TCP flow получает отдельный HTTP/2 stream, backpressure и лимит. Touches: src/internal/v2/protocol/, src/internal/v2/transport/, src/internal/v2/server/, src/internal/v2/client/
+      Proof: code src/internal/v2/tcpstack/stack.go bridge
+- [x] T2.3 Подключить v2 client/TUN — outcome: TUN направляет TCP в tcpstack; UDP пока дропается с явным ограничением (best-effort/H3 — T4.1). Touches: src/internal/v2/client/, src/internal/v2/tcpstack/, src/cmd/v2client/
+      Proof: code src/internal/v2/client/client.go runTUN
 
 ## Фаза 3: UI
 

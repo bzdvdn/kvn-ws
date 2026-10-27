@@ -4,20 +4,24 @@
 package client
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
+	"github.com/bzdvdn/kvn-ws/src/internal/tun"
+	"github.com/bzdvdn/kvn-ws/src/internal/v2/tcpstack"
 	"github.com/bzdvdn/kvn-ws/src/internal/v2/transport"
 )
 
@@ -44,18 +48,26 @@ func (c *Client) ActiveServer() (config.V2ServerEntry, error) {
 	return config.V2ServerEntry{}, fmt.Errorf("active server %q not found", c.cfg.ActiveServer)
 }
 
-// Run starts the local proxy and tunnels TCP via v2 streams until ctx ends.
+// Run starts the selected v2 mode until ctx ends.
 func (c *Client) Run(ctx context.Context) error {
-	if strings.ToLower(c.cfg.Mode) != "" && strings.ToLower(c.cfg.Mode) != "proxy" {
-		return errors.New("v2 TUN mode is not implemented yet; use mode: proxy")
+	switch strings.ToLower(c.cfg.Mode) {
+	case "", "proxy":
+		return c.runProxy(ctx)
+	case "tun":
+		return c.runTUN(ctx)
+	default:
+		return fmt.Errorf("unsupported v2 mode %q", c.cfg.Mode)
 	}
+}
+
+func (c *Client) connection() (config.V2ServerEntry, string, *tls.Config, error) {
 	server, err := c.ActiveServer()
 	if err != nil {
-		return err
+		return config.V2ServerEntry{}, "", nil, err
 	}
 	endpoint, err := normalizeEndpoint(server.Endpoint)
 	if err != nil {
-		return err
+		return config.V2ServerEntry{}, "", nil, err
 	}
 	tlsCfg, err := tlspkg.NewClientTLSConfigFromSettings(tlspkg.ClientTLSSettings{
 		CAFile:     c.cfg.TLS.CAFile,
@@ -63,10 +75,18 @@ func (c *Client) Run(ctx context.Context) error {
 		VerifyMode: c.cfg.TLS.VerifyMode,
 	})
 	if err != nil {
-		return err
+		return config.V2ServerEntry{}, "", nil, err
 	}
 	tlsCfg.NextProtos = []string{"h2"}
+	return server, endpoint, tlsCfg, nil
+}
 
+// @sk-task kvn-v2-transport#T2.0: proxy mode for non-TUN environments (AC-001)
+func (c *Client) runProxy(ctx context.Context) error {
+	server, endpoint, tlsCfg, err := c.connection()
+	if err != nil {
+		return err
+	}
 	var proxyAuth *proxy.ProxyAuth
 	if c.cfg.ProxyAuth != nil {
 		proxyAuth = &proxy.ProxyAuth{Username: c.cfg.ProxyAuth.Username, Password: c.cfg.ProxyAuth.Password}
@@ -91,6 +111,134 @@ func (c *Client) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// @sk-task kvn-v2-transport#T2.3: TUN mode with gVisor TCP split and v2 streams (AC-001)
+func (c *Client) runTUN(ctx context.Context) error {
+	server, endpoint, tlsCfg, err := c.connection()
+	if err != nil {
+		return err
+	}
+	dev := tun.NewTunDevice()
+	if err := dev.Open(); err != nil {
+		return fmt.Errorf("open v2 tun: %w", err)
+	}
+	defer func() { _ = dev.Close() }()
+
+	ip, subnet, err := net.ParseCIDR(c.cfg.TUNAddress)
+	if err != nil {
+		return fmt.Errorf("tun_address: %w", err)
+	}
+	if err := dev.SetIP(ip, subnet); err != nil {
+		return fmt.Errorf("set tun ip: %w", err)
+	}
+	if err := dev.SetMTU(c.cfg.MTU); err != nil {
+		return fmt.Errorf("set tun mtu: %w", err)
+	}
+	phyGW, phyIface, err := tun.SaveDefaultRoute()
+	if err != nil {
+		return fmt.Errorf("save physical route: %w", err)
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return err
+	}
+	serverIPs, _ := net.LookupIP(u.Hostname())
+	for _, sip := range serverIPs {
+		if v4 := sip.To4(); v4 != nil {
+			_ = dev.AddExcludeRoute(v4.String()+"/32", phyGW, phyIface)
+		}
+	}
+	dnsProxyListen := c.cfg.DNSProxy.Listen
+	if dnsProxyListen == "" {
+		dnsProxyListen = "127.0.0.153:53"
+	}
+	upstreams := c.cfg.DNSProxy.Upstreams
+	if len(upstreams) == 0 {
+		upstreams = []string{"1.1.1.1:53", "8.8.8.8:53"}
+	}
+	for _, upstream := range upstreams {
+		host, _, splitErr := net.SplitHostPort(upstream)
+		if splitErr != nil {
+			continue
+		}
+		if ns := net.ParseIP(host).To4(); ns != nil {
+			_ = dev.AddExcludeRoute(ns.String()+"/32", phyGW, phyIface)
+		}
+	}
+	gateway := net.ParseIP(c.cfg.TUNGateway)
+	if gateway == nil {
+		return fmt.Errorf("invalid tun_gateway %q", c.cfg.TUNGateway)
+	}
+	if err := dev.SetGateway(gateway); err != nil {
+		return fmt.Errorf("set tun gateway: %w", err)
+	}
+	defer func() { _ = dev.RemoveGateway(gateway) }()
+	defer dev.CleanupExcludeRoutes()
+
+	dnsCtx, dnsCancel := context.WithCancel(ctx)
+	defer dnsCancel()
+	dnsSrv := dnsproxy.New(dnsProxyListen, upstreams...)
+	dnsSrv.SetOrigResolvers(resolvServers())
+	go func() { _ = dnsSrv.Run(dnsCtx) }()
+	defer func() { _ = dnsSrv.Shutdown() }()
+	if backup, berr := dnsproxy.BackupResolvConf(); berr == nil && backup != nil {
+		if oerr := dnsproxy.OverrideResolvConf(dnsProxyListen); oerr != nil {
+			c.logger.Warn("v2 dns override failed", zap.Error(oerr))
+		} else {
+			defer func() { _ = backup.Restore() }()
+		}
+	}
+
+	stack, err := tcpstack.New(ip, c.cfg.MTU, func(_ context.Context, target string) (io.ReadWriteCloser, error) {
+		return transport.Dial(ctx, endpoint, server.Token, target, tlsCfg)
+	}, c.logger)
+	if err != nil {
+		return fmt.Errorf("v2 tcp stack: %w", err)
+	}
+	c.logger.Info("v2 TUN started",
+		zap.String("server", server.Name),
+		zap.String("tun_ip", c.cfg.TUNAddress),
+		zap.String("dns_proxy", dnsProxyListen),
+	)
+	go func() {
+		<-ctx.Done()
+		_ = dev.Close()
+	}()
+	go stack.Run(ctx, func(p []byte) error { _, werr := dev.Write(p); return werr })
+
+	buf := make([]byte, 65535)
+	for {
+		n, rerr := dev.Read(buf)
+		if rerr != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return rerr
+		}
+		packet := make([]byte, n)
+		copy(packet, buf[:n])
+		stack.Inject(packet)
+	}
+}
+
+func resolvServers() []string {
+	f, err := os.Open("/etc/resolv.conf")
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	var out []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) == 2 && fields[0] == "nameserver" {
+			if ip := net.ParseIP(fields[1]); ip != nil {
+				out = append(out, net.JoinHostPort(ip.String(), "53"))
+			}
+		}
+	}
+	return out
 }
 
 func (c *Client) handleConn(ctx context.Context, client net.Conn, dst, endpoint, token string, tlsCfg *tls.Config) {
