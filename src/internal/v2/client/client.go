@@ -10,16 +10,20 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/dns"
 	"github.com/bzdvdn/kvn-ws/src/internal/dnsproxy"
 	"github.com/bzdvdn/kvn-ws/src/internal/proxy"
+	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 	"github.com/bzdvdn/kvn-ws/src/internal/v2/tcpstack"
@@ -101,12 +105,16 @@ func (c *Client) runProxy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	httpClient, err := transport.NewClient(endpoint, server.Token, tlsCfg)
+	if err != nil {
+		return err
+	}
 	var proxyAuth *proxy.ProxyAuth
 	if c.cfg.ProxyAuth != nil {
 		proxyAuth = &proxy.ProxyAuth{Username: c.cfg.ProxyAuth.Username, Password: c.cfg.ProxyAuth.Password}
 	}
 	listener := proxy.NewListener(c.cfg.ProxyListen, proxyAuth, func(conn net.Conn, dst string) {
-		c.handleConn(ctx, conn, dst, endpoint, server.Token, tlsCfg)
+		c.handleConn(ctx, conn, dst, httpClient)
 	})
 	if err := listener.Start(); err != nil {
 		return err
@@ -130,6 +138,10 @@ func (c *Client) runProxy(ctx context.Context) error {
 // @sk-task kvn-v2-transport#T2.3: TUN mode with gVisor TCP split and v2 streams (AC-001)
 func (c *Client) runTUN(ctx context.Context) error {
 	server, endpoint, tlsCfg, err := c.connection()
+	if err != nil {
+		return err
+	}
+	httpClient, err := transport.NewClient(endpoint, server.Token, tlsCfg)
 	if err != nil {
 		return err
 	}
@@ -173,6 +185,17 @@ func (c *Client) runTUN(ctx context.Context) error {
 			_ = dev.AddExcludeRoute(v4.String()+"/32", phyGW, phyIface)
 		}
 	}
+	// Apply CIDR/IP excludes directly at the OS route level for split tunnel.
+	if c.cfg.Routing != nil {
+		for _, cidr := range c.cfg.Routing.ExcludeRanges {
+			_ = dev.AddExcludeRoute(cidr, phyGW, phyIface)
+		}
+		for _, rawIP := range c.cfg.Routing.ExcludeIPs {
+			if ip := net.ParseIP(rawIP).To4(); ip != nil {
+				_ = dev.AddExcludeRoute(ip.String()+"/32", phyGW, phyIface)
+			}
+		}
+	}
 	dnsProxyListen := c.cfg.DNSProxy.Listen
 	if dnsProxyListen == "" {
 		dnsProxyListen = "127.0.0.153:53"
@@ -204,6 +227,30 @@ func (c *Client) runTUN(ctx context.Context) error {
 	defer dnsCancel()
 	dnsSrv := dnsproxy.New(dnsProxyListen, upstreams...)
 	dnsSrv.SetOrigResolvers(resolvServers())
+	var routeSet *routing.RuleSet
+	if c.cfg.Routing != nil {
+		routeSet, _ = routing.NewRuleSet(c.cfg.Routing, c.logger)
+	}
+	if routeSet != nil {
+		ttl := 60
+		if c.cfg.Routing.DNSRouting != nil && c.cfg.Routing.DNSRouting.TTL > 0 {
+			ttl = c.cfg.Routing.DNSRouting.TTL
+		}
+		tracker := dns.NewTracker(time.Duration(ttl) * time.Second)
+		routeSet.SetTracker(tracker)
+		dnsSrv.SetTracker(tracker)
+		dnsSrv.SetRouteFunc(func(domain string) bool {
+			return routeSet.MatchDomain(domain) == routing.RouteDirect
+		})
+		dnsSrv.SetDirectRouteFunc(func(ips []netip.Addr) {
+			for _, a := range ips {
+				if a.IsPrivate() || a.IsLoopback() {
+					continue
+				}
+				_ = dev.AddExcludeRoute(a.String()+"/32", phyGW, phyIface)
+			}
+		})
+	}
 	go func() { _ = dnsSrv.Run(dnsCtx) }()
 	defer func() { _ = dnsSrv.Shutdown() }()
 	if backup, berr := dnsproxy.BackupResolvConf(); berr == nil && backup != nil {
@@ -215,11 +262,14 @@ func (c *Client) runTUN(ctx context.Context) error {
 	}
 
 	stack, err := tcpstack.New(ip, c.cfg.MTU, func(_ context.Context, target string) (io.ReadWriteCloser, error) {
-		return transport.Dial(ctx, endpoint, server.Token, target, tlsCfg)
+		return httpClient.DialTCP(ctx, target)
 	}, c.logger)
 	if err != nil {
 		return fmt.Errorf("v2 tcp stack: %w", err)
 	}
+	udpMgr := newUDPManager(ctx, dev, func(dctx context.Context, target string) (*transport.DatagramStream, error) {
+		return httpClient.DialUDP(dctx, target)
+	}, c.logger)
 	c.logger.Info("v2 TUN started",
 		zap.String("server", server.Name),
 		zap.String("tun_ip", c.cfg.TUNAddress),
@@ -242,8 +292,17 @@ func (c *Client) runTUN(ctx context.Context) error {
 		}
 		packet := make([]byte, n)
 		copy(packet, buf[:n])
+		if isUDPv4(packet) {
+			udpMgr.Handle(packet)
+			continue
+		}
 		stack.Inject(packet)
 	}
+}
+
+// @sk-task kvn-v2-transport#T4.1: route IPv4 UDP packets to the best-effort manager (AC-008)
+func isUDPv4(packet []byte) bool {
+	return len(packet) >= 20 && packet[0]>>4 == 4 && packet[9] == 17
 }
 
 func resolvServers() []string {
@@ -265,9 +324,9 @@ func resolvServers() []string {
 	return out
 }
 
-func (c *Client) handleConn(ctx context.Context, client net.Conn, dst, endpoint, token string, tlsCfg *tls.Config) {
+func (c *Client) handleConn(ctx context.Context, client net.Conn, dst string, httpClient *transport.Client) {
 	defer func() { _ = client.Close() }()
-	stream, err := transport.Dial(ctx, endpoint, token, dst, tlsCfg)
+	stream, err := httpClient.DialTCP(ctx, dst)
 	if err != nil {
 		c.logger.Warn("v2 stream dial failed", zap.String("dst", dst), zap.Error(err))
 		return

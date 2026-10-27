@@ -88,3 +88,53 @@ func TestFallbackWithoutBearer(t *testing.T) {
 		t.Fatal("expected status error for fallback")
 	}
 }
+
+// @sk-test kvn-v2-transport#T5.1: best-effort UDP flow roundtrip over HTTP/2 (AC-008)
+func TestUDPStreamRoundTrip(t *testing.T) {
+	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer udpConn.Close()
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, addr, rerr := udpConn.ReadFromUDP(buf)
+			if rerr != nil {
+				return
+			}
+			_, _ = udpConn.WriteToUDP(buf[:n], addr)
+		}
+	}()
+
+	srv := NewServer(func(token string) (string, bool) { return "t", token == "secret" },
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }), 64, zap.NewNop())
+	ts := httptest.NewUnstartedServer(srv)
+	ts.EnableHTTP2 = true
+	ts.StartTLS()
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := DialUDP(ctx, ts.URL+UDPPath, "secret", udpConn.LocalAddr().String(),
+		&tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2"}})
+	if err != nil {
+		t.Fatalf("DialUDP: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+	payload := []byte("udp-v2")
+	if err := stream.WritePacket(payload); err != nil {
+		t.Fatalf("write packet: %v", err)
+	}
+	got, err := stream.ReadPacket()
+	if err != nil {
+		t.Fatalf("read packet: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("udp echo = %q, want %q", got, payload)
+	}
+}

@@ -10,6 +10,7 @@
 | src/internal/v2/server/ | T1.3, T2.2 |
 | src/internal/v2/tcpstack/ | T2.1, T2.3 |
 | src/internal/v2/client/ | T2.0, T2.2, T2.3, T4.1 |
+| src/internal/v2/transport/ | T4.1, T4.3 |
 | src/cmd/v2server/ | T1.3 |
 | src/cmd/v2client/ | T2.3 |
 | src/internal/webui/frontend/src/ | T3.1, T3.2 |
@@ -61,8 +62,10 @@
 
 ## Фаза 4: UDP и проверки
 
-- [ ] T4.1 Добавить UDP best-effort + H3 флаг — outcome: UDP идёт best-effort, при H3 — datagrams; путь виден в логах. Touches: src/internal/v2/client/, src/internal/v2/transport/, src/internal/v2/server/
+- [x] T4.1 Добавить UDP best-effort — outcome: каждый UDP-flow идёт отдельным HTTP/2 datagram-stream; переполнение дропает, не блокирует. Touches: src/internal/v2/client/, src/internal/v2/transport/, src/internal/v2/server/
+      Proof: test src/internal/v2/transport/transport_test.go TestUDPStreamRoundTrip
 - [ ] T4.2 Добавить benchmark/DPI-скрипты — outcome: v1 vs v2 throughput/p95/allocs и серия ClientHello/JA3/JA4. Touches: scripts/bench-v2.sh, scripts/dpi-check.sh
+- [ ] T4.3 Добавить H3 datagrams — outcome: при доступном UDP/HTTP3 UDP идёт unreliable datagrams, иначе best-effort stream. Touches: src/internal/v2/transport/
 
 ## Фаза 5: Валидация и docs
 
@@ -80,7 +83,7 @@
 - AC-005 -> T3.1, T3.2, T3.3
 - AC-006 -> T4.2, T5.4
 - AC-007 -> T1.1, T5.2
-- AC-008 -> T4.1, T5.1
+- AC-008 -> T4.1, T4.3, T5.1
 - AC-009 -> T2.2, T5.1
 
 ## Заметки
