@@ -12,7 +12,7 @@
 - [ ] Release candidate `v2.0.0-rc.1`: stable Android signing key, multi-server smoke, tester APK.
 - [ ] Final `v2.0.0`: после отчёта тестеров и решения по DPI-полю.
 
-## 2.1 — DPI hardening
+## 2.1 — Network hardening
 
 ### ECH (Encrypted Client Hello) — P0
 
@@ -26,7 +26,25 @@
 
 Ограничение: ECH не скрывает IP/порт и может сам блокироваться DPI.
 
-### Cover traffic — P1
+### Entry relay / two-hop — P1
+
+Entry-сервер в сети, где DPI не блокирует, forwarding на exit-сервер за рубежом.
+
+- **L4 passthrough — первый шаг:** TCP 443 + UDP 443 на entry → exit; TLS остаётся end-to-end.
+  - `socat`/HAProxy/nginx stream или nftables DNAT.
+  - Клиент ходит на entry, exit-сервер не светится напрямую.
+  - DPI всё равно видит entry IP и настоящий SNI exit-домена; ECH нужен отдельно.
+  - QUIC требует UDP-проброс, иначе fallback на HTTP/2.
+- **v2-native relay — второй шаг:** entry терминирует v2 TLS/H2, проверяет token и открывает upstream v2 к exit.
+  - Можно использовать entry-домен/сертификат и скрыть exit IP.
+  - Нужны stream mapping, auth на entry, лимиты и health/rollback.
+  - Добавляет RTT и второй hop; не делать default без тестов.
+- **Метрики:** entry/exit latency, bytes, errors, QUIC availability.
+- **Тесты:** TCP/UDP passthrough, QUIC, reconnect, auth, fallback, throughput.
+
+Ограничение: relay не скрывает SNI сам по себе и не заменяет ECH/CDN.
+
+### Cover traffic — P2
 
 Убрать длинные паузы и удешевить traffic analysis.
 
@@ -56,6 +74,5 @@
 ## Backlog
 
 - iOS-клиент.
-- Relay/terminator parity — только если появится запрос.
 - Автоматический выбор сервера по latency/health.
 - Cover traffic вне активного туннеля — не планируется.
