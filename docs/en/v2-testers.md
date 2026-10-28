@@ -7,7 +7,7 @@ This is a closed-group release candidate. v1 and v2 are not compatible; use only
 - Android 8.0+ (minSdk 26).
 - APK from the release candidate.
 - Server address and token from the administrator.
-- For a self-signed certificate, enable `Allow insecure TLS` in Settings.
+- The server uses a self-signed certificate by default; enable `Allow insecure TLS` in Settings. There is no shared default key: the installer generates a separate key per server.
 
 ## Android setup
 

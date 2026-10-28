@@ -7,7 +7,7 @@
 - Android 8.0+ (minSdk 26).
 - APK из release candidate.
 - Адрес сервера и token от администратора.
-- Для self-signed сертификата включите `Allow insecure TLS` в Settings.
+- Сервер по умолчанию использует self-signed сертификат; включите `Allow insecure TLS` в Settings. Общего «дефолтного» ключа нет: installer генерирует отдельный ключ на каждом сервере.
 
 ## Подключение Android
 
