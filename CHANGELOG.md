@@ -6,22 +6,6 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.0.0] - unreleased
-
-### Added
-
-- **v2-only 2.0.0** — `kvn-client`/`kvn-server`/`kvn-web`; v1 удалён из кода и сборки, доступен только в старых релизах.
-- **TUN pool/lease** — уникальный IPv4 на `client_id`, `lease_file`, TTL, восстановление после рестарта, `GET /` session endpoint.
-- **uTLS/stealth** — Chrome/Firefox/Safari профили, `/` + `:authority`, adaptive padding, fallback.
-- **Android v2** — `kvn-v2-client` (`com.kvn.v2client`), v2 VpnService + gomobile AAR, exclude-домены/direct TCP/UDP.
-- **ICMP echo proxy** — `ping` идёт через v2 HTTP/2 stream; сервер выполняет raw ICMP echo на target и возвращает reply.
-
-### Breaking
-
-- **v2 — единственный контур** — v1-код, entrypoint'ы, конфиги и UI удалены из текущего дерева; v1 остаётся только в старых GitHub Releases.
-- **`kvn-web` — v2-only** с изолированным `~/.config/kvn/config.yaml`; `kvn-web-v2` не поставляется.
-- **v2 surface**: browser-like TLS/uTLS profiles, path `/`, target в `:authority`, adaptive padding; старый `/api/v2/stream` + `X-KVN-Target` временно принимается сервером.
-
 ## [Unreleased]
 
 ### Added
@@ -48,6 +32,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **KVN v2: TCP-first stealth transport (experimental)** — отдельный v2-протокол (несовместим с v1): TLS 1.3 + HTTP/2, TCP split-connection через gVisor netstack, отдельный stream на TCP-flow, UDP best-effort streams, QUIC datagram side channel для UDP (одно общее QUIC-соединение, flow ID, fallback на HTTP/2), Bearer до stream и fallback-сайт. kvn-web запускает v2 client in-process, поддерживает protocol selector v1/v2, TUN и полный Advanced (routing/DNS/TLS/proxy). v1-серверы и клиенты не затронуты.
+
+## [2.0.0] - 2026-10-29
+
+### Added
+
+- **v2-only 2.0.0** — `kvn-client`, `kvn-server`, `kvn-web` и Android-клиент работают только по v2; v1 runtime удалён из текущего дерева и доступен только в старых релизах.
+- **TUN lease pool** — уникальный IPv4 на `client_id`, `lease_file`, TTL, восстановление после рестарта сервера, `GET /` session endpoint и продление lease на streams.
+- **uTLS/stealth** — Chrome/Firefox/Safari ClientHello-профили, browser-like HTTP/2 surface, `/` + target в `:authority`, adaptive padding и fallback-сайт для неизвестных/неавторизованных запросов.
+- **Android v2 client** — `kvn-v2-client` (`com.kvn.v2client`): Compose UI, Kotlin VpnService, gomobile Go core, multi-server, direct DNS/routing, include/exclude apps.
+- **Android Settings/QR** — QUIC UDP toggle, TLS/DNS/app/Diagnostics настройки, AppPicker с count, импорт DNS/routing с другого сервера, QR/JSON parity с `kvn-web`.
+- **ICMP echo proxy** — `ping` идёт через v2 HTTP/2 stream; сервер выполняет raw ICMP echo, ответ возвращается в TUN.
+- **Windows desktop** — `kvn-desktop` (WebView) ставится по умолчанию вместе с `kvn-web`; installer создаёт autostart task, удаляет legacy v1 (`kvn-client`, старые каталоги, tasks/services, PATH и ярлыки). Browser-режим остаётся через `-Browser`.
+- **Linux installers** — `install-server.sh` с TLS/TUN pool, проверкой sha256 архива, backup конфига и restart сервиса при обновлении; `install-client.sh` для systemd TUN/proxy.
+- **Web UI metrics/logs** — SSE `metric` (RX/TX, latency, uptime, reconnects), отдельный TrafficMeter и фильтрация логов по выбранному уровню.
+
+### Changed
+
+- **Единый конфиг** — `~/.config/kvn/config.yaml` для серверов и глобальных настроек; старый v1-файл сохраняется как `.v1.bak`, legacy `v2/config.yaml` импортируется один раз.
+- **Android server URL** — endpoint больше не дописывает `/kvn`; Android экспортирует web-совместимый `https://host:port`, TLS/routing/QUIC поля переносятся через QR.
+- **Android Settings** — тёмная тема Material 3, читаемые карточки, явное сохранение сервера, QUIC/UDP и insecure TLS управляются per-server.
+- **Windows installer** — при обновлении останавливает старые процессы, заменяет `kvn-web` task и запускает её заново; `--force` серверного installer делает backup конфига.
+- **CI/release** — фиксированный Android keystore через GitHub secrets, AAR upload, исправлена упаковка Windows release (убран отсутствующий `install-client.ps1`).
+
+### Fixed
+
+- **TUN lifecycle** — Kotlin владеет VpnService fd, Go не закрывает чужой дескриптор; EAGAIN retry, остановка без зависшего VPN, `onRevoke` и повторное подключение.
+- **v2 streams/backpressure** — stream handlers живут до завершения copy, UDP flow не падает на закрытом канале, GSO/GRO отключён для совместимости TUN.
+- **Fallback/auth** — невалидный/пустой token и неизвестный путь получают fallback-сайт, а не tunnel-ошибку; health/metrics не раскрываются в stealth-режиме.
+- **Windows upgrade** — self-signed TLS и старые exe больше не мешают переустановке; installer перезапускает `kvn-server`/`kvn-web` с новым конфигом.
+- **Android QR** — импорт/экспорт конфигов между Android и `kvn-web` без пустого serverPath; QUIC-флаг сохраняется в QR.
+- **DNS/direct routing** — exclude-домены резолвятся напрямую, direct TCP/UDP не уходит в туннель; Android получает реальные IP вместо fake-IP.
+
+### Removed
+
+- **v1 runtime** — старые WebSocket/relay entrypoints, v1 server/client bootstrap и v1 UI-переключатели отсутствуют в текущей сборке.
+- **Relay runtime** — v1 relay bridge/terminator удалён; v2 relay/two-hop остаётся отдельной будущей фичей.
+- **`kvn-web-v2`** — отдельного алиаса нет; `kvn-web` является единственным v2 web-бинарем.
+
+### Breaking
+
+- **v1 несовместим с v2** — старые серверы, клиенты и конфиги не работают с 2.0.0; для v1 используйте старый release.
+- **Android package** — новое приложение `com.kvn.v2client`; данные старого приложения не мигрируются автоматически, серверы нужно добавить через QR/JSON или вручную.
+- **Self-signed TLS** — тестовый server installer по умолчанию создаёт self-signed сертификат; для Android включайте `Allow insecure TLS`, для production используйте доверенный сертификат.
+- **QUIC** — Android QUIC UDP по умолчанию выключен; для звонков его нужно включить, иначе UDP идёт через HTTP/2/TCP fallback.
 
 ## [1.4.1] 2026-10-23
 
