@@ -40,7 +40,7 @@
 
 - `src/internal/routing` — `RuleSet.SetTracker` и `DomainMatcher` (через `Resolver`).
 - `src/internal/dnsproxy` — `SetTracker`/`TrackResponse` для domain-routing.
-- `src/internal/bootstrap/client` — создаёт `Tracker` и передаёт в DNS-прокси и `RuleSet`.
+- `src/internal/client` — создаёт `Tracker` и передаёт в DNS-прокси и `RuleSet`.
 
 ## Gotchas
 

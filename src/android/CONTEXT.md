@@ -1,24 +1,32 @@
 # src/android
 
 ## Purpose
+
 Android v2 client `kvn-v2-client` (`com.kvn.v2client`): Compose UI + Kotlin VpnService + gomobile Go core.
 
 ## How it works
-- `MainActivity` opens Compose screens; `MainViewModel.connect` builds v2 JSON and starts `KvnV2VpnService`.
-- `KvnV2VpnService` calls `mobile.Mobile.resolve`, builds TUN/routes/DNS, detaches fd and calls `mobile.Mobile.start`.
-- Go core owns v2 HTTP/2/QUIC and TUN packet pump; Kotlin does not run a v1 WebSocket engine.
-- `client_id` is generated once and stored in SharedPreferences.
-- DNS exclude domains/direct routing is handled in Go (`internal/client/direct.go`); VpnService sets DNS `1.1.1.1`, intercepted at TUN.
+
+- `MainActivity` открывает Compose-экраны; `MainViewModel.connect` собирает v2 JSON и запускает `KvnV2VpnService`.
+- `KvnV2VpnService` вызывает `mobile.Mobile.resolve`, настраивает TUN/routes/DNS, передаёт fd в `mobile.Mobile.start`.
+- Go core выполняет v2 HTTP/2 + optional QUIC и packet pump; Kotlin не держит v1 WebSocket runtime.
+- `client_id` генерируется один раз и хранится в SharedPreferences.
+- DNS exclude/direct routing выполняет `internal/client/direct.go`; VpnService ставит DNS и перехватывает трафик в TUN.
+- `ConnectionConfig.quicEnabled` (Settings → Tunnel → QUIC datagrams) управляет QUIC для UDP; по умолчанию off, fallback — HTTP/2 UDP.
 
 ## Key files
-- `.../ui/MainViewModel.kt` — v2 config JSON + lifecycle.
+
+- `.../ui/MainViewModel.kt` — v2 JSON, lifecycle, metrics.
+- `.../ui/SettingsScreen.kt` — TLS, QUIC, DNS, apps, diagnostics.
+- `.../ui/AppPickerScreen.kt` — include/exclude apps.
+- `.../ui/QrScannerScreen.kt` — QR/JSON import, web parity.
+- `.../config/AppConfig.kt` — DataStore multi-server config + `quicEnabled`.
 - `.../vpn/KvnV2VpnService.kt` — TUN/VpnService bridge.
-- `.../config/AppConfig.kt` — DataStore multi-server config.
 - `src/mobile/mobile.go` — AAR API.
-- `src/android/app/libs/kvn-v2.aar` — generated AAR (gitignored).
 
 ## Gotchas
-- Build AAR first: `./scripts/build-android-aar.sh`; copy to `app/libs`.
-- Old `KvnVpnService` and v1 transport classes are no longer used.
-- `addDisallowedApplication(packageName)` keeps Go/transport sockets outside the VPN loop.
-- DNS fake-IP is not used; exclude domains get real direct IPs.
+
+- Сначала соберите AAR: `./scripts/build-android-aar.sh`, затем `./gradlew assembleDebug`.
+- `addDisallowedApplication(packageName)` держит Go/transport сокеты вне VPN-петли.
+- Legacy Kotlin transport/protocol classes остаются в дереве, но v2 runtime их не использует.
+- Для self-signed сервера включайте `Allow insecure TLS`; для QUIC сервер должен слушать UDP 443.
+- `QUIC` default off: при недоступном UDP клиент делает fallback на HTTP/2 UDP после короткой попытки.

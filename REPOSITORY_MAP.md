@@ -3,22 +3,22 @@
 v2-only Go backend/CLI under `src/`; Android/Kotlin v2 client under `src/android/`; gomobile core under `src/mobile/`.
 
 ## Entry Points
-- `src/cmd/server/main.go` — v2 server (HTTP/2 TCP + optional QUIC UDP, pool session).
+- `src/cmd/server/main.go` — v2 server (HTTP/2 TCP + optional QUIC UDP, TUN lease pool, ICMP proxy).
 - `src/cmd/client/main.go` — v2 standalone client (TUN/proxy).
 - `src/cmd/web/main.go` — `kvn-web`, v2-only UI, unified `~/.config/kvn/config.yaml`.
 - `src/cmd/desktop/main.go` — native WebView wrapper for `kvn-web`.
-- `src/android/app/src/main/kotlin/com/kvn/client/ui/MainActivity.kt` — Android Compose UI.
+- `src/android/app/src/main/kotlin/com/kvn/client/ui/MainActivity.kt` — Android Compose UI (Connect/Settings/AppPicker/QR).
 - `src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnV2VpnService.kt` — Kotlin VpnService + TUN fd.
 - `src/mobile/mobile.go` — gomobile AAR boundary (`Resolve`, `Start`, `Stop`).
 
 ## Core Packages
-- `src/internal/client/` — v2 data plane, TUN/proxy, session, DNS direct routing.
+- `src/internal/client/` — v2 data plane, TUN/proxy, session, metrics, ICMP, DNS direct routing.
 - `src/internal/server/` — v2 fallback site.
-- `src/internal/transport/` — HTTP/2 stream client/server, session endpoint, padding, QUIC.
+- `src/internal/transport/` — HTTP/2 streams, session, padding, QUIC datagrams, ICMP proxy, fallback.
 - `src/internal/tlsprofile/` — uTLS Chrome/Firefox/Safari profiles + fallback.
 - `src/internal/tcpstack/` — gVisor TCP split/forwarder.
 - `src/internal/tunpool/` — unique IPv4 leases, TTL, persisted lease store.
-- `src/internal/config/` — unified client/server/webui config and v2 runtime schema.
+- `src/internal/config/` — v2 client/server schema, unified Web UI config, legacy migration.
 - `src/internal/routing/` — split-tunnel rules, domain matcher, DNS tracker.
 - `src/internal/dns/` — DNS cache/tracker.
 - `src/internal/dnsproxy/` — local DNS proxy for desktop.
@@ -29,18 +29,21 @@ v2-only Go backend/CLI under `src/`; Android/Kotlin v2 client under `src/android
 - `src/internal/logger/` — zap logging.
 
 ## Android
-- `src/android/app/src/main/kotlin/com/kvn/client/config/` — DataStore config, QR model.
-- `src/android/app/src/main/kotlin/com/kvn/client/ui/` — Compose screens/ViewModel.
+- `src/android/app/src/main/kotlin/com/kvn/client/config/` — DataStore multi-server config, QR model, `quicEnabled`.
+- `src/android/app/src/main/kotlin/com/kvn/client/ui/` — Compose Connect/Settings/AppPicker/QR/ViewModel.
 - `src/android/app/src/main/kotlin/com/kvn/client/vpn/` — `KvnV2VpnService`, tunnel lifecycle.
 - `src/android/app/src/main/kotlin/com/kvn/client/dns/` — legacy DNS helpers (v2 direct routing lives in Go core).
 - `src/android/app/src/main/kotlin/com/kvn/client/logger/` — app logs.
-- `src/android/app/src/main/res/` — theme, `ic_launcher_v2` adaptive icon.
+- `src/android/app/src/main/res/` — theme, `ic_launcher_prod` adaptive icon.
 
 ## Key Paths
 - `configs/client.example.yaml`, `configs/server.example.yaml` — v2 examples.
 - `configs/server.example.yaml` — includes required `tun` pool and `lease_file`.
 - `bin/kvn-client`, `bin/kvn-server`, `bin/kvn-web` — build outputs.
 - `bin/kvn-v2.aar` — gomobile Android library.
+- `scripts/install-server.sh` — Linux/systemd/TLS/TUN-pool server install.
+- `scripts/install-client.sh` — Linux/systemd v2 client install.
+- `scripts/install-web.ps1` — Windows WebView desktop + v1 cleanup.
 - `scripts/build.sh` — v2 client/server/web/desktop build.
 - `scripts/build-android-aar.sh` — gomobile AAR build.
 - `scripts/build-android.sh` — Android APK build.
@@ -67,13 +70,13 @@ v2-only Go backend/CLI under `src/`; Android/Kotlin v2 client under `src/android
 - Build/release — `scripts/`, `.github/workflows/`, `Dockerfile`.
 
 ## Modules & Context
-- `src/mobile/CONTEXT.md` — AAR boundary and fd contract.
+- `src/mobile/CONTEXT.md` — AAR boundary, fd contract, QUIC toggle.
 - `src/internal/client/CONTEXT.md` — v2 desktop/mobile data plane.
 - `src/internal/server/CONTEXT.md` — fallback server.
-- `src/internal/transport/CONTEXT.md` — HTTP/2/QUIC transport.
+- `src/internal/transport/CONTEXT.md` — HTTP/2/QUIC/ICMP transport.
 - `src/internal/tunpool/CONTEXT.md` — lease pool.
 - `src/internal/config/CONTEXT.md` — unified config.
-- `src/internal/webui/CONTEXT.md` — v2-only UI.
+- `src/internal/webui/CONTEXT.md` — v2-only UI/API/SSE.
 - `src/android/CONTEXT.md` — Android v2 app.
 - `src/cmd/CONTEXT.md` — entrypoints.
 

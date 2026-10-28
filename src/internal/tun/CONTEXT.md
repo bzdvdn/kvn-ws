@@ -7,7 +7,7 @@
 ## Responsibilities
 
 - Владеет: интерфейсом `TunDevice`, конкретными `tunDevice` на Linux/Win/macOS, трекингом добавленных маршрутов (`routeMeta`) и их очисткой, сохранением/восстановлением системного default-route и DNS.
-- Не владеет: решением, какие маршруты нужны (это `bootstrap/client` + `routing`), DNS-прокси (`dnsproxy`), транспортом и циклом сессии.
+- Не владеет: решением, какие маршруты нужны (это `client` + `routing`), DNS-прокси (`dnsproxy`), транспортом и циклом сессии.
 
 ## How it works
 
@@ -41,9 +41,8 @@
 
 ## Consumed by
 
-- `src/internal/bootstrap/client` — открытие/закрытие TUN, маршруты, DNS, `StopTun`.
-- `src/internal/tunnel` — чтение/запись пакетов через переданные функции.
-- `src/cmd/gatetest`, `src/cmd/stability`, интеграционные тесты — напрямую или через мок.
+- `src/internal/client` — открытие/закрытие TUN, маршруты, DNS, `RunTUNDevice`.
+- `src/cmd/client`, `src/cmd/web`, Android Go core — через `TunDevice`.
 
 ## Gotchas
 

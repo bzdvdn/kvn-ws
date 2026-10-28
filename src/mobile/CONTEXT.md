@@ -1,14 +1,15 @@
 # src/mobile
 
 ## Purpose
-gomobile AAR boundary for Android v2.
+gomobile AAR boundary для Android v2.
 
 ## API
-- `Resolve(configJSON) (sessionJSON, error)` — authenticated TUN assignment.
-- `Start(configJSON, fd) (*Client, error)` — runs v2 data plane on a VpnService TUN fd.
-- `Client.Stop()`, `Client.Error()`.
+- `Resolve(configJSON)` — authenticated TUN assignment.
+- `Start(configJSON, fd)` — v2 data plane на VpnService fd.
+- `Client.Stop`, `Client.Error`, `Client.RxBytes`, `Client.TxBytes`.
 
 ## Contract
-- Kotlin owns VpnService address/routes/DNS; Go owns HTTP/2/QUIC and packet pump.
-- `fd` is a detached Android TUN descriptor.
-- Exclude-domain DNS/direct routing lives in `internal/client/direct.go`.
+- Kotlin владеет VpnService address/routes/DNS и fd; Go владеет HTTP/2/QUIC packet pump.
+- `quic_enabled` и `quic_endpoint` приходят из Android `ConnectionConfig`.
+- Exclude-domain DNS/direct routing — `internal/client/direct.go`.
+- `Stop` идемпотентен; Go не закрывает Kotlin-owned fd.

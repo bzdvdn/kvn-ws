@@ -2,55 +2,41 @@
 
 ## Purpose
 
-Единый источник типов и загрузчиков конфигурации для всех бинарей KVN (client, server, relay, web). Инкапсулирует YAML + env-override, дефолты, backward-compat миграции старых ключей и многосерверную модель Web UI.
+Схемы и загрузчики конфигурации KVN 2.0: v2 server/client для CLI и единый `WebUIConfig` для `kvn-web`. Legacy-типы v1 сохранены только для чтения/миграции.
 
 ## Responsibilities
 
-- Владеет: структурами `ClientConfig`, `ServerConfig`, `RelayConfig`, `WebUIConfig`, `RoutingCfg`/`DNSProxyCfg`/`ObfuscationCfg` и их JSON/YAML-маршалингом, загрузкой/сохранением, нормализацией значений, предупреждениями о секретах в файле.
-- Не владеет: применением конфига (это вызывающие bootstrap-пакеты), загрузкой geoip/geosite-источников по сети (это `src/internal/routing`), валидацией маршрутов/rules.
+- Владеет: `V2ServerConfig`, `V2ClientConfig`, `TUNConfig`, `UTLSConfig`, `V2StealthConfig`, `WebUIConfig`/`ServerEntry`, legacy `ClientConfig`/`ServerConfig`/`RelayConfig`, YAML/JSON-маршалингом и дефолтами.
+- Не владеет: запуском транспорта/клиента, DNS-резолвом, TUN-маршрутами и UI-рендерингом.
 
 ## How it works
 
-- Все лоадеры (`LoadClientConfig`, `LoadServerConfig`, `LoadRelayConfig`) используют `viper` с `SetEnvPrefix` + `SetEnvKeyReplacer(".", "_")` + `AutomaticEnv`: env-переменные `KVN_CLIENT_*`, `KVN_SERVER_*`, `KVN_RELAY_*` переопределяют YAML.
-- `LoadClientConfig` дополнительно нормализует legacy-формы: `obfuscation: true` → `{enabled:true}`, `dns_proxy.upstream` → `upstreams`, `routing.dns_cache` → `dns_routing`; вызывает `SetClientDefaults`, проверяет relay-блок и печатает предупреждения (SNI+verify, секреты в файле).
-- `LoadServerConfig`: дефолты rate-limit/MTU/admin, `normalizeTLS` (семантика `tls.client_auth`), `normalizeTokens` (имена и секреты-фолбэки), токены из `KVN_SERVER_AUTH_TOKENS_JSON`, обязательный `crypto.key` при `crypto.enabled`.
-- `SetClientDefaults` — идемпотентная нормализация: MTU 1400, `mode: proxy`, `proxy_listen 127.0.0.1:2310`, `auto_reconnect: true`, `max_message_size` 10 МиБ, `tunnel_timeout` 30, `proxy_max_concurrency` 1000, `proxy_connections` 10, DNS-прокси `127.0.0.153:53` и upstreams `1.1.1.1:53, 8.8.8.8:53`; всегда добавляет `DefaultExcludeRanges` в `exclude_ranges`.
-- `SaveClientConfig` декодирует через `mapstructure` в map и пишет YAML с правами `0600`, предварительно нормализуя `routing`.
-- `WebUIConfig` = глобальный `ClientConfig` (inline) + `Servers[]` (`ServerEntry{Name + ClientConfig}`) + `ActiveServer`. `LoadWebUIConfig` при отсутствии файла возвращает `defaultWebUIConfig()` (не ошибку), при legacy-файле оборачивает глобальный конфиг в `servers[0].Name="Default"`, чинит `active_server` и мигрирует `routing.dns_cache`.
-- `SaveWebUIConfig` создаёт каталог `0700` и пишет файл `0600`.
-- `AtomicConfig[T]` — обёртка над `atomic.Pointer[T]` с `Load`/`Store` для hot-reload (используется сервером для SIGHUP-перечитывания).
+- `LoadV2ServerConfig` читает YAML через viper, применяет defaults (`listen 0.0.0.0:443`, `max_streams 4096`, fallback) и валидирует TLS, токены и TUN pool.
+- `LoadV2ClientConfig` применяет defaults (`mtu 1200`, `mode tun`, uTLS Chrome/Firefox/Safari, adaptive padding 64) и валидирует серверы, TLS и stealth path.
+- `EnsureClientID` хранит сгенерированный `client_id` в sidecar `<config>.client_id` с правами `0600`; ID не попадает в QR.
+- `LoadWebUIConfig`/`LoadWebUIConfigOptional` читают единый `config.yaml`; `SaveWebUIConfig` пишет `0600` в каталог `0700`.
+- `WebUIConfig` = глобальный `ClientConfig` + `Servers[]` + `ActiveServer`; v2 webui-store фильтрует `protocol: v2`, старый v1-файл сохраняет как `.v1.bak`, legacy `~/.config/kvn/v2/config.yaml` импортирует один раз.
+- `LoadClientConfig`/`LoadServerConfig`/`LoadRelayConfig` — legacy-лоадеры старых типов; v2 entrypoints используют `LoadV2*`.
 
 ## Key files
 
-- `client.go` — `ClientConfig` и вложенные типы, `LoadClientConfig`, `SetClientDefaults`, `SaveClientConfig`, `LoadRelayConfig`, глобальные дефолты.
-- `server.go` — `ServerConfig` и его секции, `LoadServerConfig`, `normalizeTLS`/`normalizeTokens`.
-- `webui.go` — `WebUIConfig`, `ServerEntry`, load/save и миграция многосерверной модели.
-- `config.go` — общий viper-лоадер, `AtomicConfig`, работа с секретами из env.
+- `v2.go` — v2 server/client schema, defaults, validation, client ID sidecar.
+- `webui.go` — unified multi-server Web UI config и миграция.
+- `client.go` — `ClientConfig`, routing/TLS/obfuscation, legacy client/relay loaders.
+- `server.go` — legacy server config и общие TLS/token типы.
+- `config.go` — `LogConfig`, `AtomicConfig[T]`.
 
 ## Public contracts
 
-- Загрузчики: `LoadClientConfig(path)`, `LoadServerConfig(path)`, `LoadRelayConfig(path)`, `LoadWebUIConfig(path)`; сохранение — `SaveClientConfig`, `SaveWebUIConfig` (обе создают каталог и пишут `0600`).
-- Нормализация: `SetClientDefaults(*ClientConfig)` — вызывают и CLI, и Web UI перед показом/сохранением.
-- Значения по умолчанию: `DefaultDNSUpstreams`, `DefaultExcludeRanges`, `DefaultServerMTU`.
-- Хелперы: `(*ClientConfig).UDPDatagramsEnabled()` (nil → true), `(*ClientConfig).SecondaryBatchHold()` / `(*SessionCfg).SecondaryBatchHold()` (default 2 мс, clamp 0..10), `(*ServerConfig).UDPDatagramsEnabled()`, `SourceRule.Type/Value/Valid`, `(*PaddingCfg).RealtimeUnpaddedEnabled()`.
-- JSON-теги — фактический контракт для Web UI/desktop API; YAML-теги — для файлов конфигурации.
-
-## Dependencies
-
-- `github.com/spf13/viper`, `github.com/go-viper/mapstructure/v2`, `go.yaml.in/yaml/v3` — внешние.
-- Внутри репозитория зависимостей нет (листовой пакет); его импортируют почти все остальные.
-
-## Consumed by
-
-- `src/internal/bootstrap/{client,server,relay}`, `src/internal/routing`, `src/internal/protocol/auth`, `src/internal/systemproxy`, `src/internal/webui`, `src/cmd/{client,server,relay,web,desktop,gatetest,stability}`.
+- `LoadV2ServerConfig`, `LoadV2ClientConfig`, `LoadWebUIConfig`, `LoadWebUIConfigOptional`, `SaveWebUIConfig`.
+- `DefaultV2ServerConfig`, `DefaultV2ClientConfig`, `EnsureClientID`.
+- v2 JSON-теги — контракт для `kvn-web`, Android и QR; YAML-теги — для файлов.
+- `V2ClientConfig` содержит `quic_enabled`/`quic_endpoint`, `utls`, `stealth`, `routing`, `dns_proxy`, `tls`.
 
 ## Gotchas
 
-- `LoadClientConfig` **мутирует** конфиг: `routing.exclude_ranges` всегда дополняется `DefaultExcludeRanges` (loopback, multicast, link-local), убрать их нельзя.
-- `LoadServerConfig`/`LoadClientConfig` не падают на отсутствующий файл только в Web UI (`LoadWebUIConfig`) — остальные возвращают ошибку чтения.
-- `dns_proxy.listen` по умолчанию `127.0.0.153:53`, а не `127.0.0.53/54` — эти адреса занимает systemd-resolved (systemd ≥ 250).
-- Секреты: `KVN_*_AUTH_TOKENS_JSON` полностью заменяет `auth.tokens` из YAML; `KVN_SERVER_AUTH_TOKENS_JSON` — JSON-массив `TokenCfg`.
-- Legacy-ключи поддерживаются на чтении, но при сохранении пишутся только новые (`dns_routing`, `upstreams`); `WebUIConfig` мигрирует `dns_cache` и при отсутствии `servers` создаёт «Default».
-- `crypto.enabled` без `crypto.key` в клиенте молча выключается, а на сервере — фатальная ошибка.
-- `tls.sni` при `verify_mode: verify` не сработает по сертификату — лоадер печатает предупреждение, но не меняет поведение.
-- `AtomicConfig` не сериализует доступ: безопасен только при замене указателя целиком (конфиг считается immutable после `Store`).
+- v2 не читает и не перезаписывает v1 `config.yaml`; v1-файл сохраняется как `.v1.bak`.
+- `protocol` для v2-серверов всегда `v2`; запись без серверов — валидное first-run состояние.
+- `tls.sni` с `verify_mode: verify` не совпадёт с сертификатом; нужен `insecure` или корректный `server_name`.
+- Секреты и токены не логируются; файл конфига `0600`, каталог `0700`.
+- `AtomicConfig` безопасен только при замене указателя целиком.

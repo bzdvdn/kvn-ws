@@ -45,9 +45,8 @@
 
 ## Consumed by
 
-- `src/internal/bootstrap/client` — `RuleSet`/`TunRouter` в TUN и proxy-режимах, `Resolver` для источников.
-- `src/internal/bootstrap/relay` — маршрутизация на terminator-стороне.
-- `src/internal/tunnel/session.go` — `TunRouter.SetTunnelSend` для классификации UDP/TCP.
+- `src/internal/client` — `RuleSet`/`TunRouter` в v2 TUN/proxy.
+- `src/internal/webui` — `Resolver.Refresh` для `/api/config/refresh-sources`.
 - `src/internal/webui/handler_config.go` — `Resolver.Refresh()` для `/api/config/refresh-sources`.
 
 ## Gotchas
