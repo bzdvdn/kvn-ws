@@ -112,7 +112,8 @@
 
 - [x] T5.1 Прогнать DPI/active-probe в lab — outcome: сохранён lab-отчёт с сетью/регионом, fallback и отсутствие KVN-маркеров; Touches: scripts/dpi-check.sh, docs/ru/v2.md
       Proof: docs docs/ru/v2-dpi-report.md
-- [ ] T5.5 Полевой DPI-прогон в целевом регионе — outcome: отчёт с реальной сетью/регионом и fallback; Touches: docs/ru/v2-dpi-report.md, docs/en/v2-dpi-report.md
+- [x] T5.5 Полевой DPI-прогон в целевом регионе — outcome: отчёт с реальной сетью/регионом и fallback; Touches: docs/ru/v2-dpi-report.md, docs/en/v2-dpi-report.md
+      Proof: docs docs/ru/v2-dpi-report.md
 - [x] T5.2 Добавить CI/regression guard — outcome: тесты запрещают v1 entrypoints, v1-поля в v2 UI и запись в v1 config; Touches: .github/workflows/ci.yml, src/internal/webui/config_store_test.go, scripts/
       Proof: chore scripts/check-v2-only.sh
 - [x] T5.3 Обновить REPOSITORY_MAP и CONTEXT — outcome: v2-модули основные, v1 только старый релиз; Touches: REPOSITORY_MAP.md, src/*/CONTEXT.md, README.md
