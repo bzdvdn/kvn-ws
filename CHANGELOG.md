@@ -6,6 +6,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] - unreleased
+
+### Added
+
+- **v2-only 2.0.0** — `kvn-client`/`kvn-server`/`kvn-web`; v1 удалён из кода и сборки, доступен только в старых релизах.
+- **TUN pool/lease** — уникальный IPv4 на `client_id`, `lease_file`, TTL, восстановление после рестарта, `GET /` session endpoint.
+- **uTLS/stealth** — Chrome/Firefox/Safari профили, `/` + `:authority`, adaptive padding, fallback.
+- **Android v2** — `kvn-v2-client` (`com.kvn.v2client`), v2 VpnService + gomobile AAR, exclude-домены/direct TCP/UDP.
+- **ICMP echo proxy** — `ping` идёт через v2 HTTP/2 stream; сервер выполняет raw ICMP echo на target и возвращает reply.
+
+### Breaking
+
+- **v2 — единственный контур** — v1-код, entrypoint'ы, конфиги и UI удалены из текущего дерева; v1 остаётся только в старых GitHub Releases.
+- **`kvn-web` — v2-only** с изолированным `~/.config/kvn/config.yaml`; `kvn-web-v2` не поставляется.
+- **v2 surface**: browser-like TLS/uTLS profiles, path `/`, target в `:authority`, adaptive padding; старый `/api/v2/stream` + `X-KVN-Target` временно принимается сервером.
+
 ## [Unreleased]
 
 ### Added

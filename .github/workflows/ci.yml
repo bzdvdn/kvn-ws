@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -42,6 +42,8 @@ jobs:
         run: go test -race ./src/...
       - name: Vet
         run: go vet ./src/...
+      - name: v2-only guard
+        run: ./scripts/check-v2-only.sh
       - name: Gosec
         uses: securego/gosec@v2.29.0
         with:
@@ -55,21 +57,30 @@ jobs:
         run: go build ./src/...
       - name: Build binaries
         run: ./scripts/build.sh both
-      - name: Gatetest routing
-        run: go run ./src/cmd/gatetest/ --mode routing
 
   android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Install Android NDK and gomobile
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358" >/dev/null
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          "$(go env GOPATH)/bin/gomobile" init
+      - name: Build v2 AAR
+        run: |
+          ./scripts/build-android-aar.sh
+          mkdir -p src/android/app/libs
+          cp bin/kvn-v2.aar src/android/app/libs/kvn-v2.aar
       - uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: "17"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
-      - name: Generate protocol types
-        run: go run ./protocol/codegen/
       - name: Make gradlew executable
         run: chmod +x src/android/gradlew
       - name: Generate debug keystore for CI
@@ -94,7 +105,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kvn-android-apk
-          path: src/android/app/build/outputs/apk/release/kvn-client-release.apk
+          path: src/android/app/build/outputs/apk/release/kvn-v2-client-release.apk
           retention-days: 30
 
   desktop:
@@ -126,7 +137,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -198,7 +209,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Resolve tag
         id: tag
@@ -252,18 +263,13 @@ jobs:
             mkdir -p "dist/kvn-$os-$arch"
             GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
               go build -ldflags="-s -w" \
-              -o "dist/kvn-$os-$arch/client${suffix}" ./src/cmd/client
+              -o "dist/kvn-$os-$arch/kvn-client${suffix}" ./src/cmd/client
             GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
               go build -ldflags="-s -w" \
-              -o "dist/kvn-$os-$arch/server${suffix}" ./src/cmd/server
+              -o "dist/kvn-$os-$arch/kvn-server${suffix}" ./src/cmd/server
             GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
               go build -ldflags="-s -w" \
               -o "dist/kvn-$os-$arch/kvn-web${suffix}" ./src/cmd/web
-            if [ "$os" = "linux" ]; then
-              GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
-                go build -ldflags="-s -w" \
-                -o "dist/kvn-$os-$arch/relay${suffix}" ./src/cmd/relay
-            fi
           done
 
       - name: Download kvn-desktop artifacts

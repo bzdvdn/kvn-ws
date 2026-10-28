@@ -5,9 +5,6 @@ import (
 	"runtime"
 	"testing"
 	"time"
-
-	"github.com/bzdvdn/kvn-ws/src/internal/bootstrap/client"
-	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
 // @sk-test fix-critical-leaks#T6.1: TestWebUIBroadcastShutdown (AC-006)
@@ -46,10 +43,7 @@ func TestStopStaleClientLocked(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	cl, err := client.NewFromConfig(&config.ClientConfig{Mode: "proxy", Server: "ws://127.0.0.1:1"})
-	if err != nil {
-		t.Fatalf("NewFromConfig: %v", err)
-	}
+	cl := &fakeManagedClient{}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

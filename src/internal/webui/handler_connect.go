@@ -12,11 +12,9 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/bootstrap/client"
+	v2client "github.com/bzdvdn/kvn-ws/src/internal/client"
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
-	metricclient "github.com/bzdvdn/kvn-ws/src/internal/metrics/client"
-	v2client "github.com/bzdvdn/kvn-ws/src/internal/v2/client"
 )
 
 type connectResponse struct {
@@ -59,6 +57,10 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	cfg.Protocol = "v2"
+	if cfg.Mode == "" {
+		cfg.Mode = "tun"
+	}
 	if cfg.Server == "" {
 		s.state.setStatus(StatusError)
 		s.state.PushLog(LogEntry{Line: "no server URL configured for active server", Level: "error"})
@@ -98,6 +100,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		active := wcfg.ActiveServer
 		v2cfg := &config.V2ClientConfig{
 			ActiveServer: active,
+			ClientID:     cfg.ClientID,
 			Servers: []config.V2ServerEntry{{
 				Name:     active,
 				Endpoint: cfg.Server,
@@ -105,8 +108,6 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			}},
 			MTU:           cfg.MTU,
 			Mode:          v2mode,
-			TUNAddress:    cfg.TUNAddress,
-			TUNGateway:    cfg.TUNGateway,
 			QuicEnabled:   cfg.QuicEnabled,
 			QuicEndpoint:  cfg.QuicEndpoint,
 			AutoReconnect: cfg.AutoReconnect,
@@ -118,6 +119,12 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			Reconnect:     cfg.Reconnect,
 			Log:           cfg.Log,
 		}
+		if cfg.UTLS != nil {
+			v2cfg.UTLS = *cfg.UTLS
+		}
+		if cfg.Stealth != nil {
+			v2cfg.Stealth = *cfg.Stealth
+		}
 		v2cfg.ApplyDefaults()
 		if err := v2cfg.Validate(); err != nil {
 			s.state.setStatus(StatusError)
@@ -126,6 +133,31 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		}
 		cl := v2client.New(v2cfg, hookLogger)
 		ctx, cancel := context.WithCancel(s.baseCtx)
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			var lastRx, lastTx int64
+			lastAt := time.Now()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case now := <-ticker.C:
+					m := cl.Metrics()
+					dt := now.Sub(lastAt).Seconds()
+					rxSpeed, txSpeed := 0.0, 0.0
+					if dt > 0 {
+						rxSpeed = float64(m.RxBytes-lastRx) * 8 / 1_000_000 / dt
+						txSpeed = float64(m.TxBytes-lastTx) * 8 / 1_000_000 / dt
+					}
+					lastRx, lastTx, lastAt = m.RxBytes, m.TxBytes, now
+					s.state.PushMetric(MetricSnapshot{
+						TxBytes: m.TxBytes, RxBytes: m.RxBytes, LatencyMS: m.LatencyMS,
+						UptimeS: m.UptimeS, TxSpeed: txSpeed, RxSpeed: rxSpeed, Reconnects: m.Reconnects,
+					})
+				}
+			}
+		}()
 		s.state.SetCancel(cancel)
 		s.state.setClient(cl)
 		doneCh := make(chan struct{})
@@ -154,92 +186,6 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		}()
 		return
 	}
-
-	// @sk-task kvn-web-redesign#T1.2: start metrics sender with client lifecycle (AC-013)
-	collector := s.state.MetricCollector()
-	collector.Start()
-
-	cl, err := client.NewFromConfig(&cfg)
-	if err != nil {
-		s.state.setStatus(StatusError)
-		s.state.PushLog(LogEntry{Line: "create client: " + err.Error(), Level: "error"})
-		return
-	}
-	cl.SetMetricCollector(collector)
-
-	baseLogger, _, err := logger.New(cfg.Log.Level)
-	if err != nil {
-		s.state.setStatus(StatusError)
-		s.state.PushLog(LogEntry{Line: "create logger: " + err.Error(), Level: "error"})
-		return
-	}
-	pushLog := s.state.PushLog
-	// @sk-task webui-log-level-filter#T1.1: SSE gets all levels, syslog only the configured level (AC-003)
-	hookLogger := baseLogger.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
-		return zapcore.NewTee(&uiLogCore{pushLog: pushLog}, core)
-	}))
-	cl.SetLogger(hookLogger)
-
-	// @sk-task win-tun#T5.1: unblock TUN mode on Windows (AC-011)
-	if cfg.Mode == "tun" {
-		if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
-			s.state.setStatus(StatusError)
-			s.state.PushLog(LogEntry{Line: "TUN mode is not supported on " + runtime.GOOS, Level: "error"})
-			return
-		}
-		if runtime.GOOS == "linux" && os.Geteuid() != 0 {
-			s.state.setStatus(StatusError)
-			s.state.PushLog(LogEntry{Line: "TUN mode requires root privileges (run with sudo or set CAP_NET_ADMIN)", Level: "error"})
-			return
-		}
-	}
-
-	ctx, cancel := context.WithCancel(s.baseCtx)
-	s.state.SetCancel(cancel)
-	s.state.setClient(cl)
-	doneCh := make(chan struct{})
-	s.state.SetDoneCh(doneCh)
-
-	metricCtx, metricCancel := context.WithCancel(ctx)
-	metricOut := make(chan metricclient.MetricSnapshot, 32)
-	sender := metricclient.NewSender(collector, metricOut, time.Second)
-	go sender.Run(metricCtx)
-
-	go func() {
-		defer close(doneCh)
-		defer metricCancel()
-
-		// Only publish lifecycle status while this client is still the active
-		// one, so a late finisher from a previous session cannot overwrite the
-		// status of a newer connection.
-		setStatus := func(st Status) {
-			if s.state.Client() == cl {
-				s.state.setStatus(st)
-			}
-		}
-
-		setStatus(StatusConnected)
-		s.state.PushLog(LogEntry{Line: "connected to " + cfg.Server, Level: "info"})
-
-		// forward metrics from sender to state broadcast
-		go func() {
-			for {
-				select {
-				case <-metricCtx.Done():
-					return
-				case m := <-metricOut:
-					s.state.PushMetric(m)
-				}
-			}
-		}()
-
-		if err := cl.Run(ctx); err != nil {
-			setStatus(StatusError)
-			s.state.PushLog(LogEntry{Line: "client error: " + err.Error(), Level: "error"})
-			return
-		}
-		setStatus(StatusDisconnected)
-	}()
 }
 
 // @sk-task multi-server#T2.2: mergeConfig — merge server over global (AC-006)
@@ -314,12 +260,6 @@ func mergeConfig(global, server *config.ClientConfig) config.ClientConfig {
 	// @sk-task kvn-v2-transport#T3.2: per-server engine and TUN fields (AC-005)
 	if server.Protocol != "" {
 		merged.Protocol = server.Protocol
-	}
-	if server.TUNAddress != "" {
-		merged.TUNAddress = server.TUNAddress
-	}
-	if server.TUNGateway != "" {
-		merged.TUNGateway = server.TUNGateway
 	}
 	if server.QuicEnabled {
 		merged.QuicEnabled = true

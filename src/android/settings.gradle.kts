@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "kvn-android"
+rootProject.name = "kvn-v2-client"
 include(":app")

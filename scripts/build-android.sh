@@ -5,10 +5,6 @@ cd "$(dirname "$0")/.."
 
 echo "=== Building KVN Android APK ==="
 
-# 1. Generate protocol types first
-echo "[1/4] Generating protocol types..."
-go run ./protocol/codegen/
-
 # 2. Set ANDROID_HOME if not set
 if [ -z "$ANDROID_HOME" ]; then
     # Common default paths

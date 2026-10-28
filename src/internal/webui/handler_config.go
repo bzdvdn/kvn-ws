@@ -19,7 +19,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// @sk-task kvn-web-config-update#T3.1: apply defaults so UI shows correct values (AC-005, AC-006)
-	config.SetClientDefaults(&cfg.ClientConfig)
+	s.applyDefaults(&cfg.ClientConfig)
 	writeJSON(w, http.StatusOK, map[string]any{"config": cfg.ClientConfig})
 }
 
@@ -46,7 +46,7 @@ func (s *Server) handleSaveGlobalConfig(w http.ResponseWriter, r *http.Request) 
 	cfg.ClientConfig = body.ClientConfig
 	dedupRoutingStrings(cfg.Routing)
 	// @sk-task dns-setup: ensure DNSRouting defaults (TTL=60) before save
-	config.SetClientDefaults(&cfg.ClientConfig)
+	s.applyDefaults(&cfg.ClientConfig)
 
 	if err := s.saveWebUIConfig(cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -63,8 +63,14 @@ func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if cfg.Servers == nil {
+		cfg.Servers = []config.ServerEntry{}
+	}
 	for i := range cfg.Servers {
-		config.SetClientDefaults(&cfg.Servers[i].ClientConfig)
+		s.applyDefaults(&cfg.Servers[i].ClientConfig)
+	}
+	if cfg.ActiveServer == "" && len(cfg.Servers) > 0 {
+		cfg.ActiveServer = cfg.Servers[0].Name
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"active_server": cfg.ActiveServer,
@@ -112,9 +118,12 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// @sk-task dns-setup: ensure DNSRouting defaults (TTL=60) before save
-	config.SetClientDefaults(&entry.ClientConfig)
+	s.applyDefaults(&entry.ClientConfig)
 
 	cfg.Servers = append(cfg.Servers, entry)
+	if cfg.ActiveServer == "" {
+		cfg.ActiveServer = entry.Name
+	}
 	if err := s.saveWebUIConfig(cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -188,7 +197,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// @sk-task dns-setup: ensure DNSRouting defaults (TTL=60) before save
-	config.SetClientDefaults(&cfg.Servers[idx].ClientConfig)
+	s.applyDefaults(&cfg.Servers[idx].ClientConfig)
 
 	// Update active_server if the renamed server was active
 	if cfg.ActiveServer == name {
@@ -282,18 +291,6 @@ func (s *Server) handleRefreshSources(w http.ResponseWriter, r *http.Request) {
 		"include_domains": resolved.IncludeDomains,
 		"exclude_domains": resolved.ExcludeDomains,
 	})
-}
-
-func (s *Server) cfgPath() string {
-	return filepath.Join(s.configDir, "config.yaml")
-}
-
-func (s *Server) loadWebUIConfig() (*config.WebUIConfig, error) {
-	return config.LoadWebUIConfig(s.cfgPath())
-}
-
-func (s *Server) saveWebUIConfig(cfg *config.WebUIConfig) error {
-	return config.SaveWebUIConfig(s.cfgPath(), cfg)
 }
 
 // @sk-task kvn-web-config-update#T3.1: dedup routes (AC-004, AC-007)

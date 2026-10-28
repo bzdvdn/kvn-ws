@@ -1,84 +1,45 @@
 #!/usr/bin/env sh
-# @sk-task foundation#T2.1: build script for bin/ (AC-011)
-# @sk-task web-ci-install-autostart#T2.1: add web target with npm build
-# Usage: ./scripts/build.sh          # build both
-#        ./scripts/build.sh client   # build client only
-#        ./scripts/build.sh server   # build server only
-#        ./scripts/build.sh web      # build web only
+# Build v2 release artifacts.
+# Usage: ./scripts/build.sh [client|server|web|desktop|both]
 set -e
 
 TARGET="${1:-both}"
 
-generate_protocol() {
-  # @sk-task kvn-android#T1.2: codegen before any Go build (AC-004)
-  if [ -f scripts/generate-protocol.sh ]; then
-    ./scripts/generate-protocol.sh
-  fi
-}
-
 build_client() {
-  generate_protocol
-  echo "Building client..."
-  go build -ldflags="-s -w" -o bin/client ./src/cmd/client
+  echo "Building v2 client..."
+  go build -ldflags="-s -w" -o bin/kvn-client ./src/cmd/client
 }
 
 build_server() {
-  generate_protocol
-  echo "Building server..."
-  go build -ldflags="-s -w" -o bin/server ./src/cmd/server
+  echo "Building v2 server..."
+  go build -ldflags="-s -w" -o bin/kvn-server ./src/cmd/server
 }
 
 build_web() {
-  generate_protocol
   echo "Building frontend..."
   (cd src/internal/webui/frontend && npm ci && npm run build)
-  echo "Building web..."
+  echo "Building v2 web..."
   go build -ldflags="-s -w" -o bin/kvn-web ./src/cmd/web
 }
 
-build_relay() {
-  generate_protocol
-  echo "Building relay..."
-  go build -ldflags="-s -w" -o bin/relay ./src/cmd/relay
-}
-
-# @sk-task win-tun#T1.2: add windows cross-compile target (AC-008)
-build_windows() {
-  generate_protocol
-  echo "Building Windows client..."
-  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/client.exe ./src/cmd/client
-  echo "Building Windows server..."
-  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/server.exe ./src/cmd/server
-  echo "Building Windows relay..."
-  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/relay.exe ./src/cmd/relay
-}
-
-# @sk-task mac-tun#T1.2: add darwin cross-compile target (AC-008)
-build_darwin() {
-  generate_protocol
-  echo "Building Darwin client (amd64)..."
-  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/client-darwin-amd64 ./src/cmd/client
-  echo "Building Darwin server (amd64)..."
-  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/server-darwin-amd64 ./src/cmd/server
-  echo "Building Darwin relay (amd64)..."
-  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/relay-darwin-amd64 ./src/cmd/relay
+build_desktop() {
+  echo "Building v2 desktop..."
+  go build -ldflags="-s -w" -o bin/kvn-desktop ./src/cmd/desktop
 }
 
 case "$TARGET" in
   client) build_client ;;
   server) build_server ;;
   web) build_web ;;
-  relay) build_relay ;;
-  windows) build_windows ;;
-  darwin) build_darwin ;;
+  desktop) build_desktop ;;
   both)
     build_client
     build_server
     build_web
-    build_relay
+    build_desktop
     ;;
   *)
-    echo "Usage: $0 [client|server|web|relay|windows|darwin|both]" >&2
+    echo "Usage: $0 [client|server|web|desktop|both]" >&2
     exit 1
     ;;
 esac

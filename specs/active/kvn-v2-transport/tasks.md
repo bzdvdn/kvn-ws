@@ -5,12 +5,12 @@
 | Surface | Tasks |
 |---------|-------|
 | src/internal/config/v2.go | T1.1, T3.2 |
-| src/internal/v2/protocol/ | T1.2, T2.2 |
-| src/internal/v2/transport/ | T1.2, T2.2 |
-| src/internal/v2/server/ | T1.3, T2.2 |
-| src/internal/v2/tcpstack/ | T2.1, T2.3 |
-| src/internal/v2/client/ | T2.0, T2.2, T2.3, T4.1 |
-| src/internal/v2/transport/ | T4.1, T4.3 |
+| src/internal/protocol/ | T1.2, T2.2 |
+| src/internal/transport/ | T1.2, T2.2 |
+| src/internal/server/ | T1.3, T2.2 |
+| src/internal/tcpstack/ | T2.1, T2.3 |
+| src/internal/client/ | T2.0, T2.2, T2.3, T4.1 |
+| src/internal/transport/ | T4.1, T4.3 |
 | src/cmd/v2server/ | T1.3 |
 | src/cmd/v2client/ | T2.3 |
 | src/internal/webui/frontend/src/ | T3.1, T3.2 |
@@ -35,50 +35,52 @@
 
 - [x] T1.1 Добавить v2 config schema — outcome: multi-server entries (name/endpoint/token), stealth defaults, без v1-полей. Touches: src/internal/config/v2.go
       Proof: code src/internal/config/v2.go V2ServerConfig
-- [x] T1.2 Создать v2 protocol/transport skeleton — outcome: HTTP/2 stream, Bearer, fallback, фиксированный TLS/ALPN. Touches: src/internal/v2/protocol/, src/internal/v2/transport/
-      Proof: code src/internal/v2/transport/client.go NewClient
-- [x] T1.3 Создать v2 server entrypoint — outcome: listener, auth, target dial, fallback, stream limit. Touches: src/internal/v2/server/, src/cmd/v2server/
+- [x] T1.2 Создать v2 protocol/transport skeleton — outcome: HTTP/2 stream, Bearer, fallback, фиксированный TLS/ALPN. Touches: src/internal/protocol/, src/internal/transport/
+      Proof: code src/internal/transport/client.go NewClient
+- [x] T1.3 Создать v2 server entrypoint — outcome: listener, auth, target dial, fallback, stream limit. Touches: src/internal/server/, src/cmd/v2server/
       Proof: code src/cmd/v2server/main.go main
 
 ## Фаза 2: TCP split
 
-- [x] T2.0 Сделать v2 proxy-first клиент для раннего теста — outcome: SOCKS5/HTTP CONNECT через HTTP/2 stream до target, без TUN. Touches: src/internal/v2/client/, src/cmd/v2client/, configs/v2-client.example.yaml
-      Proof: test src/internal/v2/client/client_test.go TestProxyClientEndToEnd
-- [x] T2.1 Подключить userspace TCP stack — outcome: TCP flow из TUN терминируется локально через gVisor/netstack. Touches: src/internal/v2/tcpstack/
-      Proof: code src/internal/v2/tcpstack/stack.go New
-- [x] T2.2 Реализовать flow↔stream mapping — outcome: каждый TCP flow получает отдельный HTTP/2 stream, backpressure и лимит. Touches: src/internal/v2/protocol/, src/internal/v2/transport/, src/internal/v2/server/, src/internal/v2/client/
-      Proof: code src/internal/v2/tcpstack/stack.go bridge
-- [x] T2.3 Подключить v2 client/TUN — outcome: TUN направляет TCP в tcpstack; UDP пока дропается с явным ограничением (best-effort/H3 — T4.1). Touches: src/internal/v2/client/, src/internal/v2/tcpstack/, src/cmd/v2client/
-      Proof: code src/internal/v2/client/client.go runTUN
+- [x] T2.0 Сделать v2 proxy-first клиент для раннего теста — outcome: SOCKS5/HTTP CONNECT через HTTP/2 stream до target, без TUN. Touches: src/internal/client/, src/cmd/v2client/, configs/v2-client.example.yaml
+      Proof: test src/internal/client/client_test.go TestProxyClientEndToEnd
+- [x] T2.1 Подключить userspace TCP stack — outcome: TCP flow из TUN терминируется локально через gVisor/netstack. Touches: src/internal/tcpstack/
+      Proof: code src/internal/tcpstack/stack.go New
+- [x] T2.2 Реализовать flow↔stream mapping — outcome: каждый TCP flow получает отдельный HTTP/2 stream, backpressure и лимит. Touches: src/internal/protocol/, src/internal/transport/, src/internal/server/, src/internal/client/
+      Proof: code src/internal/tcpstack/stack.go bridge
+- [x] T2.3 Подключить v2 client/TUN — outcome: TUN направляет TCP в tcpstack; UDP пока дропается с явным ограничением (best-effort/H3 — T4.1). Touches: src/internal/client/, src/internal/tcpstack/, src/cmd/v2client/
+      Proof: code src/internal/client/client.go runTUN
 
 ## Фаза 3: UI
 
 - [x] T3.1 Сделать kvn-web v2 UI — outcome: protocol selector v1/v2, primary 3 поля, список серверов; Advanced-вкладки Routing/DNS/TLS/Proxy доступны. Touches: src/internal/webui/frontend/src/, src/internal/webui/
       Proof: code src/internal/webui/frontend/src/TabbedForm.tsx protocol
-- [x] T3.2 Подключить v2 engine к kvn-web backend — outcome: kvn-web запускает v2 client in-process по `protocol: v2`, сохраняет advanced-настройки, статус/логи. Touches: src/internal/webui/, src/internal/config/v2.go, src/internal/config/client.go, src/internal/v2/client/
+- [x] T3.2 Подключить v2 engine к kvn-web backend — outcome: kvn-web запускает v2 client in-process по `protocol: v2`, сохраняет advanced-настройки, статус/логи. Touches: src/internal/webui/, src/internal/config/v2.go, src/internal/config/client.go, src/internal/client/
       Proof: code src/internal/webui/handler_connect.go v2client
-- [x] T3.3 Проверить lifecycle v2 из UI — outcome: connect/disconnect/reconnect v2 через kvn-web, TUN cleanup, ошибки без падения UI. Touches: src/internal/webui/state.go, src/internal/webui/handler_connect.go, src/internal/v2/client/
+- [x] T3.3 Проверить lifecycle v2 из UI — outcome: connect/disconnect/reconnect v2 через kvn-web, TUN cleanup, ошибки без падения UI. Touches: src/internal/webui/state.go, src/internal/webui/handler_connect.go, src/internal/client/
       Proof: test src/internal/webui/v2_lifecycle_test.go TestStopStaleClientReleasesV2Tun
+- [x] T3.4 Сделать отдельный v2-only UI и хранилище — outcome: `kvn-web-v2` видит только v2-серверы, пишет `~/.config/kvn/v2/config.yaml`, v1 config не перезаписывается; v1-поля скрыты. Touches: src/cmd/web/, src/internal/webui/, src/internal/webui/frontend/src/
+      Proof: test src/internal/webui/v2_store_test.go TestV2StoreIsolation
 
 ## Фаза 4: UDP и проверки
 
-- [x] T4.1 Добавить UDP best-effort — outcome: каждый UDP-flow идёт отдельным HTTP/2 datagram-stream; переполнение дропает, не блокирует. Touches: src/internal/v2/client/, src/internal/v2/transport/, src/internal/v2/server/
-      Proof: test src/internal/v2/transport/transport_test.go TestUDPStreamRoundTrip
+- [x] T4.1 Добавить UDP best-effort — outcome: каждый UDP-flow идёт отдельным HTTP/2 datagram-stream; переполнение дропает, не блокирует. Touches: src/internal/client/, src/internal/transport/, src/internal/server/
+      Proof: test src/internal/transport/transport_test.go TestUDPStreamRoundTrip
 - [x] T4.2 Добавить benchmark/DPI-скрипты — outcome: v1 vs v2 throughput/p95/allocs и серия ClientHello/JA3/JA4. Touches: scripts/bench-v2.sh, scripts/dpi-check.sh
       Proof: docs scripts/bench-v2.sh
-- [x] T4.3 Добавить QUIC datagrams — outcome: одно общее QUIC-соединение на клиента, flow ID в datagram, fallback на HTTP/2 UDP при отказе. Touches: src/internal/v2/transport/, src/internal/v2/client/, src/cmd/v2server/
-      Proof: test src/internal/v2/transport/transport_test.go TestQUICDatagramUDPFlow
+- [x] T4.3 Добавить QUIC datagrams — outcome: одно общее QUIC-соединение на клиента, flow ID в datagram, fallback на HTTP/2 UDP при отказе. Touches: src/internal/transport/, src/internal/client/, src/cmd/v2server/
+      Proof: test src/internal/transport/transport_test.go TestQUICDatagramUDPFlow
 
 ## Фаза 5: Валидация и docs
 
-- [x] T5.1 Покрыть v2 unit/integration — outcome: stream, slow-flow, auth/fallback, UDP best-effort, лимиты. Touches: src/internal/v2/, src/integration/v2/
-      Proof: test src/internal/v2/transport/transport_test.go TestSlowFlowDoesNotBlockAnother
+- [x] T5.1 Покрыть v2 unit/integration — outcome: stream, slow-flow, auth/fallback, UDP best-effort, лимиты. Touches: src/internal/, src/integration/v2/
+      Proof: test src/internal/transport/transport_test.go TestSlowFlowDoesNotBlockAnother
 - [x] T5.2 Подтвердить v1 mixed deployment — outcome: v1 клиент/сервер работают рядом с v2; v2 не dial-ит v1. Touches: src/integration/v2/, src/integration/
       Proof: test src/internal/config/v2_test.go TestV1V2ConfigCoexist
 - [x] T5.3 Обновить docs/CHANGELOG — outcome: v2 архитектура, миграция, UI, ограничения UDP/Android/relay. Touches: CHANGELOG.md, docs/ru/v2.md, docs/en/v2.md, docs/ru/config.md, docs/en/config.md
       Proof: docs docs/ru/v2.md
-- [x] T5.4 Прогнать gate — outcome: Go race/vet, frontend build, benchmark-гейт зелёные. Touches: src/internal/v2/, src/internal/webui/, src/integration/v2/
-      Proof: test src/internal/v2/transport/transport_test.go TestUDPStreamRoundTrip
+- [x] T5.4 Прогнать gate — outcome: Go race/vet, frontend build, benchmark-гейт зелёные. Touches: src/internal/, src/internal/webui/, src/integration/v2/
+      Proof: test src/internal/transport/transport_test.go TestUDPStreamRoundTrip
 
 ## Покрытие критериев приемки
 

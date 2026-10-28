@@ -40,6 +40,7 @@ import com.kvn.client.ui.theme.KvnSuccess
 import com.kvn.client.ui.theme.KvnWarning
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import com.kvn.client.config.ConnectionConfig
 import com.kvn.client.transport.ConnectionState
 
@@ -51,7 +52,7 @@ private sealed class PendingAction {
 private fun parseServerUrl(url: String): Triple<String, Int, String> {
     var host = url.trim()
     var port = 443
-    var path = "/kvn"
+    var path = ""
     try {
         val noScheme = host.substringAfter("://")
         val slashIdx = noScheme.indexOf("/")
@@ -116,7 +117,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
     var mode by remember { mutableStateOf("tun") }
 
     fun fillFormFromConfig(c: ConnectionConfig) {
-        serverUrl = "${c.serverAddress}:${c.port}${c.serverPath}"
+        serverUrl = "${c.serverAddress}:${c.port}"
         token = c.token; mode = c.mode
     }
 
@@ -130,7 +131,7 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
         val base = activeCfg ?: ConnectionConfig()
         val (sv, pr, pa) = parseServerUrl(serverUrl)
         return base.copy(
-            serverAddress = sv, port = pr, serverPath = pa,
+            serverAddress = sv, port = pr, serverPath = "",
             token = token, mode = mode
         )
     }

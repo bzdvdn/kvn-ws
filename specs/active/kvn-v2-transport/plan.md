@@ -41,11 +41,11 @@ Outputs: `plan.md`; v2 несовместим с v1, v1 остаётся отд�
 
 ## Implementation Surfaces
 
-- `src/internal/v2/protocol/` — protobuf/Connect messages, stream frames.
-- `src/internal/v2/transport/` — HTTP/2 client/server, Bearer, TLS/ALPN, fallback.
-- `src/internal/v2/tcpstack/` — gVisor netstack/tun2socks adapter, flow ↔ stream mapping.
-- `src/internal/v2/session/` — flow lifecycle, stream limits, backpressure.
-- `src/internal/v2/client/`, `src/internal/v2/server/` — bootstrap, config, TUN/proxy.
+- `src/internal/protocol/` — protobuf/Connect messages, stream frames.
+- `src/internal/transport/` — HTTP/2 client/server, Bearer, TLS/ALPN, fallback.
+- `src/internal/tcpstack/` — gVisor netstack/tun2socks adapter, flow ↔ stream mapping.
+- `src/internal/session/` — flow lifecycle, stream limits, backpressure.
+- `src/internal/client/`, `src/internal/server/` — bootstrap, config, TUN/proxy.
 - `src/internal/config/` — v2 config schema, multi-server, defaults.
 - `src/internal/webui/` — kvn-web v2: protocol selector, запуск v2 client in-process, статус/логи, Advanced Routing/DNS/TLS/Proxy.
 - `src/cmd/v2client/` — только diagnostics/CLI.
@@ -54,7 +54,7 @@ Outputs: `plan.md`; v2 несовместим с v1, v1 остаётся отд�
 
 ## Bootstrapping Surfaces
 
-- New `src/internal/v2/...` packages; existing v1 packages не переписываем.
+- New `src/internal/...` packages; existing v1 packages не переписываем.
 - Reuse config patterns, routing, DNS, TUN, NAT, webui shell.
 
 ## Влияние на архитектуру
@@ -203,7 +203,7 @@ Outputs: `plan.md`; v2 несовместим с v1, v1 остаётся отд�
 - Integration: TCP target, slow flow, UDP best-effort, v1 untouched.
 - Benchmark: v1 vs v2 throughput/p95/allocs.
 - DPI: ClientHello/JA3/JA4 series, fallback probe.
-- Commands: `go test -race ./src/internal/v2/... ./src/internal/config/... ./src/internal/webui/...`, `go vet ./...`, frontend build, Android later.
+- Commands: `go test -race ./src/internal/... ./src/internal/config/... ./src/internal/webui/...`, `go vet ./...`, frontend build, Android later.
 
 ## Соответствие конституции
 

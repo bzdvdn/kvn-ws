@@ -11,10 +11,10 @@ export interface ClientConfig {
   server?: string;
   // @sk-task kvn-v2-transport#T3.1: v1/v2 engine selector and v2 TUN fields (AC-005)
   protocol?: string;
-  tun_address?: string;
-  tun_gateway?: string;
   quic_enabled?: boolean;
   quic_endpoint?: string;
+  utls?: { enabled?: boolean; profiles?: string[]; profile?: string; fallback?: boolean };
+  stealth?: { enabled?: boolean; path?: string; padding?: boolean; padding_mode?: string; padding_size?: number };
   auth?: { token?: string };
   transport?: string;
   obfuscation?: {
@@ -32,8 +32,6 @@ export interface ClientConfig {
   headers_profile?: string;
   keepalive_jitter_pct?: number;
   reconnect_jitter_pct?: number;
-  // @sk-task fallback-auth-stealth#T3.1: Bearer stealth path and legacy fallback (AC-006)
-  stealth?: { enabled?: boolean; path?: string; legacy_path?: string };
   multi_channel?: boolean;
   // @sk-task quic-datagrams#T4.3: QUIC datagrams for real-time UDP (AC-001)
   udp_datagrams?: boolean;
@@ -77,10 +75,10 @@ export interface ServerEntry {
   server?: string;
   // @sk-task kvn-v2-transport#T3.1: v1/v2 engine selector and v2 TUN fields (AC-005)
   protocol?: string;
-  tun_address?: string;
-  tun_gateway?: string;
   quic_enabled?: boolean;
   quic_endpoint?: string;
+  utls?: { enabled?: boolean; profiles?: string[]; profile?: string; fallback?: boolean };
+  stealth?: { enabled?: boolean; path?: string; padding?: boolean; padding_mode?: string; padding_size?: number };
   auth?: { token?: string };
   transport?: string;
   [key: string]: any;
@@ -94,6 +92,7 @@ export interface ServersResponse {
 // @sk-task win-tun#T5.2: PlatformResponse type with tun_supported (AC-011)
 export interface PlatformResponse {
   os: string;
+  v2_only?: boolean;
   transparent_supported: boolean;
   tun_supported?: boolean;
 }

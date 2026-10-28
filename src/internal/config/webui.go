@@ -61,6 +61,28 @@ func LoadWebUIConfig(path string) (*WebUIConfig, error) {
 	return cfg, nil
 }
 
+// LoadWebUIConfigOptional loads a WebUIConfig without creating the default
+// v1 server when the file is missing. Used by the isolated v2 web UI store.
+func LoadWebUIConfigOptional(path string) (*WebUIConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return &WebUIConfig{}, nil
+		}
+		return nil, fmt.Errorf("read webui config %s: %w", path, err)
+	}
+
+	cfg := &WebUIConfig{}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("parse webui config %s: %w", path, err)
+	}
+	if cfg.ActiveServer == "" && len(cfg.Servers) > 0 {
+		cfg.ActiveServer = cfg.Servers[0].Name
+	}
+	migrateDNSCompatYAML(data, cfg)
+	return cfg, nil
+}
+
 // @sk-task multi-server#T1.1: SaveWebUIConfig (AC-001)
 func SaveWebUIConfig(path string, cfg *WebUIConfig) error {
 	dir := filepath.Dir(path)

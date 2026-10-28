@@ -75,8 +75,8 @@ func TestListServersEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	servers := resp["servers"].([]any)
-	if len(servers) == 0 {
-		t.Fatal("expected at least 1 server (migration)")
+	if len(servers) != 0 {
+		t.Fatalf("expected empty v2 server list, got %d", len(servers))
 	}
 }
 
@@ -229,8 +229,9 @@ func TestDeleteServer(t *testing.T) {
 	mux.HandleFunc("DELETE /api/servers/{name}", s.handleDeleteServer)
 	mux.HandleFunc("GET /api/servers", s.handleListServers)
 
-	// Create an additional server (Default is auto-migrated, so 2 total)
+	// Create two servers so the last-server guard does not reject the delete.
 	doRequest(t, mux, "POST", "/api/servers", map[string]any{"name": "Extra"})
+	doRequest(t, mux, "POST", "/api/servers", map[string]any{"name": "Keep"})
 
 	// Delete Extra
 	w := doRequest(t, mux, "DELETE", "/api/servers/Extra", nil)
@@ -478,15 +479,5 @@ func TestMergeConfigStealthSurface(t *testing.T) {
 	}
 	if merged.KeepaliveJitterPct != 10 || merged.ReconnectJitterPct != 15 {
 		t.Fatalf("jitter = %d/%d", merged.KeepaliveJitterPct, merged.ReconnectJitterPct)
-	}
-}
-
-// @sk-test kvn-v2-transport#T3.2: per-server protocol and TUN fields merge (AC-005)
-func TestMergeConfigV2Protocol(t *testing.T) {
-	global := config.ClientConfig{Protocol: "v1", TUNAddress: "10.66.0.2/24"}
-	server := config.ClientConfig{Protocol: "v2", TUNAddress: "10.77.0.2/24", TUNGateway: "10.77.0.1"}
-	merged := mergeConfig(&global, &server)
-	if merged.Protocol != "v2" || merged.TUNAddress != "10.77.0.2/24" || merged.TUNGateway != "10.77.0.1" {
-		t.Fatalf("v2 merge = %+v", merged)
 	}
 }

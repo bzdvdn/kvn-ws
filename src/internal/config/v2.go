@@ -1,14 +1,28 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
+
+	"github.com/bzdvdn/kvn-ws/src/internal/tunpool"
 
 	"github.com/spf13/viper"
 )
 
 // @sk-task kvn-v2-transport#T1.1: v2 server config schema (AC-001, AC-007)
+type TUNConfig struct {
+	Subnet      string `mapstructure:"subnet"`
+	RangeStart  string `mapstructure:"range_start"`
+	RangeEnd    string `mapstructure:"range_end"`
+	Gateway     string `mapstructure:"gateway"`
+	LeaseTTLSec int    `mapstructure:"lease_ttl_sec"`
+	LeaseFile   string `mapstructure:"lease_file"`
+}
+
 type V2ServerConfig struct {
 	Listen     string      `mapstructure:"listen"`
 	TLS        TLSCfg      `mapstructure:"tls"`
@@ -16,6 +30,7 @@ type V2ServerConfig struct {
 	Fallback   FallbackCfg `mapstructure:"fallback"`
 	MaxStreams int         `mapstructure:"max_streams"`
 	QuicListen string      `mapstructure:"quic_listen"`
+	TUN        TUNConfig   `mapstructure:"tun"`
 }
 
 // @sk-task kvn-v2-transport#T1.1: v2 client multi-server entries (AC-005, AC-007)
@@ -25,13 +40,29 @@ type V2ServerEntry struct {
 	Token    string `json:"token" mapstructure:"token"`
 }
 
+// UTLSConfig controls the browser TLS fingerprint used by the v2 client.
+type UTLSConfig struct {
+	Enabled  *bool    `json:"enabled,omitempty" yaml:"enabled,omitempty" mapstructure:"enabled"`
+	Profiles []string `json:"profiles,omitempty" yaml:"profiles,omitempty" mapstructure:"profiles"`
+	Profile  string   `json:"profile,omitempty" yaml:"profile,omitempty" mapstructure:"profile"`
+	Fallback *bool    `json:"fallback,omitempty" yaml:"fallback,omitempty" mapstructure:"fallback"`
+}
+
+// V2StealthConfig controls the browser-like v2 HTTP surface and padding.
+type V2StealthConfig struct {
+	Enabled     *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty" mapstructure:"enabled"`
+	Path        string `json:"path,omitempty" yaml:"path,omitempty" mapstructure:"path"`
+	Padding     *bool  `json:"padding,omitempty" yaml:"padding,omitempty" mapstructure:"padding"`
+	PaddingMode string `json:"padding_mode,omitempty" yaml:"padding_mode,omitempty" mapstructure:"padding_mode"`
+	PaddingSize int    `json:"padding_size,omitempty" yaml:"padding_size,omitempty" mapstructure:"padding_size"`
+}
+
 type V2ClientConfig struct {
 	ActiveServer  string          `json:"active_server" mapstructure:"active_server"`
+	ClientID      string          `json:"client_id,omitempty" mapstructure:"client_id"`
 	Servers       []V2ServerEntry `json:"servers" mapstructure:"servers"`
 	MTU           int             `json:"mtu" mapstructure:"mtu"`
 	Mode          string          `json:"mode" mapstructure:"mode"`
-	TUNAddress    string          `json:"tun_address,omitempty" mapstructure:"tun_address"`
-	TUNGateway    string          `json:"tun_gateway,omitempty" mapstructure:"tun_gateway"`
 	QuicEnabled   bool            `json:"quic_enabled,omitempty" mapstructure:"quic_enabled"`
 	QuicEndpoint  string          `json:"quic_endpoint,omitempty" mapstructure:"quic_endpoint"`
 	IPv6          bool            `json:"ipv6" mapstructure:"ipv6"`
@@ -39,11 +70,13 @@ type V2ClientConfig struct {
 	ProxyListen   string          `json:"proxy_listen,omitempty" mapstructure:"proxy_listen"`
 	ProxyAuth     *ProxyAuthCfg   `json:"proxy_auth,omitempty" mapstructure:"proxy_auth"`
 	// @sk-task kvn-v2-transport#T3.2: advanced settings stay first-class (AC-005)
-	Routing   *RoutingCfg   `json:"routing,omitempty" mapstructure:"routing"`
-	DNSProxy  DNSProxyCfg   `json:"dns_proxy,omitempty" mapstructure:"dns_proxy"`
-	TLS       ClientTLSCfg  `json:"tls,omitempty" mapstructure:"tls"`
-	Reconnect *ReconnectCfg `json:"reconnect,omitempty" mapstructure:"reconnect"`
-	Log       LogConfig     `json:"log,omitempty" mapstructure:"log"`
+	Routing   *RoutingCfg     `json:"routing,omitempty" mapstructure:"routing"`
+	DNSProxy  DNSProxyCfg     `json:"dns_proxy,omitempty" mapstructure:"dns_proxy"`
+	TLS       ClientTLSCfg    `json:"tls,omitempty" mapstructure:"tls"`
+	Reconnect *ReconnectCfg   `json:"reconnect,omitempty" mapstructure:"reconnect"`
+	Log       LogConfig       `json:"log,omitempty" mapstructure:"log"`
+	UTLS      UTLSConfig      `json:"utls,omitempty" mapstructure:"utls"`
+	Stealth   V2StealthConfig `json:"stealth,omitempty" mapstructure:"stealth"`
 }
 
 // @sk-task kvn-v2-transport#T1.1: safe v2 defaults; stealth is always on (AC-003)
@@ -84,12 +117,40 @@ func (c *V2ServerConfig) Validate() error {
 			return fmt.Errorf("v2 server fallback.upstream must be an http(s) URL")
 		}
 	}
+	if err := validateTUN(c.TUN); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateTUN(t TUNConfig) error {
+	_, err := tunpool.New(tunpool.Config{
+		Subnet: t.Subnet, RangeStart: t.RangeStart, RangeEnd: t.RangeEnd,
+		Gateway: t.Gateway, LeaseTTLSec: t.LeaseTTLSec, LeaseFile: t.LeaseFile,
+	})
+	return err
 }
 
 // @sk-task kvn-v2-transport#T1.1: v2 client defaults and validation (AC-005, AC-007)
 func DefaultV2ClientConfig() V2ClientConfig {
-	return V2ClientConfig{MTU: 1200, Mode: "tun"}
+	enabled := true
+	fallback := true
+	return V2ClientConfig{
+		MTU:  1200,
+		Mode: "tun",
+		UTLS: UTLSConfig{
+			Enabled:  &enabled,
+			Profiles: []string{"chrome", "firefox", "safari"},
+			Profile:  "chrome",
+			Fallback: &fallback,
+		},
+		Stealth: V2StealthConfig{
+			Enabled:     &enabled,
+			Padding:     &enabled,
+			PaddingMode: "adaptive",
+			PaddingSize: 64,
+		},
+	}
 }
 
 func (c *V2ClientConfig) ApplyDefaults() {
@@ -99,12 +160,6 @@ func (c *V2ClientConfig) ApplyDefaults() {
 	}
 	if c.Mode == "" {
 		c.Mode = d.Mode
-	}
-	if c.TUNAddress == "" {
-		c.TUNAddress = "10.66.0.2/24"
-	}
-	if c.TUNGateway == "" {
-		c.TUNGateway = "10.66.0.1"
 	}
 	if c.ActiveServer == "" && len(c.Servers) > 0 {
 		c.ActiveServer = c.Servers[0].Name
@@ -128,11 +183,62 @@ func (c *V2ClientConfig) ApplyDefaults() {
 	if c.TLS.VerifyMode == "" {
 		c.TLS.VerifyMode = "verify"
 	}
+	if c.ClientID == "" {
+		c.ClientID = NewClientID()
+	}
+	c.UTLS.ApplyDefaults()
+	c.Stealth.ApplyDefaults()
+}
+
+// ApplyDefaults fills the browser/stealth profile defaults.
+func (c *UTLSConfig) ApplyDefaults() {
+	enabled := true
+	fallback := true
+	if c.Enabled == nil {
+		c.Enabled = &enabled
+	}
+	if c.Fallback == nil {
+		c.Fallback = &fallback
+	}
+	if len(c.Profiles) == 0 {
+		c.Profiles = []string{"chrome", "firefox", "safari"}
+	}
+	if c.Profile == "" {
+		c.Profile = "chrome"
+	}
+}
+
+// ApplyDefaults fills the v2 HTTP surface defaults.
+func (c *V2StealthConfig) ApplyDefaults() {
+	enabled := true
+	if c.Enabled == nil {
+		c.Enabled = &enabled
+	}
+	if c.Padding == nil {
+		c.Padding = &enabled
+	}
+	if c.PaddingMode == "" {
+		c.PaddingMode = "adaptive"
+	}
+	if c.PaddingSize <= 0 {
+		c.PaddingSize = 64
+	}
+}
+
+func NewClientID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b)
 }
 
 func (c *V2ClientConfig) Validate() error {
 	if len(c.Servers) == 0 {
 		return fmt.Errorf("v2 client servers is required")
+	}
+	if c.ClientID == "" {
+		return fmt.Errorf("v2 client client_id is required")
 	}
 	names := make(map[string]struct{}, len(c.Servers))
 	for i, s := range c.Servers {
@@ -153,6 +259,18 @@ func (c *V2ClientConfig) Validate() error {
 	}
 	if _, ok := names[c.ActiveServer]; !ok {
 		return fmt.Errorf("v2 client active_server %q not found", c.ActiveServer)
+	}
+	allowedProfiles := map[string]struct{}{"chrome": {}, "firefox": {}, "safari": {}}
+	for _, profile := range c.UTLS.Profiles {
+		if _, ok := allowedProfiles[profile]; !ok {
+			return fmt.Errorf("v2 client unsupported utls profile %q", profile)
+		}
+	}
+	if _, ok := allowedProfiles[c.UTLS.Profile]; !ok {
+		return fmt.Errorf("v2 client unsupported utls profile %q", c.UTLS.Profile)
+	}
+	if c.Stealth.Path != "" && !strings.HasPrefix(c.Stealth.Path, "/") {
+		return fmt.Errorf("v2 client stealth.path must start with /")
 	}
 	return nil
 }
@@ -175,6 +293,24 @@ func LoadV2ServerConfig(path string) (*V2ServerConfig, error) {
 	return cfg, nil
 }
 
+// @sk-task v2-tun-assignment#T2.1: persist generated client id outside portable QR/JSON
+func EnsureClientID(path string, configured string) string {
+	if configured != "" {
+		return configured
+	}
+	sidecar := path + ".client_id"
+	if data, err := os.ReadFile(sidecar); err == nil {
+		if id := strings.TrimSpace(string(data)); id != "" {
+			return id
+		}
+	}
+	id := NewClientID()
+	if id != "" {
+		_ = os.WriteFile(sidecar, []byte(id+"\n"), 0o600)
+	}
+	return id
+}
+
 // @sk-task kvn-v2-transport#T1.1: load v2 client config (AC-005)
 func LoadV2ClientConfig(path string) (*V2ClientConfig, error) {
 	v := viper.New()
@@ -186,6 +322,7 @@ func LoadV2ClientConfig(path string) (*V2ClientConfig, error) {
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal v2 client config: %w", err)
 	}
+	cfg.ClientID = EnsureClientID(path, cfg.ClientID)
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err

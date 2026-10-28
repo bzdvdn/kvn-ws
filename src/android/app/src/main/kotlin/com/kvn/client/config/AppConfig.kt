@@ -25,7 +25,7 @@ data class ConnectionConfig(
     // Connection
     val serverAddress: String = "",
     val port: Int = 443,
-    val serverPath: String = "/kvn",
+    val serverPath: String = "",
     val token: String = "",
     val mode: String = "tun",
     val transport: String = "tcp",

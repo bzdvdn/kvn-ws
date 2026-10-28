@@ -8,6 +8,7 @@ interface TabbedFormProps {
   globalConfig: ClientConfig;
   serverName: string;
   tunSupported: boolean;
+  v2Only?: boolean;
   onServerNameChange: (name: string) => void;
   onUpdateServer: (key: string, val: any) => void;
   onNestServer: (parent: string, key: string, val: any) => void;
@@ -229,22 +230,22 @@ export default function TabbedForm(props: TabbedFormProps) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <div style={fieldStyle()}>
           <span style={labelStyle()}>Protocol</span>
-          <select style={selectStyle} value={serverConfig.protocol || "v1"} onChange={(e) => { props.onUpdateServer("protocol", e.target.value); if (e.target.value === "v2" && (!serverConfig.mode || serverConfig.mode === "proxy")) props.onUpdateServer("mode", "tun"); }}>
-            <option value="v1">v1 (legacy)</option>
-            <option value="v2">v2 (HTTP/2 + TUN)</option>
-          </select>
+          {props.v2Only ? (
+            <div style={{ ...inputStyle, color: colors.textDim }}>v2 (HTTP/2 + TUN)</div>
+          ) : (
+            <select style={selectStyle} value={serverConfig.protocol || "v1"} onChange={(e) => { props.onUpdateServer("protocol", e.target.value); if (e.target.value === "v2" && (!serverConfig.mode || serverConfig.mode === "proxy")) props.onUpdateServer("mode", "tun"); }}>
+              <option value="v1">v1 (legacy)</option>
+              <option value="v2">v2 (HTTP/2 + TUN)</option>
+            </select>
+          )}
         </div>
         <div style={fieldStyle()}>
-          <span style={labelStyle()}>TUN Address (v2)</span>
-          <input style={inputStyle} value={serverConfig.tun_address || "10.66.0.2/24"} onChange={(e) => props.onUpdateServer("tun_address", e.target.value)} placeholder="10.66.0.2/24" />
+          <span style={labelStyle()}>TUN assignment</span>
+          <div style={{ ...inputStyle, color: colors.textDim }}>Assigned by server</div>
         </div>
       </div>
-      {serverConfig.protocol === "v2" && (
+      {(props.v2Only || serverConfig.protocol === "v2") && (
         <>
-          <div style={fieldStyle()}>
-            <span style={labelStyle()}>TUN Gateway (v2)</span>
-            <input style={inputStyle} value={serverConfig.tun_gateway || "10.66.0.1"} onChange={(e) => props.onUpdateServer("tun_gateway", e.target.value)} placeholder="10.66.0.1" />
-          </div>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer" }}>
             <input type="checkbox" checked={serverConfig.quic_enabled ?? false} onChange={(e) => props.onUpdateServer("quic_enabled", e.target.checked)} />
             QUIC datagrams for UDP (optional)
@@ -255,6 +256,30 @@ export default function TabbedForm(props: TabbedFormProps) {
               <input style={inputStyle} value={serverConfig.quic_endpoint || ""} onChange={(e) => props.onUpdateServer("quic_endpoint", e.target.value)} placeholder="host:8443 (default: server:443)" />
             </div>
           )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>uTLS profile</span>
+              <select style={selectStyle} value={serverConfig.utls?.profile || "chrome"} onChange={(e) => props.onNestServer("utls", "profile", e.target.value)}>
+                <option value="chrome">Chrome</option>
+                <option value="firefox">Firefox</option>
+                <option value="safari">Safari</option>
+              </select>
+            </div>
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>Stealth path</span>
+              <input style={inputStyle} value={serverConfig.stealth?.path || "/"} onChange={(e) => props.onNestServer("stealth", "path", e.target.value)} placeholder="/" />
+            </div>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer" }}>
+            <input type="checkbox" checked={serverConfig.stealth?.padding ?? true} onChange={(e) => props.onNestServer("stealth", "padding", e.target.checked)} />
+            Adaptive padding for small/control packets
+          </label>
+          {(serverConfig.stealth?.padding ?? true) && (
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>Padding size (bytes)</span>
+              <input style={inputStyle} type="number" min={0} max={4096} value={serverConfig.stealth?.padding_size ?? 64} onChange={(e) => props.onNestServer("stealth", "padding_size", parseInt(e.target.value) || 64)} />
+            </div>
+          )}
         </>
       )}
       <FormField label="Server URL" error={errors.serverUrl}>
@@ -263,7 +288,7 @@ export default function TabbedForm(props: TabbedFormProps) {
           value={serverConfig.server || ""}
           onChange={(e) => { props.onUpdateServer("server", e.target.value); validate("serverUrl", e.target.value, [rules.wsUrl()]); }}
           onBlur={(e) => validate("serverUrl", e.target.value, [rules.wsUrl()], true)}
-          placeholder="wss://host/path or https://host"
+          placeholder={props.v2Only ? "https://host" : "wss://host/path or https://host"}
         />
       </FormField>
       <div style={fieldStyle()}>
@@ -282,30 +307,36 @@ export default function TabbedForm(props: TabbedFormProps) {
             <option value="proxy">Proxy</option>
           </select>
         </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Transport</span>
-          <select style={selectStyle} value={serverConfig.transport || "websocket"} onChange={(e) => props.onUpdateServer("transport", e.target.value)}>
-            <option value="websocket">WebSocket</option>
-            <option value="quic">QUIC</option>
-            <option value="tcp">TCP</option>
-          </select>
-        </div>
+        {!props.v2Only && (
+          <div style={fieldStyle()}>
+            <span style={labelStyle()}>Transport</span>
+            <select style={selectStyle} value={serverConfig.transport || "websocket"} onChange={(e) => props.onUpdateServer("transport", e.target.value)}>
+              <option value="websocket">WebSocket</option>
+              <option value="quic">QUIC</option>
+              <option value="tcp">TCP</option>
+            </select>
+          </div>
+        )}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <div style={fieldStyle()}>
           <span style={labelStyle()}>MTU</span>
           <input style={inputStyle} type="number" value={serverConfig.mtu ?? 1400} onChange={(e) => props.onUpdateServer("mtu", parseInt(e.target.value) || 1400)} />
         </div>
+        {!props.v2Only && (
+          <div style={fieldStyle()}>
+            <span style={labelStyle()}>Max Message Size</span>
+            <input style={inputStyle} type="number" value={serverConfig.max_message_size ?? 10485760} onChange={(e) => props.onUpdateServer("max_message_size", parseInt(e.target.value) || 10485760)} />
+          </div>
+        )}
+      </div>
+      {!props.v2Only && (
         <div style={fieldStyle()}>
-          <span style={labelStyle()}>Max Message Size</span>
-          <input style={inputStyle} type="number" value={serverConfig.max_message_size ?? 10485760} onChange={(e) => props.onUpdateServer("max_message_size", parseInt(e.target.value) || 10485760)} />
+          <span style={labelStyle()}>Keepalive (seconds)</span>
+          <input style={inputStyle} type="number" value={serverConfig.tunnel_timeout || 30} onChange={(e) => props.onUpdateServer("tunnel_timeout", parseInt(e.target.value) || 30)}
+            placeholder="30" />
         </div>
-      </div>
-      <div style={fieldStyle()}>
-        <span style={labelStyle()}>Keepalive (seconds)</span>
-        <input style={inputStyle} type="number" value={serverConfig.tunnel_timeout || 30} onChange={(e) => props.onUpdateServer("tunnel_timeout", parseInt(e.target.value) || 30)}
-          placeholder="30" />
-      </div>
+      )}
       {/* @sk-task webui-log-level-per-server#T1.1: per-server log level (AC-003) */}
       <div style={fieldStyle()}>
         <span style={labelStyle()}>Log Level</span>
@@ -337,10 +368,12 @@ export default function TabbedForm(props: TabbedFormProps) {
         <span style={labelStyle()}>CA File</span>
         <input style={inputStyle} value={serverConfig.tls?.ca_file || ""} onChange={(e) => props.onNestServer("tls", "ca_file", e.target.value)} placeholder="/path/to/ca.pem" />
       </div>
-      <div style={fieldStyle()}>
-        <span style={labelStyle()}>Custom SNI Domains</span>
-        <input style={inputStyle} value={(serverConfig.tls?.sni || []).join(", ")} onChange={(e) => props.onNestServer("tls", "sni", e.target.value.split(",").map(s => s.trim()).filter(Boolean))} placeholder="domain.com, example.org" />
-      </div>
+      {!props.v2Only && (
+        <div style={fieldStyle()}>
+          <span style={labelStyle()}>Custom SNI Domains</span>
+          <input style={inputStyle} value={(serverConfig.tls?.sni || []).join(", ")} onChange={(e) => props.onNestServer("tls", "sni", e.target.value.split(",").map(s => s.trim()).filter(Boolean))} placeholder="domain.com, example.org" />
+        </div>
+      )}
     </>
   );
 
@@ -573,10 +606,6 @@ export default function TabbedForm(props: TabbedFormProps) {
           <span style={labelStyle()}>Stealth Path</span>
           <input style={inputStyle} placeholder="/api/v1/telemetry" value={serverConfig.stealth?.path ?? ""} onChange={(e) => props.onNestServer("stealth", "path", e.target.value)} />
         </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Legacy Path</span>
-          <input style={inputStyle} placeholder="/api/v1/events" value={serverConfig.stealth?.legacy_path ?? ""} onChange={(e) => props.onNestServer("stealth", "legacy_path", e.target.value)} />
-        </div>
       </div>
 
       {serverConfig.obfuscation?.enabled && (
@@ -661,87 +690,90 @@ export default function TabbedForm(props: TabbedFormProps) {
           <input style={inputStyle} type="password" placeholder="(optional)" value={globalConfig.proxy_auth?.password || ""} onChange={(e) => props.onNestGlobal("proxy_auth", "password", e.target.value)} />
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 4 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
-          <input type="checkbox" checked={!!globalConfig.system_proxy} onChange={(e) => props.onUpdateGlobal("system_proxy", e.target.checked)} style={{ accentColor: colors.accent }} />
-          <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>System Proxy</div><div style={{ fontSize: 10, color: colors.textDim }}>Set OS proxy settings</div></div>
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
-          <input type="checkbox" checked={!!globalConfig.transparent} onChange={(e) => props.onUpdateGlobal("transparent", e.target.checked)} style={{ accentColor: colors.accent }} />
-          <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>Transparent Proxy</div><div style={{ fontSize: 10, color: colors.textDim }}>iptables redirect (Linux)</div></div>
-        </label>
-      </div>
+      {!props.v2Only && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 4 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
+            <input type="checkbox" checked={!!globalConfig.system_proxy} onChange={(e) => props.onUpdateGlobal("system_proxy", e.target.checked)} style={{ accentColor: colors.accent }} />
+            <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>System Proxy</div><div style={{ fontSize: 10, color: colors.textDim }}>Set OS proxy settings</div></div>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
+            <input type="checkbox" checked={!!globalConfig.transparent} onChange={(e) => props.onUpdateGlobal("transparent", e.target.checked)} style={{ accentColor: colors.accent }} />
+            <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>Transparent Proxy</div><div style={{ fontSize: 10, color: colors.textDim }}>iptables redirect (Linux)</div></div>
+          </label>
+        </div>
+      )}
 
-      <div style={subTitleStyle}>Features</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
-          <input type="checkbox" checked={!!globalConfig.multi_channel} onChange={(e) => props.onUpdateGlobal("multi_channel", e.target.checked)} style={{ accentColor: colors.accent }} />
-          <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>Dual Channel</div><div style={{ fontSize: 10, color: colors.textDim }}>UDP on 2nd WS channel (VoIP/media)</div></div>
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
-          <input type="checkbox" checked={globalConfig.udp_datagrams ?? true} onChange={(e) => props.onUpdateGlobal("udp_datagrams", e.target.checked)} style={{ accentColor: colors.accent }} />
-          <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>UDP Datagrams</div><div style={{ fontSize: 10, color: colors.textDim }}>QUIC unreliable UDP (games/VoIP)</div></div>
-        </label>
-      </div>
-      <div style={fieldStyle()}>
-        {/* @sk-task ws-media-queue-backpressure#T4.2: global secondary batching hold (AC-001) */}
-        <span style={labelStyle()}>Secondary Batch Hold (ms)</span>
-        <input
-          style={inputStyle}
-          type="number"
-          min={0}
-          max={10}
-          value={globalConfig.secondary_batch_hold_ms ?? 2}
-          onChange={(e) => {
-            const v = parseInt(e.target.value, 10);
-            props.onUpdateGlobal("secondary_batch_hold_ms", Number.isNaN(v) ? 2 : Math.max(0, Math.min(10, v)));
-          }}
-        />
-        <span style={{ fontSize: 10, color: colors.textDim }}>UDP coalescing on secondary; 0 = immediate, max 10</span>
-      </div>
+      {!props.v2Only && (
+        <>
+          <div style={subTitleStyle}>Features</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!globalConfig.multi_channel} onChange={(e) => props.onUpdateGlobal("multi_channel", e.target.checked)} style={{ accentColor: colors.accent }} />
+              <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>Dual Channel</div><div style={{ fontSize: 10, color: colors.textDim }}>UDP on 2nd WS channel (VoIP/media)</div></div>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: colors.cardBg, borderRadius: borderRadius.md, border: `1px solid #1a1a2a`, cursor: "pointer" }}>
+              <input type="checkbox" checked={globalConfig.udp_datagrams ?? true} onChange={(e) => props.onUpdateGlobal("udp_datagrams", e.target.checked)} style={{ accentColor: colors.accent }} />
+              <div><div style={{ fontSize: 12, fontWeight: 600, color: colors.text }}>UDP Datagrams</div><div style={{ fontSize: 10, color: colors.textDim }}>QUIC unreliable UDP (games/VoIP)</div></div>
+            </label>
+          </div>
+          <div style={fieldStyle()}>
+            {/* @sk-task ws-media-queue-backpressure#T4.2: global secondary batching hold (AC-001) */}
+            <span style={labelStyle()}>Secondary Batch Hold (ms)</span>
+            <input
+              style={inputStyle}
+              type="number"
+              min={0}
+              max={10}
+              value={globalConfig.secondary_batch_hold_ms ?? 2}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                props.onUpdateGlobal("secondary_batch_hold_ms", Number.isNaN(v) ? 2 : Math.max(0, Math.min(10, v)));
+              }}
+            />
+            <span style={{ fontSize: 10, color: colors.textDim }}>UDP coalescing on secondary; 0 = immediate, max 10</span>
+          </div>
 
-      {/* @sk-task stealth-surface-hardening#T4.1: global surface aliases and jitter (AC-005, AC-006, AC-010) */}
-      <div style={subTitleStyle}>Stealth Surface</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Multiplex Subprotocols</span>
-          <input
-            style={inputStyle}
-            value={(globalConfig.multiplex_subprotocols ?? ["kvn-ws-mux"]).join(", ")}
-            onChange={(e) => props.onUpdateGlobal("multiplex_subprotocols", e.target.value.split(",").map((v) => v.trim()).filter(Boolean))}
-          />
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Headers Profile</span>
-          <select style={inputStyle} value={globalConfig.headers_profile ?? "legacy"} onChange={(e) => props.onUpdateGlobal("headers_profile", e.target.value)}>
-            <option value="legacy">legacy</option>
-            <option value="browser">browser</option>
-          </select>
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Keepalive Jitter %</span>
-          <input style={inputStyle} type="number" min={0} max={50} value={globalConfig.keepalive_jitter_pct ?? 0} onChange={(e) => props.onUpdateGlobal("keepalive_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Reconnect Jitter %</span>
-          <input style={inputStyle} type="number" min={0} max={50} value={globalConfig.reconnect_jitter_pct ?? 0} onChange={(e) => props.onUpdateGlobal("reconnect_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
-        </div>
-      </div>
-      {/* @sk-task fallback-auth-stealth#T3.1: global stealth path settings (AC-006) */}
-      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer", marginTop: 4 }}>
-        <input type="checkbox" checked={globalConfig.stealth?.enabled ?? false} onChange={(e) => props.onNestGlobal("stealth", "enabled", e.target.checked)} />
-        Stealth path (Bearer before upgrade)
-      </label>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Stealth Path</span>
-          <input style={inputStyle} placeholder="/api/v1/telemetry" value={globalConfig.stealth?.path ?? ""} onChange={(e) => props.onNestGlobal("stealth", "path", e.target.value)} />
-        </div>
-        <div style={fieldStyle()}>
-          <span style={labelStyle()}>Legacy Path</span>
-          <input style={inputStyle} placeholder="/api/v1/events" value={globalConfig.stealth?.legacy_path ?? ""} onChange={(e) => props.onNestGlobal("stealth", "legacy_path", e.target.value)} />
-        </div>
-      </div>
+          {/* @sk-task stealth-surface-hardening#T4.1: global surface aliases and jitter (AC-005, AC-006, AC-010) */}
+          <div style={subTitleStyle}>Stealth Surface</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>Multiplex Subprotocols</span>
+              <input
+                style={inputStyle}
+                value={(globalConfig.multiplex_subprotocols ?? ["kvn-ws-mux"]).join(", ")}
+                onChange={(e) => props.onUpdateGlobal("multiplex_subprotocols", e.target.value.split(",").map((v) => v.trim()).filter(Boolean))}
+              />
+            </div>
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>Headers Profile</span>
+              <select style={inputStyle} value={globalConfig.headers_profile ?? "legacy"} onChange={(e) => props.onUpdateGlobal("headers_profile", e.target.value)}>
+                <option value="legacy">legacy</option>
+                <option value="browser">browser</option>
+              </select>
+            </div>
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>Keepalive Jitter %</span>
+              <input style={inputStyle} type="number" min={0} max={50} value={globalConfig.keepalive_jitter_pct ?? 0} onChange={(e) => props.onUpdateGlobal("keepalive_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
+            </div>
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>Reconnect Jitter %</span>
+              <input style={inputStyle} type="number" min={0} max={50} value={globalConfig.reconnect_jitter_pct ?? 0} onChange={(e) => props.onUpdateGlobal("reconnect_jitter_pct", Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))} />
+            </div>
+          </div>
+          {/* @sk-task fallback-auth-stealth#T3.1: global stealth path settings (AC-006) */}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.text, cursor: "pointer", marginTop: 4 }}>
+            <input type="checkbox" checked={globalConfig.stealth?.enabled ?? false} onChange={(e) => props.onNestGlobal("stealth", "enabled", e.target.checked)} />
+            Stealth path (Bearer before upgrade)
+          </label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={fieldStyle()}>
+              <span style={labelStyle()}>Stealth Path</span>
+              <input style={inputStyle} placeholder="/api/v1/telemetry" value={globalConfig.stealth?.path ?? ""} onChange={(e) => props.onNestGlobal("stealth", "path", e.target.value)} />
+            </div>
+          </div>
+
+        </>
+      )}
 
       <div style={subTitleStyle}>DNS</div>
       <div style={fieldStyle()}>
@@ -773,12 +805,15 @@ export default function TabbedForm(props: TabbedFormProps) {
     </>
   );
 
-  const tabContent = [renderGeneral, renderTLS, renderRouting, renderAdvanced, renderGlobal];
+  const tabs = props.v2Only ? ["General", "TLS", "Routing", "Global"] : TABS;
+  const tabContent = props.v2Only
+    ? [renderGeneral, renderTLS, renderRouting, renderGlobal]
+    : [renderGeneral, renderTLS, renderRouting, renderAdvanced, renderGlobal];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div style={tabBarStyle}>
-        {TABS.map((name, i) => (
+        {tabs.map((name, i) => (
           <div key={name} style={tabStyle(i === activeTab)} onClick={() => setActiveTab(i)}
             onMouseEnter={(e) => { if (i !== activeTab) e.currentTarget.style.background = colors.cardBg; }}
             onMouseLeave={(e) => { if (i !== activeTab) e.currentTarget.style.background = "none"; }}

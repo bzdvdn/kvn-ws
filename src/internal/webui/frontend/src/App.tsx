@@ -67,7 +67,7 @@ function AppInner() {
   const {
     servers, activeServer, connectedServer, serverConfig, globalConfig, status, logs, metrics, latestMetric,
     dirty, saving, toast, connect, disconnect, saveAll, addServer, deleteServer, selectServer,
-    exportConfig, doImport, showToast, setFormValid, serverName, setServerName, tunSupported,
+    exportConfig, doImport, showToast, setFormValid, serverName, setServerName, tunSupported, v2Only,
     updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
     addSourceRule, removeSourceRule, updateSourceRule, refreshSources,
     addRoutingString, removeRoutingString,
@@ -215,6 +215,7 @@ function AppInner() {
             globalConfig={globalConfig}
             serverName={serverName}
             tunSupported={tunSupported}
+            v2Only={v2Only}
             onServerNameChange={setServerName}
             onUpdateServer={updateServer}
             onNestServer={nestServer}

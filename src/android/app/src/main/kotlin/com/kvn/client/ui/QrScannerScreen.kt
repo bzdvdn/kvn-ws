@@ -612,7 +612,7 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
     return ConnectionConfig(
         serverAddress = host,
         port = port,
-        serverPath = path,
+        serverPath = "",
         transport = transport,
         token = web.auth?.token ?: "",
         mode = web.mode,
