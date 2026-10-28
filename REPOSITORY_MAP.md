@@ -50,6 +50,9 @@ v2-only Go backend/CLI under `src/`; Android/Kotlin v2 client under `src/android
 - `.github/workflows/ci.yml` — Go/Android/desktop CI/release.
 - `docs/ru|en/v2.md` — v2 usage/config.
 - `docs/ru|en/v1-legacy.md` — old v1 releases only.
+- `docs/ru|en/v2-release.md` — release checklist.
+- `docs/ru|en/v2-testers.md` — tester smoke checklist.
+- `ROADMAP.md` — 2.x DPI/cover/multi-server roadmap.
 - `docs/ru|en/v2-dpi-report.md` — DPI evidence.
 - `CHANGELOG.md`, `README.md` — 2.0 release.
 

@@ -8,7 +8,7 @@
 - `kvn-client` — standalone v2-клиент (TUN/proxy).
 - `kvn-web` — v2-only web UI; конфиг в `~/.config/kvn/config.yaml`.
 - `kvn-desktop` — нативный wrapper для `kvn-web`.
-- Android-клиент — переводится на v2 в рамках 2.0.0.
+- Android-клиент `kvn-v2-client` — v2 VpnService на общем Go core.
 
 ## Быстрый старт
 
@@ -52,6 +52,7 @@ sudo ./bin/kvn-client --config configs/client.yaml
 - [v1 legacy: скачать и запустить старый релиз](docs/ru/v1-legacy.md) · [EN](docs/en/v1-legacy.md)
 - [Release checklist 2.0.0](docs/ru/v2-release.md) · [EN](docs/en/v2-release.md)
 - [DPI lab report](docs/ru/v2-dpi-report.md) · [EN](docs/en/v2-dpi-report.md)
+- [Roadmap](ROADMAP.md)
 - [CHANGELOG](CHANGELOG.md)
 
 v1 не поддерживается в 2.0.0. Для v1 используйте старый release и его документацию из тега `v1.4.1`.
