@@ -1,0 +1,2509 @@
+{
+  "version": 1,
+  "slug": "v2-standard",
+  "base_sha": "bbb8b5672ea226288875971a029fa2f4e3d14d55",
+  "head_sha": "5f5b9ecbe85460dfe9d5ea331fe0091bdc663d6c",
+  "base_branch": "master",
+  "base_source": "inferred",
+  "source": "git",
+  "generated_at": "2026-10-28T23:03:26Z",
+  "dirty": true,
+  "commits": [
+    {
+      "sha": "5f5b9ecbe85460dfe9d5ea331fe0091bdc663d6c",
+      "subject": "docs(v2): close field DPI gate in user network"
+    },
+    {
+      "sha": "eda0ce73df0a7e490cab2a4da29742d61faa1c44",
+      "subject": "feat(v2): finish Android settings, QR parity, and client polish"
+    },
+    {
+      "sha": "8ef9d5746a68e40abe9f6b85caf08f86f80d1028",
+      "subject": "chore: remove stale roadmap"
+    },
+    {
+      "sha": "1aed6a9924efc1c8bc3c82e2eea8a2dd007a6ff5",
+      "subject": "fix(windows): default to WebView desktop and clean v1"
+    },
+    {
+      "sha": "6b6cb902ba6f995bee89030b4343fe4e1213ac59",
+      "subject": "docs(speckeep): ratify v2 constitution and release contracts"
+    },
+    {
+      "sha": "def84c54d2c9c6aa74caf071eaca45be18591435",
+      "subject": "base rework for v2"
+    },
+    {
+      "sha": "90c575d8c2b61ccf12ff9aaa9fac9ac009c2f05c",
+      "subject": "fix(v2): keep stream handlers alive until copy completes"
+    },
+    {
+      "sha": "f945e7fb1d6e2e63307ade5bd2cdd5e8bd4c97c2",
+      "subject": "fix(v2): avoid send-on-closed UDP flow channel"
+    },
+    {
+      "sha": "8288a0c51c9e6f41a4ea3be01971c9ce9e4b5dfa",
+      "subject": "fix(v2): disable GSO/GRO on TUN to avoid ErrTooManySegments"
+    },
+    {
+      "sha": "9c6e94336eaf8ba89f8d130a1baf1e5f8214b487",
+      "subject": "docs(v2): document optional QUIC listener in server example"
+    },
+    {
+      "sha": "5283587e342a130c79f85fa58d4875e6ae01b098",
+      "subject": "feat(v2): add QUIC datagram side channel for UDP"
+    },
+    {
+      "sha": "7fb1fb794bc05ad8a1208379985610af276a1e61",
+      "subject": "test(v2): cover UDP/slow-flow and document standalone client"
+    },
+    {
+      "sha": "771f166ab393502b0b734a1e5e53d33e09c485d8",
+      "subject": "chore(v2): fix proof reference after transport refactor"
+    },
+    {
+      "sha": "6d86d9913832d58f07ee1d70ee6bac465ed60b1a",
+      "subject": "refactor(v2): split transport server/client and add UDP best-effort"
+    },
+    {
+      "sha": "e46fdf2eedc43c09076d9156605a9620ffd4b757",
+      "subject": "feat(v2): run v2 client from kvn-web"
+    },
+    {
+      "sha": "51b0454889659148ec5530e685ec7b5b228d4896",
+      "subject": "feat(v2): add gVisor TCP split TUN client"
+    },
+    {
+      "sha": "a9d673ebe9600216be99a75bc8fca0b11111c549",
+      "subject": "feat(v2): add HTTP/2 stream transport and proxy-first client"
+    },
+    {
+      "sha": "a3a2eb031b07da174b5d9a96fbaadbaa36410f2c",
+      "subject": "merge feature/fallback-auth-stealth"
+    },
+    {
+      "sha": "f96454ca3b3bce245ca2e2416f1943693a8832f9",
+      "subject": "chore(speckeep): archive fallback-auth-stealth"
+    },
+    {
+      "sha": "b8f8e7c1796c19e21fc330bbbd661897cd369c3c",
+      "subject": "feat(stealth): add Bearer fallback auth before upgrade"
+    },
+    {
+      "sha": "e17ef584d8b4349e79ee4a9c1200560483ffac33",
+      "subject": "chore(speckeep): archive stealth-surface-hardening"
+    },
+    {
+      "sha": "a4d19518ff64a0c628dfbb238a1e82841a221697",
+      "subject": "merge feature/stealth-surface-hardening"
+    },
+    {
+      "sha": "cf24272e7e8e0cb2b6cd830e05c1ab9a0db2715a",
+      "subject": "feat(android): add stealth surface parity"
+    },
+    {
+      "sha": "fe479c8de39ac4914452dcaab528469a325b6aa2",
+      "subject": "feat(stealth): add opt-in surface hardening"
+    },
+    {
+      "sha": "fb210247666f214760b9757e35d8ef77a5332c1d",
+      "subject": "merge feature/routing-domain-precedence"
+    },
+    {
+      "sha": "dccbed7e997b6a38121fcbf5d5a871a420364bc1",
+      "subject": "chore(speckeep): archive routing-domain-precedence"
+    },
+    {
+      "sha": "d108658be9b3876976d5925821f9c968986c0aec",
+      "subject": "fix(routing): make domain include/exclude precedence deterministic"
+    },
+    {
+      "sha": "5bbf2c80b457c4e8b2606676c5a640c36a1aa5d6",
+      "subject": "merge feature/tunnel-primary-backpressure"
+    },
+    {
+      "sha": "156274373519242b70e65454d5618c8d9207940f",
+      "subject": "chore(speckeep): archive tunnel-primary-backpressure"
+    },
+    {
+      "sha": "76197c4cae58f17c2442e0a2c0b228920087cca6",
+      "subject": "fix(tunnel): restore primary TCP backpressure and reuse TUN buffers"
+    },
+    {
+      "sha": "b8fd0e5993573b044aad84554a2fc4a8cc4323e4",
+      "subject": "merge feature/relay-padding-parity"
+    },
+    {
+      "sha": "d88bc1fbce6f47871b219f31dfded90e87089b6c",
+      "subject": "fix(relay): honor padding config and negotiate no-pad on both hops"
+    }
+  ],
+  "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "status": "M",
+      "additions": 21,
+      "deletions": 15,
+      "tasks": [
+        "T3.3",
+        "T5.2",
+        "T5.4"
+      ]
+    },
+    {
+      "path": ".speckeep/constitution.summary.md",
+      "status": "M",
+      "additions": 17,
+      "deletions": 19
+    },
+    {
+      "path": "CHANGELOG.md",
+      "status": "M",
+      "additions": 41,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "CONSTITUTION.md",
+      "status": "M",
+      "additions": 86,
+      "deletions": 193
+    },
+    {
+      "path": "Dockerfile",
+      "status": "M",
+      "additions": 6,
+      "deletions": 8,
+      "tasks": [
+        "T3.3"
+      ]
+    },
+    {
+      "path": "README.md",
+      "status": "M",
+      "additions": 33,
+      "deletions": 228,
+      "tasks": [
+        "T1.1",
+        "T5.3"
+      ]
+    },
+    {
+      "path": "REPOSITORY_MAP.md",
+      "status": "M",
+      "additions": 68,
+      "deletions": 164,
+      "tasks": [
+        "T5.3"
+      ]
+    },
+    {
+      "path": "client.yaml",
+      "status": "D",
+      "deletions": 40
+    },
+    {
+      "path": "configs/client.example.yaml",
+      "status": "A",
+      "additions": 25
+    },
+    {
+      "path": "configs/client.test.yaml",
+      "status": "D",
+      "deletions": 24
+    },
+    {
+      "path": "configs/client.yaml",
+      "status": "D",
+      "deletions": 55
+    },
+    {
+      "path": "configs/loadtest.yaml",
+      "status": "D",
+      "deletions": 9
+    },
+    {
+      "path": "configs/server.example.yaml",
+      "status": "A",
+      "additions": 22
+    },
+    {
+      "path": "configs/server.test.yaml",
+      "status": "D",
+      "deletions": 31
+    },
+    {
+      "path": "configs/server.yaml",
+      "status": "D",
+      "deletions": 46
+    },
+    {
+      "path": "docker-compose.test.yml",
+      "status": "D",
+      "deletions": 69
+    },
+    {
+      "path": "docker-compose.yml",
+      "status": "D",
+      "deletions": 52
+    },
+    {
+      "path": "docs/en/architecture.md",
+      "status": "M",
+      "additions": 5,
+      "deletions": 1,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/en/config.md",
+      "status": "M",
+      "additions": 23,
+      "deletions": 1,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/en/deployment.md",
+      "status": "M",
+      "additions": 9,
+      "deletions": 7,
+      "tasks": [
+        "T3.4",
+        "T3.5",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/en/relay.md",
+      "status": "M",
+      "additions": 8,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/en/v1-legacy.md",
+      "status": "A",
+      "additions": 8,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/en/v2-dpi-report.md",
+      "status": "A",
+      "additions": 22,
+      "tasks": [
+        "T3.4",
+        "T5.4",
+        "T5.5"
+      ]
+    },
+    {
+      "path": "docs/en/v2-release.md",
+      "status": "A",
+      "additions": 15,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/en/v2.md",
+      "status": "A",
+      "additions": 122,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/ru/architecture.md",
+      "status": "M",
+      "additions": 5,
+      "deletions": 1,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/ru/config.md",
+      "status": "M",
+      "additions": 23,
+      "deletions": 1,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/ru/deployment.md",
+      "status": "M",
+      "additions": 9,
+      "deletions": 7,
+      "tasks": [
+        "T3.4",
+        "T3.5",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/ru/relay.md",
+      "status": "M",
+      "additions": 8,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/ru/v1-legacy.md",
+      "status": "A",
+      "additions": 8,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/ru/v2-dpi-report.md",
+      "status": "A",
+      "additions": 40,
+      "tasks": [
+        "T3.4",
+        "T5.1",
+        "T5.4",
+        "T5.5"
+      ]
+    },
+    {
+      "path": "docs/ru/v2-release.md",
+      "status": "A",
+      "additions": 15,
+      "tasks": [
+        "T3.4",
+        "T5.4"
+      ]
+    },
+    {
+      "path": "docs/ru/v2.md",
+      "status": "A",
+      "additions": 122,
+      "tasks": [
+        "T3.4",
+        "T4.1",
+        "T5.1",
+        "T5.4"
+      ],
+      "anchors": [
+        "Android"
+      ]
+    },
+    {
+      "path": "examples/client.yaml",
+      "status": "D",
+      "deletions": 52
+    },
+    {
+      "path": "examples/docker-compose.yml",
+      "status": "D",
+      "deletions": 52
+    },
+    {
+      "path": "examples/relay-terminator/client.yaml",
+      "status": "D",
+      "deletions": 13
+    },
+    {
+      "path": "examples/relay-terminator/docker-compose.yml",
+      "status": "D",
+      "deletions": 73
+    },
+    {
+      "path": "examples/relay-terminator/quic-client.yaml",
+      "status": "D",
+      "deletions": 13
+    },
+    {
+      "path": "examples/relay-terminator/relay.yaml",
+      "status": "D",
+      "deletions": 57
+    },
+    {
+      "path": "examples/relay-terminator/run.sh",
+      "status": "D",
+      "deletions": 85
+    },
+    {
+      "path": "examples/relay-terminator/server.yaml",
+      "status": "D",
+      "deletions": 31
+    },
+    {
+      "path": "examples/run.sh",
+      "status": "D",
+      "deletions": 39
+    },
+    {
+      "path": "examples/server.yaml",
+      "status": "D",
+      "deletions": 53
+    },
+    {
+      "path": "go.mod",
+      "status": "M",
+      "additions": 20,
+      "deletions": 24
+    },
+    {
+      "path": "go.sum",
+      "status": "M",
+      "additions": 23,
+      "deletions": 28
+    },
+    {
+      "path": "protocol/codegen/main.go",
+      "status": "D",
+      "deletions": 460,
+      "tasks": [
+        "T3.2"
+      ]
+    },
+    {
+      "path": "protocol/frames.yaml",
+      "status": "D",
+      "deletions": 35,
+      "tasks": [
+        "T3.2"
+      ]
+    },
+    {
+      "path": "protocol/handshake.yaml",
+      "status": "D",
+      "deletions": 87,
+      "tasks": [
+        "T3.2"
+      ]
+    },
+    {
+      "path": "roadmap.md",
+      "status": "D",
+      "deletions": 262
+    },
+    {
+      "path": "scripts/bench-v2.sh",
+      "status": "A",
+      "additions": 39,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/build-android-aar.sh",
+      "status": "A",
+      "additions": 14,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/build-android.sh",
+      "status": "M",
+      "deletions": 4,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/build-web.sh",
+      "status": "M",
+      "deletions": 7,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/build.sh",
+      "status": "M",
+      "additions": 13,
+      "deletions": 52,
+      "tasks": [
+        "T1.1",
+        "T3.3",
+        "T5.2"
+      ],
+      "anchors": [
+        "build_server"
+      ]
+    },
+    {
+      "path": "scripts/check-protocol-sync.sh",
+      "status": "D",
+      "deletions": 60,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/check-v2-only.sh",
+      "status": "A",
+      "additions": 36,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/dpi-check.sh",
+      "status": "A",
+      "additions": 87,
+      "tasks": [
+        "T1.4",
+        "T5.1",
+        "T5.2"
+      ],
+      "anchors": [
+        "RESULT"
+      ]
+    },
+    {
+      "path": "scripts/generate-protocol.sh",
+      "status": "D",
+      "deletions": 9,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/install-client.ps1",
+      "status": "D",
+      "deletions": 284,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/install-client.sh",
+      "status": "M",
+      "additions": 75,
+      "deletions": 178,
+      "tasks": [
+        "T3.3",
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/install-relay.sh",
+      "status": "D",
+      "deletions": 363,
+      "tasks": [
+        "T3.3",
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/install-server.sh",
+      "status": "M",
+      "additions": 106,
+      "deletions": 284,
+      "tasks": [
+        "T3.3",
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/install-web.ps1",
+      "status": "M",
+      "additions": 112,
+      "deletions": 16,
+      "tasks": [
+        "T3.5",
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/test-gate.sh",
+      "status": "D",
+      "deletions": 91,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/test-proxy.sh",
+      "status": "D",
+      "deletions": 32,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/test-security.sh",
+      "status": "D",
+      "deletions": 107,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/test-stability.sh",
+      "status": "D",
+      "deletions": 30,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "server.yaml",
+      "status": "D",
+      "deletions": 45
+    },
+    {
+      "path": "specs/archived/fallback-auth-stealth/2026-10-27/changes.json",
+      "status": "A",
+      "additions": 714
+    },
+    {
+      "path": "specs/archived/fallback-auth-stealth/2026-10-27/plan/plan.md",
+      "status": "A",
+      "additions": 178
+    },
+    {
+      "path": "specs/archived/fallback-auth-stealth/2026-10-27/plan/tasks.md",
+      "status": "A",
+      "additions": 92
+    },
+    {
+      "path": "specs/archived/fallback-auth-stealth/2026-10-27/specs/fallback-auth-stealth/spec.md",
+      "status": "A",
+      "additions": 175
+    },
+    {
+      "path": "specs/archived/fallback-auth-stealth/2026-10-27/summary.md",
+      "status": "A",
+      "additions": 33
+    },
+    {
+      "path": "specs/archived/fallback-auth-stealth/2026-10-27/trace-meta.json",
+      "status": "A",
+      "additions": 10
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/changes.json",
+      "status": "A",
+      "additions": 33
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/plan/plan.md",
+      "status": "A",
+      "additions": 162
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/plan/tasks.md",
+      "status": "A",
+      "additions": 99
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/specs/relay-padding-parity/spec.md",
+      "status": "A",
+      "additions": 165
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/summary.md",
+      "status": "A",
+      "additions": 33
+    },
+    {
+      "path": "specs/archived/relay-padding-parity/2026-10-26/trace-meta.json",
+      "status": "A",
+      "additions": 10
+    },
+    {
+      "path": "specs/archived/routing-domain-precedence/2026-10-26/changes.json",
+      "status": "A",
+      "additions": 286
+    },
+    {
+      "path": "specs/archived/routing-domain-precedence/2026-10-26/plan/tasks.md",
+      "status": "A",
+      "additions": 52
+    },
+    {
+      "path": "specs/archived/routing-domain-precedence/2026-10-26/specs/routing-domain-precedence/spec.md",
+      "status": "A",
+      "additions": 129
+    },
+    {
+      "path": "specs/archived/routing-domain-precedence/2026-10-26/summary.md",
+      "status": "A",
+      "additions": 32
+    },
+    {
+      "path": "specs/archived/routing-domain-precedence/2026-10-26/trace-meta.json",
+      "status": "A",
+      "additions": 10
+    },
+    {
+      "path": "specs/archived/stealth-surface-hardening/2026-10-27/changes.json",
+      "status": "A",
+      "additions": 652
+    },
+    {
+      "path": "specs/archived/stealth-surface-hardening/2026-10-27/plan/plan.md",
+      "status": "A",
+      "additions": 185
+    },
+    {
+      "path": "specs/archived/stealth-surface-hardening/2026-10-27/plan/tasks.md",
+      "status": "A",
+      "additions": 115
+    },
+    {
+      "path": "specs/archived/stealth-surface-hardening/2026-10-27/specs/stealth-surface-hardening/spec.md",
+      "status": "A",
+      "additions": 233
+    },
+    {
+      "path": "specs/archived/stealth-surface-hardening/2026-10-27/summary.md",
+      "status": "A",
+      "additions": 33
+    },
+    {
+      "path": "specs/archived/stealth-surface-hardening/2026-10-27/trace-meta.json",
+      "status": "A",
+      "additions": 10
+    },
+    {
+      "path": "specs/archived/tunnel-primary-backpressure/2026-10-26/changes.json",
+      "status": "A",
+      "additions": 257
+    },
+    {
+      "path": "specs/archived/tunnel-primary-backpressure/2026-10-26/plan/tasks.md",
+      "status": "A",
+      "additions": 70
+    },
+    {
+      "path": "specs/archived/tunnel-primary-backpressure/2026-10-26/specs/tunnel-primary-backpressure/spec.md",
+      "status": "A",
+      "additions": 129
+    },
+    {
+      "path": "specs/archived/tunnel-primary-backpressure/2026-10-26/summary.md",
+      "status": "A",
+      "additions": 32
+    },
+    {
+      "path": "specs/archived/tunnel-primary-backpressure/2026-10-26/trace-meta.json",
+      "status": "A",
+      "additions": 10
+    },
+    {
+      "path": "specs/archived/v2-tun-assignment/2026-10-28/changes.json",
+      "status": "A",
+      "additions": 874
+    },
+    {
+      "path": "specs/archived/v2-tun-assignment/2026-10-28/plan/plan.md",
+      "status": "A",
+      "additions": 157
+    },
+    {
+      "path": "specs/archived/v2-tun-assignment/2026-10-28/plan/tasks.md",
+      "status": "A",
+      "additions": 70
+    },
+    {
+      "path": "specs/archived/v2-tun-assignment/2026-10-28/specs/v2-tun-assignment/spec.md",
+      "status": "A",
+      "additions": 200
+    },
+    {
+      "path": "specs/archived/v2-tun-assignment/2026-10-28/summary.md",
+      "status": "A",
+      "additions": 33
+    },
+    {
+      "path": "specs/archived/v2-tun-assignment/2026-10-28/trace-meta.json",
+      "status": "A",
+      "additions": 10
+    },
+    {
+      "path": "src/android/.gitignore",
+      "status": "M",
+      "additions": 1,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/CONTEXT.md",
+      "status": "M",
+      "additions": 16,
+      "deletions": 59,
+      "tasks": [
+        "T4.1",
+        "T5.3"
+      ]
+    },
+    {
+      "path": "src/android/app/build.gradle.kts",
+      "status": "M",
+      "additions": 11,
+      "deletions": 3,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/AndroidManifest.xml",
+      "status": "M",
+      "additions": 4,
+      "deletions": 3,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/config/AppConfig.kt",
+      "status": "M",
+      "additions": 11,
+      "deletions": 1,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/transport/WebSocketClient.kt",
+      "status": "M",
+      "additions": 46,
+      "deletions": 37,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/transport/WsNegotiation.kt",
+      "status": "A",
+      "additions": 18,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/transport/WsPadding.kt",
+      "status": "A",
+      "additions": 44,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/transport/reconnect/ReconnectManager.kt",
+      "status": "M",
+      "additions": 14,
+      "deletions": 4,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/ui/ConnectScreen.kt",
+      "status": "M",
+      "additions": 20,
+      "deletions": 3,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/ui/MainViewModel.kt",
+      "status": "M",
+      "additions": 69,
+      "deletions": 20,
+      "tasks": [
+        "T4.1",
+        "T4.3"
+      ],
+      "anchors": [
+        "v2ConfigJson"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/ui/QrScannerScreen.kt",
+      "status": "M",
+      "additions": 55,
+      "deletions": 4,
+      "tasks": [
+        "T4.1",
+        "T4.6"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/ui/SettingsScreen.kt",
+      "status": "M",
+      "additions": 195,
+      "deletions": 590,
+      "tasks": [
+        "T4.1",
+        "T4.5"
+      ],
+      "anchors": [
+        "SettingsCard"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnV2VpnService.kt",
+      "status": "A",
+      "additions": 178,
+      "tasks": [
+        "T4.1",
+        "T4.2",
+        "T4.4"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnVpnService.kt",
+      "status": "D",
+      "deletions": 1651,
+      "tasks": [
+        "T4.1",
+        "T4.2"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/res/drawable/ic_launcher_prod_background.xml",
+      "status": "A",
+      "additions": 7,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/res/drawable/ic_launcher_prod_foreground.xml",
+      "status": "A",
+      "additions": 13,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/res/drawable/ic_launcher_v2_background.xml",
+      "status": "A",
+      "additions": 9,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/res/drawable/ic_launcher_v2_foreground.xml",
+      "status": "A",
+      "additions": 14,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_prod.xml",
+      "status": "A",
+      "additions": 5,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_prod_round.xml",
+      "status": "A",
+      "additions": 5,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_v2.xml",
+      "status": "A",
+      "additions": 5,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_v2_round.xml",
+      "status": "A",
+      "additions": 5,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/test/java/com/kvn/client/config/ConfigSerializationTest.kt",
+      "status": "M",
+      "additions": 57,
+      "deletions": 5,
+      "tasks": [
+        "T4.1",
+        "T4.6"
+      ],
+      "anchors": [
+        "testStealthSurfaceWebRoundTrip"
+      ]
+    },
+    {
+      "path": "src/android/app/src/test/java/com/kvn/client/transport/ReconnectJitterTest.kt",
+      "status": "A",
+      "additions": 37,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/test/java/com/kvn/client/transport/WebSocketFallbackTest.kt",
+      "status": "A",
+      "additions": 56,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/test/java/com/kvn/client/transport/WsPaddingTest.kt",
+      "status": "A",
+      "additions": 56,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/app/src/test/java/com/kvn/client/vpn/KvnVpnServiceTest.kt",
+      "status": "D",
+      "deletions": 490,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/android/settings.gradle.kts",
+      "status": "M",
+      "additions": 1,
+      "deletions": 1,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/cmd/CONTEXT.md",
+      "status": "M",
+      "additions": 9,
+      "deletions": 54,
+      "tasks": [
+        "T5.3"
+      ]
+    },
+    {
+      "path": "src/cmd/client/main.go",
+      "status": "M",
+      "additions": 27,
+      "deletions": 13
+    },
+    {
+      "path": "src/cmd/gatetest/main.go",
+      "status": "D",
+      "deletions": 222
+    },
+    {
+      "path": "src/cmd/relay/main.go",
+      "status": "D",
+      "deletions": 20
+    },
+    {
+      "path": "src/cmd/server/main.go",
+      "status": "M",
+      "additions": 78,
+      "deletions": 15,
+      "tasks": [
+        "T3.2"
+      ],
+      "anchors": [
+        "main"
+      ]
+    },
+    {
+      "path": "src/cmd/stability/main.go",
+      "status": "D",
+      "deletions": 78
+    },
+    {
+      "path": "src/integration/tunnel_integration_test.go",
+      "status": "D",
+      "deletions": 1414
+    },
+    {
+      "path": "src/internal/acl/acl.go",
+      "status": "D",
+      "deletions": 112
+    },
+    {
+      "path": "src/internal/acl/acl_test.go",
+      "status": "D",
+      "deletions": 93
+    },
+    {
+      "path": "src/internal/admin/admin.go",
+      "status": "D",
+      "deletions": 139
+    },
+    {
+      "path": "src/internal/admin/admin_test.go",
+      "status": "D",
+      "deletions": 221
+    },
+    {
+      "path": "src/internal/bootstrap/client/CONTEXT.md",
+      "status": "D",
+      "deletions": 60
+    },
+    {
+      "path": "src/internal/bootstrap/client/client.go",
+      "status": "D",
+      "deletions": 325
+    },
+    {
+      "path": "src/internal/bootstrap/client/client_test.go",
+      "status": "D",
+      "deletions": 49
+    },
+    {
+      "path": "src/internal/bootstrap/client/dial.go",
+      "status": "D",
+      "deletions": 57
+    },
+    {
+      "path": "src/internal/bootstrap/client/dial_test.go",
+      "status": "D",
+      "deletions": 43
+    },
+    {
+      "path": "src/internal/bootstrap/client/helpers.go",
+      "status": "D",
+      "deletions": 41
+    },
+    {
+      "path": "src/internal/bootstrap/client/killswitch.go",
+      "status": "D",
+      "deletions": 53
+    },
+    {
+      "path": "src/internal/bootstrap/client/proxy.go",
+      "status": "D",
+      "deletions": 551
+    },
+    {
+      "path": "src/internal/bootstrap/client/proxy_test.go",
+      "status": "D",
+      "deletions": 121
+    },
+    {
+      "path": "src/internal/bootstrap/client/reconnect.go",
+      "status": "D",
+      "deletions": 39
+    },
+    {
+      "path": "src/internal/bootstrap/client/reconnect_test.go",
+      "status": "D",
+      "deletions": 50
+    },
+    {
+      "path": "src/internal/bootstrap/client/tun.go",
+      "status": "D",
+      "deletions": 574
+    },
+    {
+      "path": "src/internal/bootstrap/client/tun_darwin.go",
+      "status": "D",
+      "deletions": 43
+    },
+    {
+      "path": "src/internal/bootstrap/client/tun_linux.go",
+      "status": "D",
+      "deletions": 65
+    },
+    {
+      "path": "src/internal/bootstrap/client/tun_windows.go",
+      "status": "D",
+      "deletions": 45
+    },
+    {
+      "path": "src/internal/bootstrap/relay/CONTEXT.md",
+      "status": "D",
+      "deletions": 58
+    },
+    {
+      "path": "src/internal/bootstrap/relay/bootstrap.go",
+      "status": "D",
+      "deletions": 297
+    },
+    {
+      "path": "src/internal/bootstrap/relay/bridge.go",
+      "status": "D",
+      "deletions": 413
+    },
+    {
+      "path": "src/internal/bootstrap/relay/handler.go",
+      "status": "D",
+      "deletions": 235
+    },
+    {
+      "path": "src/internal/bootstrap/relay/handler_test.go",
+      "status": "D",
+      "deletions": 159
+    },
+    {
+      "path": "src/internal/bootstrap/relay/nat.go",
+      "status": "D",
+      "deletions": 182
+    },
+    {
+      "path": "src/internal/bootstrap/relay/resolver_test.go",
+      "status": "D",
+      "deletions": 382
+    },
+    {
+      "path": "src/internal/bootstrap/relay/router.go",
+      "status": "D",
+      "deletions": 359
+    },
+    {
+      "path": "src/internal/bootstrap/relay/router_test.go",
+      "status": "D",
+      "deletions": 250
+    },
+    {
+      "path": "src/internal/bootstrap/relay/upstream.go",
+      "status": "D",
+      "deletions": 270
+    },
+    {
+      "path": "src/internal/bootstrap/server/CONTEXT.md",
+      "status": "D",
+      "deletions": 53
+    },
+    {
+      "path": "src/internal/bootstrap/server/handler.go",
+      "status": "D",
+      "deletions": 345
+    },
+    {
+      "path": "src/internal/bootstrap/server/server.go",
+      "status": "D",
+      "deletions": 549
+    },
+    {
+      "path": "src/internal/bootstrap/server/server_test.go",
+      "status": "D",
+      "deletions": 39
+    },
+    {
+      "path": "src/internal/client/CONTEXT.md",
+      "status": "A",
+      "additions": 15,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/client/client.go",
+      "status": "A",
+      "additions": 577,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/client/client_test.go",
+      "status": "A",
+      "additions": 129,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/client/direct.go",
+      "status": "A",
+      "additions": 178,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4",
+        "T4.4"
+      ],
+      "anchors": [
+        "handleDirectDNS"
+      ]
+    },
+    {
+      "path": "src/internal/client/metrics.go",
+      "status": "A",
+      "additions": 86,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4",
+        "T2.6"
+      ],
+      "anchors": [
+        "Metrics"
+      ]
+    },
+    {
+      "path": "src/internal/client/ping.go",
+      "status": "A",
+      "additions": 64,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4",
+        "T4.7"
+      ]
+    },
+    {
+      "path": "src/internal/client/udp.go",
+      "status": "A",
+      "additions": 244,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/client/udp_test.go",
+      "status": "A",
+      "additions": 37,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/config/client.go",
+      "status": "M",
+      "additions": 81,
+      "tasks": [
+        "T1.2",
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/config/client_test.go",
+      "status": "M",
+      "additions": 28,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/config/server.go",
+      "status": "M",
+      "additions": 69,
+      "deletions": 19,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/config/v2.go",
+      "status": "A",
+      "additions": 331,
+      "tasks": [
+        "T1.2",
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/config/v2_test.go",
+      "status": "A",
+      "additions": 99,
+      "tasks": [
+        "T1.2",
+        "T2.2"
+      ],
+      "anchors": [
+        "TestV2UTLSAndStealthValidation"
+      ]
+    },
+    {
+      "path": "src/internal/config/webui.go",
+      "status": "M",
+      "additions": 22,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/crypto/CONTEXT.md",
+      "status": "D",
+      "deletions": 52
+    },
+    {
+      "path": "src/internal/crypto/crypto.go",
+      "status": "D",
+      "deletions": 98
+    },
+    {
+      "path": "src/internal/crypto/crypto_test.go",
+      "status": "D",
+      "deletions": 224
+    },
+    {
+      "path": "src/internal/dnsproxy/dnsproxy.go",
+      "status": "M",
+      "additions": 7,
+      "deletions": 111
+    },
+    {
+      "path": "src/internal/metrics/client/CONTEXT.md",
+      "status": "D",
+      "deletions": 52
+    },
+    {
+      "path": "src/internal/metrics/client/buffer.go",
+      "status": "D",
+      "deletions": 148
+    },
+    {
+      "path": "src/internal/metrics/client/buffer_test.go",
+      "status": "D",
+      "deletions": 261
+    },
+    {
+      "path": "src/internal/metrics/client/sender.go",
+      "status": "D",
+      "deletions": 48
+    },
+    {
+      "path": "src/internal/metrics/metrics.go",
+      "status": "D",
+      "deletions": 54
+    },
+    {
+      "path": "src/internal/nat/CONTEXT.md",
+      "status": "D",
+      "deletions": 49
+    },
+    {
+      "path": "src/internal/nat/iptables.go",
+      "status": "D",
+      "deletions": 87
+    },
+    {
+      "path": "src/internal/nat/nat.go",
+      "status": "D",
+      "deletions": 21
+    },
+    {
+      "path": "src/internal/nat/nat_test.go",
+      "status": "D",
+      "deletions": 23
+    },
+    {
+      "path": "src/internal/nat/nftables.go",
+      "status": "D",
+      "deletions": 74
+    },
+    {
+      "path": "src/internal/protocol/auth/auth.go",
+      "status": "D",
+      "deletions": 26
+    },
+    {
+      "path": "src/internal/protocol/auth/auth_test.go",
+      "status": "D",
+      "deletions": 71
+    },
+    {
+      "path": "src/internal/protocol/control/control.go",
+      "status": "D",
+      "deletions": 11
+    },
+    {
+      "path": "src/internal/protocol/handshake/CONTEXT.md",
+      "status": "D",
+      "deletions": 53
+    },
+    {
+      "path": "src/internal/protocol/handshake/handshake.go",
+      "status": "D",
+      "deletions": 329
+    },
+    {
+      "path": "src/internal/protocol/handshake/handshake_test.go",
+      "status": "D",
+      "deletions": 523
+    },
+    {
+      "path": "src/internal/protocol/handshake/types_gen.go",
+      "status": "D",
+      "deletions": 46
+    },
+    {
+      "path": "src/internal/proxy/listener_android.go",
+      "status": "A",
+      "additions": 12
+    },
+    {
+      "path": "src/internal/proxy/listener_linux.go",
+      "status": "M",
+      "additions": 1,
+      "deletions": 1
+    },
+    {
+      "path": "src/internal/proxy/stream.go",
+      "status": "D",
+      "deletions": 210
+    },
+    {
+      "path": "src/internal/proxy/stream_test.go",
+      "status": "D",
+      "deletions": 56
+    },
+    {
+      "path": "src/internal/ratelimit/ratelimit.go",
+      "status": "D",
+      "deletions": 109
+    },
+    {
+      "path": "src/internal/routing/routing_test.go",
+      "status": "M",
+      "additions": 122
+    },
+    {
+      "path": "src/internal/routing/rule_set.go",
+      "status": "M",
+      "additions": 44,
+      "deletions": 11
+    },
+    {
+      "path": "src/internal/server/CONTEXT.md",
+      "status": "A",
+      "additions": 8,
+      "tasks": [
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/server/fallback.go",
+      "status": "A",
+      "additions": 42,
+      "tasks": [
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/server/fallback_test.go",
+      "status": "A",
+      "additions": 39,
+      "tasks": [
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/session/CONTEXT.md",
+      "status": "D",
+      "deletions": 58
+    },
+    {
+      "path": "src/internal/session/bandwidth.go",
+      "status": "D",
+      "deletions": 51
+    },
+    {
+      "path": "src/internal/session/bandwidth_test.go",
+      "status": "D",
+      "deletions": 45
+    },
+    {
+      "path": "src/internal/session/bolt.go",
+      "status": "D",
+      "deletions": 103
+    },
+    {
+      "path": "src/internal/session/bolt_test.go",
+      "status": "D",
+      "deletions": 52
+    },
+    {
+      "path": "src/internal/session/session.go",
+      "status": "D",
+      "deletions": 463
+    },
+    {
+      "path": "src/internal/session/session_test.go",
+      "status": "D",
+      "deletions": 308
+    },
+    {
+      "path": "src/internal/systemproxy/CONTEXT.md",
+      "status": "D",
+      "deletions": 55
+    },
+    {
+      "path": "src/internal/systemproxy/proxy_darwin.go",
+      "status": "D",
+      "deletions": 142
+    },
+    {
+      "path": "src/internal/systemproxy/proxy_linux.go",
+      "status": "D",
+      "deletions": 64
+    },
+    {
+      "path": "src/internal/systemproxy/proxy_linux_test.go",
+      "status": "D",
+      "deletions": 50
+    },
+    {
+      "path": "src/internal/systemproxy/proxy_stub.go",
+      "status": "D",
+      "deletions": 25
+    },
+    {
+      "path": "src/internal/systemproxy/proxy_windows.go",
+      "status": "D",
+      "deletions": 186
+    },
+    {
+      "path": "src/internal/systemproxy/systemproxy.go",
+      "status": "D",
+      "deletions": 164
+    },
+    {
+      "path": "src/internal/systemproxy/systemproxy_test.go",
+      "status": "D",
+      "deletions": 198
+    },
+    {
+      "path": "src/internal/tcpstack/stack.go",
+      "status": "A",
+      "additions": 142
+    },
+    {
+      "path": "src/internal/tlsprofile/profile.go",
+      "status": "A",
+      "additions": 142,
+      "tasks": [
+        "T1.3",
+        "T2.1"
+      ]
+    },
+    {
+      "path": "src/internal/tlsprofile/profile_test.go",
+      "status": "A",
+      "additions": 60,
+      "tasks": [
+        "T1.3",
+        "T2.1"
+      ],
+      "anchors": [
+        "TestDialAllProfiles"
+      ]
+    },
+    {
+      "path": "src/internal/transparent/iptables_linux.go",
+      "status": "D",
+      "deletions": 91
+    },
+    {
+      "path": "src/internal/transparent/iptables_test.go",
+      "status": "D",
+      "deletions": 50
+    },
+    {
+      "path": "src/internal/transparent/transparent.go",
+      "status": "D",
+      "deletions": 27
+    },
+    {
+      "path": "src/internal/transparent/transparent_stub.go",
+      "status": "D",
+      "deletions": 8
+    },
+    {
+      "path": "src/internal/transport/CONTEXT.md",
+      "status": "M",
+      "additions": 15,
+      "deletions": 46,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/client.go",
+      "status": "A",
+      "additions": 228,
+      "tasks": [
+        "T2.1",
+        "T2.2",
+        "T4.7"
+      ]
+    },
+    {
+      "path": "src/internal/transport/const.go",
+      "status": "A",
+      "additions": 21,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/errors.go",
+      "status": "A",
+      "additions": 5,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/framing.go",
+      "status": "A",
+      "additions": 99,
+      "tasks": [
+        "T2.2",
+        "T2.3"
+      ]
+    },
+    {
+      "path": "src/internal/transport/framing/CONTEXT.md",
+      "status": "D",
+      "deletions": 49,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/framing/framing.go",
+      "status": "D",
+      "deletions": 127,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/framing/framing_test.go",
+      "status": "D",
+      "deletions": 281,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/framing/types_gen.go",
+      "status": "D",
+      "deletions": 36,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/icmp.go",
+      "status": "A",
+      "additions": 66,
+      "tasks": [
+        "T2.2",
+        "T4.7"
+      ],
+      "anchors": [
+        "handleICMP"
+      ]
+    },
+    {
+      "path": "src/internal/transport/options.go",
+      "status": "A",
+      "additions": 37,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/padding.go",
+      "status": "A",
+      "additions": 120,
+      "tasks": [
+        "T2.2",
+        "T2.3"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic.go",
+      "status": "A",
+      "additions": 400,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/CONTEXT.md",
+      "status": "D",
+      "deletions": 56,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/conn.go",
+      "status": "D",
+      "deletions": 175,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/dial.go",
+      "status": "D",
+      "deletions": 41,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/listen.go",
+      "status": "D",
+      "deletions": 73,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/listen_test.go",
+      "status": "D",
+      "deletions": 90,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/obfuscated.go",
+      "status": "D",
+      "deletions": 180,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/obfuscated_test.go",
+      "status": "D",
+      "deletions": 195,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/quic_test.go",
+      "status": "D",
+      "deletions": 421,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/quicfactory.go",
+      "status": "D",
+      "deletions": 57,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic/quicfactory_test.go",
+      "status": "D",
+      "deletions": 130,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/server.go",
+      "status": "A",
+      "additions": 256,
+      "tasks": [
+        "T2.2",
+        "T2.3",
+        "T2.4"
+      ]
+    },
+    {
+      "path": "src/internal/transport/session.go",
+      "status": "A",
+      "additions": 62,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/stream.go",
+      "status": "A",
+      "additions": 66,
+      "tasks": [
+        "T2.2",
+        "T2.3"
+      ]
+    },
+    {
+      "path": "src/internal/transport/tls/tls.go",
+      "status": "M",
+      "deletions": 65,
+      "tasks": [
+        "T1.3",
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/transport.go",
+      "status": "D",
+      "deletions": 191,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/transport_test.go",
+      "status": "M",
+      "additions": 449,
+      "deletions": 48,
+      "tasks": [
+        "T2.1",
+        "T2.2",
+        "T2.3",
+        "T2.4"
+      ],
+      "anchors": [
+        "TestPaddedTCPStreamRoundTrip",
+        "TestPaddedUDPStreamRoundTrip",
+        "TestStreamRoundTrip",
+        "TestUnknownPathFallback"
+      ]
+    },
+    {
+      "path": "src/internal/transport/websocket/CONTEXT.md",
+      "status": "D",
+      "deletions": 53,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/websocket/dataframe_test.go",
+      "status": "D",
+      "deletions": 154,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/websocket/websocket.go",
+      "status": "D",
+      "deletions": 566,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/websocket/websocket_test.go",
+      "status": "D",
+      "deletions": 1286,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/websocket/wsfactory.go",
+      "status": "D",
+      "deletions": 54,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/websocket/wsfactory_test.go",
+      "status": "D",
+      "deletions": 64,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/tun/tun.go",
+      "status": "M",
+      "additions": 41,
+      "deletions": 5
+    },
+    {
+      "path": "src/internal/tun/tun_alloc_test.go",
+      "status": "A",
+      "additions": 51
+    },
+    {
+      "path": "src/internal/tunnel/CONTEXT.md",
+      "status": "D",
+      "deletions": 61
+    },
+    {
+      "path": "src/internal/tunnel/demux.go",
+      "status": "D",
+      "deletions": 139
+    },
+    {
+      "path": "src/internal/tunnel/session.go",
+      "status": "D",
+      "deletions": 1205
+    },
+    {
+      "path": "src/internal/tunnel/session_test.go",
+      "status": "D",
+      "deletions": 1024
+    },
+    {
+      "path": "src/internal/tunnel/stream.go",
+      "status": "D",
+      "deletions": 7
+    },
+    {
+      "path": "src/internal/tunnel/writer.go",
+      "status": "D",
+      "deletions": 430
+    },
+    {
+      "path": "src/internal/tunpool/CONTEXT.md",
+      "status": "A",
+      "additions": 10
+    },
+    {
+      "path": "src/internal/tunpool/pool.go",
+      "status": "A",
+      "additions": 230
+    },
+    {
+      "path": "src/internal/tunpool/pool_test.go",
+      "status": "A",
+      "additions": 92
+    },
+    {
+      "path": "src/internal/webui/config_store.go",
+      "status": "A",
+      "additions": 103,
+      "tasks": [
+        "T1.2",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/config_store_test.go",
+      "status": "A",
+      "additions": 173,
+      "tasks": [
+        "T1.2",
+        "T3.1",
+        "T5.2"
+      ]
+    },
+    {
+      "path": "src/internal/webui/frontend/src/App.tsx",
+      "status": "M",
+      "additions": 2,
+      "deletions": 1,
+      "tasks": [
+        "T1.2",
+        "T2.5",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/frontend/src/FormField.tsx",
+      "status": "M",
+      "additions": 1,
+      "deletions": 1,
+      "tasks": [
+        "T1.2",
+        "T2.5",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/frontend/src/TabbedForm.tsx",
+      "status": "M",
+      "additions": 231,
+      "deletions": 60,
+      "tasks": [
+        "T1.2",
+        "T2.5",
+        "T3.1"
+      ],
+      "anchors": [
+        "stealth"
+      ]
+    },
+    {
+      "path": "src/internal/webui/frontend/src/context.tsx",
+      "status": "M",
+      "additions": 8,
+      "deletions": 5,
+      "tasks": [
+        "T1.2",
+        "T2.5",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/frontend/src/types.ts",
+      "status": "M",
+      "additions": 19,
+      "deletions": 1,
+      "tasks": [
+        "T1.2",
+        "T2.5",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/handler_config.go",
+      "status": "M",
+      "additions": 14,
+      "deletions": 17,
+      "tasks": [
+        "T1.2",
+        "T2.5",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/handler_connect.go",
+      "status": "M",
+      "additions": 141,
+      "deletions": 73,
+      "tasks": [
+        "T1.2",
+        "T3.1"
+      ],
+      "anchors": [
+        "handleConnect"
+      ]
+    },
+    {
+      "path": "src/internal/webui/handler_logs.go",
+      "status": "M",
+      "additions": 1,
+      "deletions": 20,
+      "tasks": [
+        "T1.2",
+        "T2.6",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/multiserver_test.go",
+      "status": "M",
+      "additions": 30,
+      "deletions": 3,
+      "tasks": [
+        "T1.2",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/server.go",
+      "status": "M",
+      "additions": 4,
+      "tasks": [
+        "T1.1",
+        "T1.2",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/server_test.go",
+      "status": "M",
+      "additions": 1,
+      "deletions": 7,
+      "tasks": [
+        "T1.2",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/state.go",
+      "status": "M",
+      "additions": 40,
+      "deletions": 37,
+      "tasks": [
+        "T1.2",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/v2_lifecycle_test.go",
+      "status": "A",
+      "additions": 29,
+      "tasks": [
+        "T1.2",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/webui/webui_log_core.go",
+      "status": "M",
+      "additions": 5,
+      "deletions": 1,
+      "tasks": [
+        "T1.2",
+        "T2.6",
+        "T3.1"
+      ],
+      "anchors": [
+        "Enabled"
+      ]
+    },
+    {
+      "path": "src/internal/webui/webui_log_core_test.go",
+      "status": "M",
+      "additions": 2,
+      "deletions": 2,
+      "tasks": [
+        "T1.2",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/mobile/CONTEXT.md",
+      "status": "A",
+      "additions": 14,
+      "tasks": [
+        "T4.1",
+        "T4.2",
+        "T4.4",
+        "T5.3"
+      ]
+    },
+    {
+      "path": "src/mobile/doc.go",
+      "status": "A",
+      "additions": 6,
+      "tasks": [
+        "T4.1",
+        "T4.2",
+        "T4.4"
+      ]
+    },
+    {
+      "path": "src/mobile/mobile.go",
+      "status": "A",
+      "additions": 175,
+      "tasks": [
+        "T4.1",
+        "T4.2",
+        "T4.4"
+      ]
+    }
+  ],
+  "unmapped": [
+    ".speckeep/constitution.summary.md",
+    "CONSTITUTION.md",
+    "client.yaml",
+    "configs/client.example.yaml",
+    "configs/client.test.yaml",
+    "configs/client.yaml",
+    "configs/loadtest.yaml",
+    "configs/server.example.yaml",
+    "configs/server.test.yaml",
+    "configs/server.yaml",
+    "docker-compose.test.yml",
+    "docker-compose.yml",
+    "examples/client.yaml",
+    "examples/docker-compose.yml",
+    "examples/relay-terminator/client.yaml",
+    "examples/relay-terminator/docker-compose.yml",
+    "examples/relay-terminator/quic-client.yaml",
+    "examples/relay-terminator/relay.yaml",
+    "examples/relay-terminator/run.sh",
+    "examples/relay-terminator/server.yaml",
+    "examples/run.sh",
+    "examples/server.yaml",
+    "go.mod",
+    "go.sum",
+    "roadmap.md",
+    "server.yaml",
+    "specs/archived/fallback-auth-stealth/2026-10-27/changes.json",
+    "specs/archived/fallback-auth-stealth/2026-10-27/plan/plan.md",
+    "specs/archived/fallback-auth-stealth/2026-10-27/plan/tasks.md",
+    "specs/archived/fallback-auth-stealth/2026-10-27/specs/fallback-auth-stealth/spec.md",
+    "specs/archived/fallback-auth-stealth/2026-10-27/summary.md",
+    "specs/archived/fallback-auth-stealth/2026-10-27/trace-meta.json",
+    "specs/archived/relay-padding-parity/2026-10-26/changes.json",
+    "specs/archived/relay-padding-parity/2026-10-26/plan/plan.md",
+    "specs/archived/relay-padding-parity/2026-10-26/plan/tasks.md",
+    "specs/archived/relay-padding-parity/2026-10-26/specs/relay-padding-parity/spec.md",
+    "specs/archived/relay-padding-parity/2026-10-26/summary.md",
+    "specs/archived/relay-padding-parity/2026-10-26/trace-meta.json",
+    "specs/archived/routing-domain-precedence/2026-10-26/changes.json",
+    "specs/archived/routing-domain-precedence/2026-10-26/plan/tasks.md",
+    "specs/archived/routing-domain-precedence/2026-10-26/specs/routing-domain-precedence/spec.md",
+    "specs/archived/routing-domain-precedence/2026-10-26/summary.md",
+    "specs/archived/routing-domain-precedence/2026-10-26/trace-meta.json",
+    "specs/archived/stealth-surface-hardening/2026-10-27/changes.json",
+    "specs/archived/stealth-surface-hardening/2026-10-27/plan/plan.md",
+    "specs/archived/stealth-surface-hardening/2026-10-27/plan/tasks.md",
+    "specs/archived/stealth-surface-hardening/2026-10-27/specs/stealth-surface-hardening/spec.md",
+    "specs/archived/stealth-surface-hardening/2026-10-27/summary.md",
+    "specs/archived/stealth-surface-hardening/2026-10-27/trace-meta.json",
+    "specs/archived/tunnel-primary-backpressure/2026-10-26/changes.json",
+    "specs/archived/tunnel-primary-backpressure/2026-10-26/plan/tasks.md",
+    "specs/archived/tunnel-primary-backpressure/2026-10-26/specs/tunnel-primary-backpressure/spec.md",
+    "specs/archived/tunnel-primary-backpressure/2026-10-26/summary.md",
+    "specs/archived/tunnel-primary-backpressure/2026-10-26/trace-meta.json",
+    "specs/archived/v2-tun-assignment/2026-10-28/changes.json",
+    "specs/archived/v2-tun-assignment/2026-10-28/plan/plan.md",
+    "specs/archived/v2-tun-assignment/2026-10-28/plan/tasks.md",
+    "specs/archived/v2-tun-assignment/2026-10-28/specs/v2-tun-assignment/spec.md",
+    "specs/archived/v2-tun-assignment/2026-10-28/summary.md",
+    "specs/archived/v2-tun-assignment/2026-10-28/trace-meta.json",
+    "src/cmd/client/main.go",
+    "src/cmd/gatetest/main.go",
+    "src/cmd/relay/main.go",
+    "src/cmd/stability/main.go",
+    "src/integration/tunnel_integration_test.go",
+    "src/internal/acl/acl.go",
+    "src/internal/acl/acl_test.go",
+    "src/internal/admin/admin.go",
+    "src/internal/admin/admin_test.go",
+    "src/internal/bootstrap/client/CONTEXT.md",
+    "src/internal/bootstrap/client/client.go",
+    "src/internal/bootstrap/client/client_test.go",
+    "src/internal/bootstrap/client/dial.go",
+    "src/internal/bootstrap/client/dial_test.go",
+    "src/internal/bootstrap/client/helpers.go",
+    "src/internal/bootstrap/client/killswitch.go",
+    "src/internal/bootstrap/client/proxy.go",
+    "src/internal/bootstrap/client/proxy_test.go",
+    "src/internal/bootstrap/client/reconnect.go",
+    "src/internal/bootstrap/client/reconnect_test.go",
+    "src/internal/bootstrap/client/tun.go",
+    "src/internal/bootstrap/client/tun_darwin.go",
+    "src/internal/bootstrap/client/tun_linux.go",
+    "src/internal/bootstrap/client/tun_windows.go",
+    "src/internal/bootstrap/relay/CONTEXT.md",
+    "src/internal/bootstrap/relay/bootstrap.go",
+    "src/internal/bootstrap/relay/bridge.go",
+    "src/internal/bootstrap/relay/handler.go",
+    "src/internal/bootstrap/relay/handler_test.go",
+    "src/internal/bootstrap/relay/nat.go",
+    "src/internal/bootstrap/relay/resolver_test.go",
+    "src/internal/bootstrap/relay/router.go",
+    "src/internal/bootstrap/relay/router_test.go",
+    "src/internal/bootstrap/relay/upstream.go",
+    "src/internal/bootstrap/server/CONTEXT.md",
+    "src/internal/bootstrap/server/handler.go",
+    "src/internal/bootstrap/server/server.go",
+    "src/internal/bootstrap/server/server_test.go",
+    "src/internal/crypto/CONTEXT.md",
+    "src/internal/crypto/crypto.go",
+    "src/internal/crypto/crypto_test.go",
+    "src/internal/dnsproxy/dnsproxy.go",
+    "src/internal/metrics/client/CONTEXT.md",
+    "src/internal/metrics/client/buffer.go",
+    "src/internal/metrics/client/buffer_test.go",
+    "src/internal/metrics/client/sender.go",
+    "src/internal/metrics/metrics.go",
+    "src/internal/nat/CONTEXT.md",
+    "src/internal/nat/iptables.go",
+    "src/internal/nat/nat.go",
+    "src/internal/nat/nat_test.go",
+    "src/internal/nat/nftables.go",
+    "src/internal/protocol/auth/auth.go",
+    "src/internal/protocol/auth/auth_test.go",
+    "src/internal/protocol/control/control.go",
+    "src/internal/protocol/handshake/CONTEXT.md",
+    "src/internal/protocol/handshake/handshake.go",
+    "src/internal/protocol/handshake/handshake_test.go",
+    "src/internal/protocol/handshake/types_gen.go",
+    "src/internal/proxy/listener_android.go",
+    "src/internal/proxy/listener_linux.go",
+    "src/internal/proxy/stream.go",
+    "src/internal/proxy/stream_test.go",
+    "src/internal/ratelimit/ratelimit.go",
+    "src/internal/routing/routing_test.go",
+    "src/internal/routing/rule_set.go",
+    "src/internal/session/CONTEXT.md",
+    "src/internal/session/bandwidth.go",
+    "src/internal/session/bandwidth_test.go",
+    "src/internal/session/bolt.go",
+    "src/internal/session/bolt_test.go",
+    "src/internal/session/session.go",
+    "src/internal/session/session_test.go",
+    "src/internal/systemproxy/CONTEXT.md",
+    "src/internal/systemproxy/proxy_darwin.go",
+    "src/internal/systemproxy/proxy_linux.go",
+    "src/internal/systemproxy/proxy_linux_test.go",
+    "src/internal/systemproxy/proxy_stub.go",
+    "src/internal/systemproxy/proxy_windows.go",
+    "src/internal/systemproxy/systemproxy.go",
+    "src/internal/systemproxy/systemproxy_test.go",
+    "src/internal/tcpstack/stack.go",
+    "src/internal/transparent/iptables_linux.go",
+    "src/internal/transparent/iptables_test.go",
+    "src/internal/transparent/transparent.go",
+    "src/internal/transparent/transparent_stub.go",
+    "src/internal/tun/tun.go",
+    "src/internal/tun/tun_alloc_test.go",
+    "src/internal/tunnel/CONTEXT.md",
+    "src/internal/tunnel/demux.go",
+    "src/internal/tunnel/session.go",
+    "src/internal/tunnel/session_test.go",
+    "src/internal/tunnel/stream.go",
+    "src/internal/tunnel/writer.go",
+    "src/internal/tunpool/CONTEXT.md",
+    "src/internal/tunpool/pool.go",
+    "src/internal/tunpool/pool_test.go"
+  ],
+  "declared_not_changed": [
+    "AppPickerScreen.kt",
+    "ConnectScreen.kt",
+    "MainViewModel.kt",
+    "acl",
+    "admin",
+    "config",
+    "metrics}/",
+    "nat",
+    "relay}",
+    "server",
+    "session",
+    "src/android/app/src/main/kotlin/com/kvn/client/{ui",
+    "src/cmd/web/main.go",
+    "src/cmd/{client",
+    "src/internal/{bootstrap",
+    "transport}/",
+    "tunnel"
+  ],
+  "artifacts": [
+    "specs/active/kvn-v2-transport/plan.md",
+    "specs/active/kvn-v2-transport/spec.md",
+    "specs/active/kvn-v2-transport/tasks.md",
+    "specs/active/kvn-v2-transport/trace-meta.json",
+    "specs/active/v2-standard/plan.md",
+    "specs/active/v2-standard/spec.md",
+    "specs/active/v2-standard/tasks.md",
+    "specs/active/v2-standard/trace-meta.json"
+  ]
+}
