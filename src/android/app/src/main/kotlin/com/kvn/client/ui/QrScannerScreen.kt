@@ -131,6 +131,7 @@ data class WebStealthCfg(
 private data class WebConfig(
     val server: String = "",
     val transport: String = "tcp",
+    val quic_enabled: Boolean = false,
     val obfuscation: WebObfuscationCfg? = null,
     val auth: WebAuthCfg? = null,
     val tls: WebTlsCfg? = null,
@@ -614,6 +615,7 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
         port = port,
         serverPath = "",
         transport = transport,
+        quicEnabled = web.quic_enabled,
         token = web.auth?.token ?: "",
         mode = web.mode,
         mtu = web.mtu,
@@ -669,6 +671,7 @@ fun configToWebJson(config: ConnectionConfig): String {
     }
     root.put("server", endpoint)
     root.put("transport", config.transport)
+    root.put("quic_enabled", config.quicEnabled)
     root.put("mode", config.mode)
     root.put("mtu", config.mtu)
     root.put("ipv6", config.ipv6Enabled)

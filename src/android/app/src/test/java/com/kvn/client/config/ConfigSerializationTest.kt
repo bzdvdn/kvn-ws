@@ -22,6 +22,7 @@ class ConfigSerializationTest {
             token = "secret-token-123",
             mode = "tun",
             transport = "tcp",
+            quicEnabled = true,
             mtu = 1400,
             ipv6Enabled = true,
             autoReconnect = false,
@@ -98,6 +99,7 @@ class ConfigSerializationTest {
         assertEquals("", config.serverPath)
         assertEquals("tun", config.mode)
         assertEquals("tcp", config.transport)
+        assertFalse(config.quicEnabled)
         assertEquals("verify", config.tlsVerifyMode)
         assertFalse(config.killSwitchEnabled)
         assertFalse(config.cryptoEnabled)

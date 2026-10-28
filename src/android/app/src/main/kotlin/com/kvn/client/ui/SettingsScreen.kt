@@ -67,6 +67,7 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
     var keepAwake by remember(activeCfg) { mutableStateOf(activeCfg?.keepAwakeEnabled ?: false) }
     var logLevel by remember(activeCfg) { mutableStateOf(activeCfg?.logLevel ?: "info") }
     var insecureTls by remember(activeCfg) { mutableStateOf(activeCfg?.tlsVerifyMode == "insecure") }
+    var quicEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.quicEnabled ?: false) }
     var showAppPicker by remember { mutableStateOf(false) }
     var appPickerInclude by remember { mutableStateOf(true) }
     var showImportDialog by remember { mutableStateOf(false) }
@@ -85,6 +86,7 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                 keepAwakeEnabled = keepAwake,
                 logLevel = logLevel,
                 tlsVerifyMode = if (insecureTls) "insecure" else "verify",
+                quicEnabled = quicEnabled,
                 mtu = 1200,
             )
         )
@@ -140,6 +142,21 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
                     )
                 }
                 Switch(checked = keepAwake, onCheckedChange = { keepAwake = it })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("QUIC datagrams (UDP)", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Lower latency for calls; requires UDP 443 on the server",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = quicEnabled, onCheckedChange = { quicEnabled = it })
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
