@@ -226,5 +226,5 @@ func ip4ToUint(s string) (uint32, error) {
 }
 
 func uintToIP(v uint32) net.IP {
-	return net.IPv4(byte(v>>24), byte(v>>16), byte(v>>8), byte(v)).To4()
+	return net.IPv4(byte(v>>24), byte(v>>16), byte(v>>8), byte(v)).To4() // #nosec G115 -- uint32 is exactly 4 bytes
 }

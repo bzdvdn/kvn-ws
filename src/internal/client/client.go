@@ -176,10 +176,10 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 	if err != nil {
 		return fmt.Errorf("tun assignment unavailable: %w", err)
 	}
-	c.latencyMS.Store(uint64(time.Since(sessionStart).Milliseconds()))
+	c.latencyMS.Store(uint64(time.Since(sessionStart).Milliseconds())) // #nosec G115 -- elapsed milliseconds are non-negative
 	c.startedAt = time.Now()
 	go c.latencyLoop(ctx, endpoint)
-	c.logger.Debug("v2 session resolved", zap.String("tun_address", session.TUNAddress), zap.String("tun_gateway", session.TUNGateway), zap.Int64("latency_ms", int64(c.latencyMS.Load())))
+	c.logger.Debug("v2 session resolved", zap.String("tun_address", session.TUNAddress), zap.String("tun_gateway", session.TUNGateway), zap.Int64("latency_ms", int64(c.latencyMS.Load()))) // #nosec G115 -- stored value is latency in ms
 	ip, _, err := net.ParseCIDR(session.TUNAddress)
 	if err != nil {
 		return fmt.Errorf("tun assignment address: %w", err)
@@ -274,10 +274,10 @@ func (c *Client) runTUN(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tun assignment unavailable: %w", err)
 	}
-	c.latencyMS.Store(uint64(time.Since(sessionStart).Milliseconds()))
+	c.latencyMS.Store(uint64(time.Since(sessionStart).Milliseconds())) // #nosec G115 -- elapsed milliseconds are non-negative
 	c.startedAt = time.Now()
 	go c.latencyLoop(ctx, endpoint)
-	c.logger.Debug("v2 session resolved", zap.String("tun_address", session.TUNAddress), zap.String("tun_gateway", session.TUNGateway), zap.Int64("latency_ms", int64(c.latencyMS.Load())))
+	c.logger.Debug("v2 session resolved", zap.String("tun_address", session.TUNAddress), zap.String("tun_gateway", session.TUNGateway), zap.Int64("latency_ms", int64(c.latencyMS.Load()))) // #nosec G115 -- stored value is latency in ms
 	dev := tun.NewTunDevice()
 	if err := dev.Open(); err != nil {
 		return fmt.Errorf("open v2 tun: %w", err)

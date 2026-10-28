@@ -33,9 +33,9 @@ func (s *Server) loadWebUIConfig() (*config.WebUIConfig, error) {
 				}
 			}
 			if len(filtered.Servers) != len(cfg.Servers) {
-				if original, readErr := os.ReadFile(root); readErr == nil {
+				if original, readErr := os.ReadFile(root); readErr == nil { // #nosec G304 -- root is the trusted config path
 					if _, backupErr := os.Stat(root + ".v1.bak"); errors.Is(backupErr, os.ErrNotExist) {
-						_ = os.WriteFile(root+".v1.bak", original, 0o600)
+						_ = os.WriteFile(root+".v1.bak", original, 0o600) // #nosec G703 -- root is the trusted config path
 					}
 				}
 				if err := config.SaveWebUIConfig(root, &filtered); err != nil {

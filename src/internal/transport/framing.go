@@ -17,14 +17,14 @@ func writeDatagram(w io.Writer, payload []byte, pad bool, size int) error {
 	}
 	if pad {
 		var hdr [4]byte
-		binary.BigEndian.PutUint16(hdr[:2], uint16(len(payload)))
-		binary.BigEndian.PutUint16(hdr[2:], uint16(padLen))
+		binary.BigEndian.PutUint16(hdr[:2], uint16(len(payload))) // #nosec G115 -- payload is capped at MaxDatagramSize
+		binary.BigEndian.PutUint16(hdr[2:], uint16(padLen))       // #nosec G115 -- padding is capped at maxPaddingSize
 		if _, err := w.Write(hdr[:]); err != nil {
 			return err
 		}
 	} else {
 		var hdr [2]byte
-		binary.BigEndian.PutUint16(hdr[:], uint16(len(payload)))
+		binary.BigEndian.PutUint16(hdr[:], uint16(len(payload))) // #nosec G115 -- payload is capped at MaxDatagramSize
 		if _, err := w.Write(hdr[:]); err != nil {
 			return err
 		}

@@ -75,7 +75,7 @@ func (c *Client) latencyLoop(ctx context.Context, endpoint string) {
 		conn, derr := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "tcp", host)
 		if derr == nil {
 			_ = conn.Close()
-			c.latencyMS.Store(uint64(time.Since(start).Milliseconds()))
+			c.latencyMS.Store(uint64(time.Since(start).Milliseconds())) // #nosec G115 -- elapsed milliseconds are non-negative
 		}
 		select {
 		case <-ctx.Done():

@@ -19,7 +19,7 @@ func isICMPv4(packet []byte) bool {
 
 // handlePing forwards one IPv4 ICMP echo request over a v2 HTTP/2 stream and
 // writes the echo reply back to TUN.
-func (c *Client) handlePing(_ context.Context, httpClient *transport.Client, packet []byte, dev tun.TunDevice) {
+func (c *Client) handlePing(parent context.Context, httpClient *transport.Client, packet []byte, dev tun.TunDevice) {
 	ihl := int(packet[0]&0x0f) * 4
 	if ihl < 20 || len(packet) < ihl+8 || packet[ihl] != 8 {
 		return
@@ -29,7 +29,7 @@ func (c *Client) handlePing(_ context.Context, httpClient *transport.Client, pac
 		return
 	}
 	c.logger.Debug("v2 ping", zap.String("target", target.String()))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	stream, err := httpClient.DialICMP(ctx, target.String())
 	if err != nil {
@@ -52,7 +52,7 @@ func buildPingReply(req, reply []byte, ihl int) []byte {
 	out := make([]byte, total)
 	copy(out[:20], req[:20])
 	out[0] = 0x45
-	binary.BigEndian.PutUint16(out[2:4], uint16(total))
+	binary.BigEndian.PutUint16(out[2:4], uint16(total)) // #nosec G115 -- ICMP reply is bounded to 64 KiB
 	out[8] = 64
 	out[9] = 1
 	copy(out[12:16], req[16:20])

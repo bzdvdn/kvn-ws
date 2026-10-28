@@ -32,8 +32,8 @@ func (w *frameWriter) Write(p []byte) (int, error) {
 	}
 	pad := adaptivePadding(len(p), w.size)
 	var hdr [6]byte
-	binary.BigEndian.PutUint32(hdr[:4], uint32(len(p)))
-	binary.BigEndian.PutUint16(hdr[4:], uint16(pad))
+	binary.BigEndian.PutUint32(hdr[:4], uint32(len(p))) // #nosec G115 -- frame length is bounded by reader limit
+	binary.BigEndian.PutUint16(hdr[4:], uint16(pad))    // #nosec G115 -- pad is capped at maxPaddingSize
 	if _, err := w.w.Write(hdr[:]); err != nil {
 		return 0, err
 	}

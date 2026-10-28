@@ -267,7 +267,7 @@ func NewQUICClient(ctx context.Context, endpoint, token string, tlsCfg *tls.Conf
 func makeAuthDatagram(token string) []byte {
 	msg := make([]byte, 3+len(token))
 	msg[0] = quicMsgAuth
-	binary.BigEndian.PutUint16(msg[1:3], uint16(len(token)))
+	binary.BigEndian.PutUint16(msg[1:3], uint16(len(token))) // #nosec G115 -- token length is config-bounded
 	copy(msg[3:], token)
 	return msg
 }
@@ -361,7 +361,7 @@ func (f *QUICFlow) WritePacket(payload []byte) error {
 	msg := make([]byte, 7+len(f.target)+len(payload))
 	msg[0] = quicMsgData
 	binary.BigEndian.PutUint32(msg[1:5], f.id)
-	binary.BigEndian.PutUint16(msg[5:7], uint16(len(f.target)))
+	binary.BigEndian.PutUint16(msg[5:7], uint16(len(f.target))) // #nosec G115 -- target length is validated by config
 	copy(msg[7:], f.target)
 	copy(msg[7+len(f.target):], payload)
 	return f.client.send(msg)

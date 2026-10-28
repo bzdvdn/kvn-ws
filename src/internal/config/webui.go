@@ -64,7 +64,7 @@ func LoadWebUIConfig(path string) (*WebUIConfig, error) {
 // LoadWebUIConfigOptional loads a WebUIConfig without creating the default
 // v1 server when the file is missing. Used by the isolated v2 web UI store.
 func LoadWebUIConfigOptional(path string) (*WebUIConfig, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is the user config file
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return &WebUIConfig{}, nil

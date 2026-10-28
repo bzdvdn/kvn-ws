@@ -299,7 +299,7 @@ func EnsureClientID(path string, configured string) string {
 		return configured
 	}
 	sidecar := path + ".client_id"
-	if data, err := os.ReadFile(sidecar); err == nil {
+	if data, err := os.ReadFile(sidecar); err == nil { // #nosec G304 -- sidecar is next to the trusted config
 		if id := strings.TrimSpace(string(data)); id != "" {
 			return id
 		}

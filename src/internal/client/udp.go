@@ -202,14 +202,14 @@ func buildUDPReply(srcIP, dstIP net.IP, srcPort, dstPort uint16, payload []byte)
 	total := 20 + 8 + len(payload)
 	pkt := make([]byte, total)
 	pkt[0] = 0x45
-	binary.BigEndian.PutUint16(pkt[2:4], uint16(total))
+	binary.BigEndian.PutUint16(pkt[2:4], uint16(total)) // #nosec G115 -- IPv4 total length is capped by UDP payload
 	pkt[8] = 64
 	pkt[9] = 17
 	copy(pkt[12:16], srcIP.To4())
 	copy(pkt[16:20], dstIP.To4())
 	binary.BigEndian.PutUint16(pkt[20:22], srcPort)
 	binary.BigEndian.PutUint16(pkt[22:24], dstPort)
-	binary.BigEndian.PutUint16(pkt[24:26], uint16(8+len(payload)))
+	binary.BigEndian.PutUint16(pkt[24:26], uint16(8+len(payload))) // #nosec G115 -- UDP length is capped by payload
 	copy(pkt[28:], payload)
 	binary.BigEndian.PutUint16(pkt[10:12], ipChecksum(pkt[:20]))
 	return pkt
