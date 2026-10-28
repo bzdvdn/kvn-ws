@@ -1,245 +1,138 @@
-# Конституция проекта KVN-over-WS (Go) + Android клиент
+# Конституция проекта KVN 2.0 (Go core + Android)
 
 ## Назначение
 
-Создать производительный, безопасный и расширяемый VPN-туннель, использующий стандартный веб-трафик (HTTP/HTTPS + WebSocket) и QUIC как транспортный слой для передачи IP/IPv4/IPv6 пакетов между клиентом и сервером через TUN-интерфейсы. Маскировка под обычный HTTPS/WebSocket-трафик или QUIC с обфускацией для работы в сетях с ограничениями. Нативный Android-клиент с Jetpack Compose UI для подключения с мобильных устройств.
+KVN 2.0 — v2-only VPN для защиты трафика в сетях с ограничениями: TLS 1.3 + HTTP/2 для TCP, опциональный QUIC для UDP, TUN-режим, локальный proxy, browser-like uTLS/HTTP2 surface и fallback. Клиенты: Go CLI, `kvn-web`/WebView desktop и Android на общем Go mobile core.
 
 ## Ключевые принципы
 
-### I. Domain-Driven Design и Clean Architecture
-<!-- DDD: чёткие bounded contexts, Ubiquitous Language в коде -->
+### I. v2-only и дисциплина scope
+- Текущее дерево и релиз 2.0.0 содержат только v2 runtime; v1 доступен только в старых GitHub Releases.
+- Реализация идёт по активным spec/plan/tasks и не расширяет scope без явного решения.
+- Публичное поведение сначала отражается в spec/tasks, затем в коде.
 
-- **Go (ядро/сервер):** Код организуется по доменным контекстам (tun, transport, protocol, routing, session, crypto), а не по техническим слоям. Внешние зависимости изолируются за портами (Go interfaces). Ядро не зависит от инфраструктуры. Слои: `domain` → `usecase` → `infrastructure`.
-- **Android (клиент):** MVVM + Jetpack Compose. UI-слой отделён от бизнес-логики. ViewModel управляет состоянием, доменная логика — в repository/use case классах.
-- `src/internal/` — только неэкспортируемые пакеты Go. `src/android/` — независимый Gradle-модуль.
-
-### II. Границы архитектуры
-<!-- Модульность, разделение ответственности -->
-
-- `src/` — исходный код: `src/cmd/`, `src/internal/`, `src/pkg/` (Go), `src/android/` (Kotlin).
-- `docs/` — документация `docs/ru/` и `docs/en/`.
-- `examples/`, `configs/`, `scripts/` — без изменений.
-- Каждый доменный пакет не имеет циклических зависимостей.
-- Android-модуль изолирован от Go-кода; связь через JSON-сериализованные конфиги/QR.
+### II. Архитектурные границы
+- `src/cmd/{server,client,web,desktop}` — entrypoints; `src/internal/*` — Go-пакеты ядра; `src/mobile` — gomobile AAR boundary; `src/android` — Kotlin-приложение.
+- Go-пакеты группируются по ответственности (transport, tcpstack, tlsprofile, tunpool, client, server, config, routing, webui); циклические зависимости запрещены.
+- Внешние зависимости изолируются за интерфейсами; глобальное мутабельное состояние запрещено, DI через конструкторы.
+- Android использует Go core через gomobile; Kotlin `VpnService` владеет TUN fd и lifecycle, Go core не закрывает чужой fd.
+- `kvn-desktop` — WebView-обёртка `kvn-web`; Windows installer по умолчанию ставит desktop-клиент.
 
 ### III. Traceability (NON-NEGOTIABLE)
-<!-- Маркеры @sk-task / @sk-test для всех языков -->
+- Каждая нетривиальная задача имеет `@sk-task` в коде и `@sk-test` в тестах.
+- Маркеры размещаются на owning symbol (func/type/test/class), не на `package`/`import`/file-header.
+- Завершённая задача в `tasks.md` обязана иметь `Proof: <kind> <path> [anchor]`.
 
-- Каждая нетривиальная задача требует trace-маркеров в коде (`@sk-task`) и тестах (`@sk-test`).
-- Маркеры размещаются на объявлениях функций/методов/структур/классов, не на `package`/`import`/file-header.
-- Языковые правила размещения: Go (`//` над `func`/`type`/`Test`), Kotlin (`//` над `fun`/`class`/`@Test`), Shell (`#` над `function`/block).
-- Изменения публичного поведения MUST отражаться в spec/tasks до merge.
+### IV. Безопасность и честность по DPI
+- Транспорт: TLS 1.3 + ALPN `h2`; uTLS-профиль Chrome по умолчанию, Firefox/Safari доступны; при ошибке uTLS — fallback на стандартный TLS.
+- По умолчанию нет KVN-специфичных путей/заголовков; неизвестные запросы получают fallback-сайт.
+- `verify_mode=insecure` отключает только проверку сертификата; он не должен быть default и не даёт гарантии обхода DPI.
+- Секреты и токены не логируются; QR/JSON с токеном считается чувствительным конфигом.
+- Заявлять «обходит DPI» можно только после полевого прогона; без него — только «нет явных отпечатков».
 
-### IV. Verify перед Archive
-<!-- Проверка качества обязательна для обеих платформ -->
-
-- Observable proof: изменённые файлы, вывод тестов, результат команды.
-- Go: `go test -race ./...`, `go vet ./...`, `gosec ./...`, `golangci-lint run ./...`.
-- Android: `./gradlew test`, `./gradlew assembleDebug`.
-- Docker-сборка (Go) через `scripts/docker-build.sh`.
-
-### V. Простота и эксплуатация
-<!-- Docker, конфигурация, наблюдаемость -->
-
-- Docker — основной способ поставки Go-сервера; multi-stage build.
-- Конфигурация через YAML + env override (Go).
-- Наблюдаемость: structured JSON logs (zap), Prometheus метрики, health endpoint.
-- Android-клиент поставляется как APK; конфигурация через QR-код или ручной ввод.
+### V. Verify перед Archive
+- Observable proof: существующий файл, вывод теста или команды.
+- Go: `go test ./src/...`, `go vet ./src/...`, `gosec ./...`, `golangci-lint run ./...`.
+- Android: `./gradlew testDebugUnitTest`, `./gradlew assembleDebug`.
+- DPI: `scripts/dpi-check.sh`; lab-прогон обязателен, полевой — релизный гейт.
 
 ## Непересматриваемые правила
 
-- Правила этого раздела имеют статус `MUST` / `MUST NOT` и должны проверяться на практике.
-- Реализация `MUST` идти по активным spec/plan/tasks и оставаться в заявленном scope.
-- Работа `MUST NOT` продолжаться из неоднозначных требований или placeholder-контента.
+- Правила этого раздела имеют статус `MUST` / `MUST NOT` и проверяются на практике.
+- v1 runtime, v1 entrypoints и v1-бинари `MUST NOT` попадать в текущую сборку.
+- Единый конфиг `MUST` храниться в `~/.config/kvn/config.yaml`; v1-файл сохраняется как `config.yaml.v1.bak` и не перезаписывается.
+- v2 `MUST` использовать TLS 1.3/HTTP2 и не оставлять KVN-маркеры в default surface.
+- Завершённая задача `MUST` иметь `Proof:`; без proof задача не закрыта.
 - Изменения публичного поведения `MUST` отражаться в spec/tasks до merge.
-- Если реализация конфликтует с конституцией, сначала обновляется конституция.
-- Go — основной язык ядра и сервера. Kotlin — язык Android-клиента. Cgo допускается только для TUN (wireguard/tun).
-- Никакого глобального мутабельного состояния. DI через конструкторы.
-- Android-код следует официальным гайдлайнам: Material 3, Jetpack Compose, Coroutines + Flow.
+- При конфликте реализации с конституцией сначала обновляется конституция.
 
 ## Ограничения
 
-- MVP: без HTTP3, без iOS-клиента, без full mesh.
-- Go-ядро: TCP 443 (TLS 1.3 + WebSocket Binary Frames) и/или UDP 443 (QUIC + TLS 1.3).
-- Минимальный external dependency footprint — для обеих платформ.
-- Один writer на сокет (горутин-безопасность).
-- Android: minSdk 26, targetSdk 35. Только QR/ручной ввод конфига (без NFC/Cloud).
+- Без iOS-клиента, full mesh и возврата v1 relay/runtime.
+- Go — ядро/сервер; Kotlin — Android. Cgo допускается для TUN и desktop WebView.
+- Android: minSdk 26, targetSdk 35.
+- Windows: WebView2 desktop по умолчанию; browser-режим — только явный `-Browser`.
+- Один writer на сокет; lifecycle и отмена должны быть безопасными.
+- DPI-обход не гарантируется для любого вендора/страны.
 
 ## Технологический стек
 
-- **Языки:** Go 1.22+ (ядро/сервер), Kotlin 1.9+ (Android-клиент)
-- **WebSocket:** `github.com/gorilla/websocket` или `nhooyr.io/websocket`
-- **QUIC:** `github.com/quic-go/quic-go` v0.50
-- **Конфигурация:** `spf13/viper` (Go), DataStore Preferences (Android)
-- **Логирование:** `uber-go/zap` (Go), `android.util.Log` (Android)
-- **Метрики:** `prometheus/client_golang`
-- **TUN:** `golang.zx2c4.com/wireguard/tun` (Go), `VpnService` (Android)
-- **Android UI:** Jetpack Compose, Material 3, CameraX, ML Kit Barcode Scanning, ZXing
-- **Контейнеризация:** Docker (multi-stage build) для Go
-- **БД сессий (persistence):** BoltDB / SQLite (встраиваемая)
+- **Go 1.26**: `net/http` HTTP/2, `quic-go` (optional UDP), `refraction-networking/utls`, `viper`, `zap`, gVisor TCP stack, `wireguard/tun`, `webview_go`, `gomobile`.
+- **Android**: Kotlin 1.9.20, Jetpack Compose + Material 3, Coroutines/Flow, DataStore, CameraX, ML Kit Barcode, ZXing.
+- **Конфигурация**: YAML + env override (Go), DataStore (Android), unified `~/.config/kvn/config.yaml`.
+- **Поставка**: Docker multi-stage для Go; APK/AAB для Android; PowerShell installer для Windows.
 
 ## Основная архитектура
 
 ```
-[Android Client (Kotlin)] <-> [TLS + WebSocket/QUIC] <-> [Go Server Core] <-> [TUN/Router/NAT] <-> Internet/LAN
-         |
-    [QR Config / Manual Input]
+[Android Kotlin VpnService] <-> [gomobile Go core] <-> [TLS 1.3 / HTTP2, QUIC optional] <-> [Go server] <-> [TUN/NAT] <-> Internet
+[Go client / kvn-web / kvn-desktop] <--------------------------------------------------------^
 ```
 
-Структура репозитория:
-
 ```
-kvn-ws/            # github.com/bzdvdn/kvn-ws
-├── src/
-│   ├── cmd/                # точки входа
-│   │   ├── client/         # Go-клиент (CLI)
-│   │   ├── server/         # сервер
-│   │   ├── relay/          # relay-терминатор
-│   │   ├── web/            # web-ui сервер
-│   │   ├── gatetest/       # интеграционные тесты
-│   │   └── stability/      # stability test tool
-│   ├── internal/           # Go-пакеты (ядро)
-│   │   ├── acl/            # access control lists
-│   │   ├── admin/          # admin API
-│   │   ├── bootstrap/
-│   │   │   ├── client/     # клиентский bootstrap (dial, proxy, killswitch, tun, reconnect)
-│   │   │   ├── relay/      # relay bootstrap (bridge, handler, nat, router, upstream)
-│   │   │   └── server/     # серверный bootstrap (handler)
-│   │   ├── config/         # парсинг YAML + env (client, server)
-│   │   ├── crypto/         # доп. шифрование (app-layer)
-│   │   ├── dns/            # DNS resolver + cache
-│   │   ├── dnsproxy/       # DNS proxy (встроенный DNS-сервер)
-│   │   ├── logger/         # zap-логгер
-│   │   ├── metrics/        # Prometheus метрики
-│   │   ├── nat/            # MASQUERADE/SNAT + nftables
-│   │   ├── protocol/
-│   │   │   ├── auth/       # token, jwt, basic
-│   │   │   ├── control/    # PING, CLOSE, ROUTE_UPDATE
-│   │   │   └── handshake/  # Client/Server Hello
-│   │   ├── proxy/          # transparent proxy listener
-│   │   ├── ratelimit/      # rate limiting
-│   │   ├── routing/        # маршрутизация (matcher, dns, domain, rule_set)
-│   │   ├── session/        # менеджмент сессий + IP pool + BoltDB
-│   │   ├── systemproxy/    # system proxy (linux/darwin/windows)
-│   │   ├── transparent/    # iptables redirect
-│   │   ├── transport/
-│   │   │   ├── framing/    # бинарный фрейм-протокол
-│   │   │   ├── quic/       # QUIC dial/listen + обфускация
-│   │   │   ├── tls/        # TLS-конфиг
-│   │   │   └── websocket/  # WS dial/accept
-│   │   ├── tun/            # TUN device abstraction
-│   │   ├── tunnel/         # session/stream/demux
-│   │   └── webui/          # web-ui backend (Go) + frontend (React/TypeScript)
-│   ├── integration/        # integration tests
-│   └── android/            # Android-клиент (Kotlin, Gradle)
-│       └── app/
-│           ├── src/main/kotlin/com/kvn/client/
-│           │   ├── config/      # ConnectionConfig, парсинг QR
-│           │   ├── transport/   # WebSocket-клиент (OkHttp)
-│           │   ├── vpn/         # VpnService, TUN fd
-│           │   └── ui/          # Compose UI (экраны, ViewModel)
-│           └── build.gradle.kts
-├── protocol/
-│   ├── frames.yaml         # спецификация фреймов
-│   ├── handshake.yaml      # спецификация handshake
-│   └── codegen/            # генератор типов по YAML-схемам
-├── docs/
-│   ├── ru/
-│   └── en/
-├── examples/
-│   └── relay-terminator/   # пример конфигов для relay
-├── configs/                # примеры конфигов
-├── scripts/                # сборочные и установочные скрипты
-├── certs/                  # тестовые TLS-сертификаты
-├── relay/                  # runtime-данные relay (runtime)
-├── Dockerfile
-├── docker-compose.yml
-├── go.mod
-└── go.sum
+src/
+├── cmd/{server,client,web,desktop}   # entrypoints
+├── internal/
+│   ├── transport/                    # HTTP2 streams, sessions, padding, ICMP, QUIC
+│   ├── tlsprofile/                   # uTLS profiles + fallback
+│   ├── tcpstack/                     # gVisor TCP split
+│   ├── tunpool/                      # unique TUN leases + persistence
+│   ├── client/                       # TUN/proxy data plane, metrics, direct routing
+│   ├── server/                       # fallback site
+│   ├── config/                       # unified config + v2 schema
+│   ├── routing/, dnsproxy/, proxy/   # split routing, DNS, local proxy
+│   ├── tun/, webui/, logger/
+├── mobile/                           # gomobile AAR boundary
+└── android/                          # Kotlin app
+configs/  scripts/  docs/{ru,en}/  .github/workflows/
 ```
 
-Формат кадра:
-
-```
-+--------+--------+--------+-------------------+
-| Type   | Flags  | Length | Payload           |
-+--------+--------+--------+-------------------+
-| 1 byte | 1 byte | 2/4 b  | Variable          |
-```
-
-## Клиентская маршрутизация (Routing Policy)
-
-Клиент MUST поддерживать гибкую настройку направления трафика — через VPN-сервер или напрямую (bypass). Политика задаётся в конфигурации:
-
-- **default_route** — поведение по умолчанию: `server` (весь трафик через туннель) или `direct` (весь трафик мимо туннеля).
-- **include_ranges** — CIDR-диапазоны через сервер.
-- **exclude_ranges** — CIDR-диапазоны напрямую.
-- **include_domains** — DNS-имена через сервер (встроенный DNS-resolver).
-- **exclude_domains** — DNS-имена напрямую.
-- **include_ips** — отдельные IP через сервер.
-- **exclude_ips** — отдельные IP напрямую.
-
-Правила применяются в порядке: `exclude_ips` → `include_ips` → `exclude_domains` → `include_domains` → `exclude_ranges` → `include_ranges` → `default_route`. Первое совпадение останавливает перебор.
-
-Для разрешения доменов в IP используется локальный DNS-resolver, кеширующий результаты с TTL. При недоступности DNS-резолва политика SHOULD применять exclude для данного домена (fail-closed для сервера, fail-open для direct).
+Сервер выдаёт уникальный TUN lease на `client_id`; lease имеет TTL и сохраняется в JSON, чтобы переживать restart.
 
 ## Языковая политика
 
-- Язык документации: русский (`docs/ru/`), английский (`docs/en/`)
+- Язык документации: русский (`docs/ru/`) и английский (`docs/en/`)
 - Язык общения с агентом: русский
-- Язык комментариев в коде: английский (Go-код и Android/Kotlin код)
+- Язык комментариев в коде: английский
 
 ## Процесс разработки
 
-- Каждая фича ДОЛЖНА разрабатываться в отдельной git-ветке.
-- Именование веток SHOULD следовать принятому в проекте соглашению для feature-веток, например `feature/<slug>`.
-- Реализация SHOULD начинаться с явной спецификации до начала кодинга.
-- Планы и задачи SHOULD выводиться из актуальной спецификации и оставаться с ней согласованными.
-- Реализация, спецификации, планы и задачи ДОЛЖНЫ соответствовать этой конституции.
-- Если работа выявляет конфликт с этой конституцией, конституция ДОЛЖНА быть изменена до продолжения несовместимой реализации.
+- Каждая фича разрабатывается в отдельной ветке `feature/<slug>`; ветку создаёт `/spk-spec` или `/spk-propose`.
+- Реализация начинается с явной spec; plan/tasks выводятся из неё и остаются согласованными.
+- Изменения публичного поведения отражаются в spec/tasks до merge.
+- При конфликте с конституцией сначала обновляется конституция.
 
 ## Definition of Done
 
-- Задача считается завершенной только при observable proof: измененные файлы, вывод целевых тестов или результат команды.
-- Для нетривиальных правок обязательны traceability-маркеры:
-  - код: `@sk-task <slug>#<TASK_ID>: <short> (<AC_ID>)`
-  - тесты: `@sk-test <slug>#<TASK_ID>: <TestName> (<AC_ID>)`
-  - если одну задачу подтверждают несколько тестов/кейсов, `@sk-test <slug>#<TASK_ID>` должен стоять на каждом таком тесте/кейсе, а не только на одном representative тесте.
-- Правило размещения маркеров:
-  - размещайте trace-маркеры на объявлениях функций/методов/структур/классов (или на заголовках поведенческих блоков), а не на строках полей.
-  - запрещено ставить trace-маркеры на уровень `package`, `import` или file-header comment; маркер должен принадлежать конкретному owning symbol.
-  - если язык поддерживает именованные объявления, ставьте маркер непосредственно над тем объявлением, которое реализует или проверяет поведение.
-- Примеры размещения и стиля по языкам:
-  - Go: `//` непосредственно над `func`, method receiver, `type`, `func Test...`; если несколько `Test...` проверяют одну задачу, `@sk-test` нужен на каждом таком тесте.
-  - Kotlin: `//` непосредственно над `fun`, `class`, `@Test fun`; не над `package`, `import`, `class` header без owning behavior.
-  - Java: `//` или `/* */` непосредственно над `class`, `interface`, `enum`, method, JUnit test method; не над `package`, `import`, полями.
-  - Shell / Bash: `#` над `function name()` или первой строкой именованного behavior/test block.
-- Существующие trace-маркеры сохраняются; покрытие новой задачи добавляется доп. маркерами (без перезаписи).
-- Если один метод/тест покрывает несколько задач, на нем одновременно остаются несколько маркеров.
-- Перед archive в verify должна быть подтверждена покрываемость acceptance criteria.
-- После завершения каждой spec обязателен прогон: `go test -race ./...`, `go vet ./...`, `gosec ./...`, `golangci-lint run ./...` (Go); для Android — `./gradlew test`.
+- Задача завершена только при observable proof: изменённые файлы, вывод тестов или команды.
+- Trace-маркеры обязательны; при нескольких тестах одной задачи `@sk-test` стоит на каждом.
+- `Proof:` в `tasks.md` обязателен для каждой `[x]`; отсутствующий файл — ошибка, отсутствующий anchor — предупреждение.
+- Go-проверки: `go test ./src/...`, `go vet ./src/...`, `gosec ./...`, `golangci-lint run ./...`.
+- Android: `./gradlew testDebugUnitTest` и `./gradlew assembleDebug`.
+- DPI lab-прогон и отчёт обязательны; полевой прогон — до релиза.
+- Перед archive подтверждается покрытие acceptance criteria.
 
 ## Политика Repository Map
 
-- `REPOSITORY_MAP.md` — компактный индекс навигации по коду, а не процессный документ.
-- Карта обновляется только при существенном изменении структуры/навигации кода.
-- Обновление карты выполняется in-place с минимальным diff; неизменные секции не переписываются.
-- Операционные/spec-артефакты исключаются из индексации согласно политике проекта.
+- `REPOSITORY_MAP.md` — компактный индекс навигации, обновляется in-place минимальным diff.
+- Исключены `.speckeep/`, `specs/`, `vendor/`, `node_modules/`, `dist/`, `bin/`.
+- Карта обновляется при изменении entrypoints, модулей или границ подсистем.
 
 ## Управление
 
-- Эта конституция является авторитетным источником для проектных решений.
-- Изменения архитектуры, спецификаций, планов и задач ДОЛЖНЫ соответствовать этим принципам.
-- Если реализация конфликтует с конституцией, приоритет у конституции, пока она явно не изменена.
-- Изменяйте этот файл patch-обновлениями, сохраняя обязательные секции и делая правила конкретными и проверяемыми.
+- Эта конституция — авторитетный источник проектных решений.
+- Изменения архитектуры, spec, plan и tasks должны соответствовать конституции.
+- При конфликте приоритет у конституции, пока она явно не изменена.
+- Изменения вносятся patch-обновлениями с сохранением обязательных секций.
 
 ## Метаданные конституции
 
-- Version: 1.1.1
+- Version: 2.0.0
 - Ratified: 2026-05-13
-- Last Amended: 2026-06-18
+- Last Amended: 2026-10-29
 
 ## Последнее обновление
 
-2026-06-18 — добавлены обязательные проверки go vet, gosec, golangci-lint после каждой spec
+2026-10-29 — переход на v2-only: TLS 1.3/HTTP2, uTLS, TUN pool, gomobile, WebView desktop, Windows installer и DPI-политика
+2026-06-18 — обязательные проверки go vet, gosec, golangci-lint
 2026-06-11 — добавлен Android-клиент (Kotlin), обновлён стек и архитектура

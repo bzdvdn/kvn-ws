@@ -18,11 +18,14 @@
 | src/internal/transport/ | T2.1, T2.2, T2.3, T2.4 |
 | src/internal/transport/padding.go | T2.3 |
 | src/internal/transport/transport_test.go | T2.1, T2.2, T2.3, T2.4 |
-| src/internal/client/ | T2.1, T2.2, T2.3 |
+| src/internal/client/ | T2.1, T2.2, T2.3, T2.6 |
 | scripts/dpi-check.sh | T1.4, T5.1 |
-| scripts/build.sh, scripts/install-*.sh, Dockerfile | T3.2, T3.3 |
+| scripts/build.sh, scripts/install-*.sh, scripts/install-web.ps1, Dockerfile | T3.2, T3.3, T3.5 |
 | src/cmd/{client,server,relay}, src/internal/{bootstrap,tunnel,protocol,session,nat,acl,admin,metrics}/ | T3.2 |
-| src/android/ | T4.1, T4.2, T4.3, T4.4 |
+| src/android/ | T4.1, T4.2, T4.3, T4.4, T4.5, T4.6 |
+| src/android/app/src/main/kotlin/com/kvn/client/ui/ | T4.5, T4.6 |
+| src/internal/transport/icmp.go | T4.7 |
+| scripts/install-web.ps1 | T3.5 |
 | docs/ru/, docs/en/, REPOSITORY_MAP.md, src/*/CONTEXT.md | T3.4, T5.3 |
 | .github/workflows/ci.yml | T3.3, T5.2 |
 
@@ -64,6 +67,9 @@
       Proof: test src/internal/transport/transport_test.go TestUnknownPathFallback
 - [x] T2.5 Обновить v2-only UI — outcome: нет v1-контролов, есть выбор uTLS-профиля и stealth/padding настроек, всё сохраняется в v2 store; Touches: src/internal/webui/frontend/src/, src/internal/webui/handler_config.go
       Proof: code src/internal/webui/frontend/src/TabbedForm.tsx stealth
+- [x] T2.6 Добавить метрики и фильтрацию логов в web UI — outcome: SSE `metric` (RX/TX, latency, uptime, reconnect) и логи только выбранного уровня; Touches: src/internal/client/metrics.go, src/internal/webui/handler_logs.go, src/internal/webui/webui_log_core.go
+      Proof: code src/internal/client/metrics.go Metrics
+      Proof: code src/internal/webui/webui_log_core.go Enabled
 
 ## Фаза 3: Удаление v1 и релиз 2.0.0
 
@@ -77,6 +83,9 @@
       Proof: chore scripts/build.sh build_server
 - [x] T3.4 Оставить v1 только в документации релизов — outcome: есть инструкция скачать/запустить v1.4.1, нет обещания поддержки v1 в 2.0.0; Touches: docs/ru/, docs/en/, CHANGELOG.md
       Proof: docs docs/ru/v1-legacy.md
+- [x] T3.5 Windows installer: WebView default + cleanup v1 — outcome: `kvn-desktop` ставится по умолчанию, `kvn-web` task заменяется/запускается, v1 процессы/tasks/services/каталоги/PATH/ярлыки удаляются, `-Browser` остаётся legacy; Touches: scripts/install-web.ps1, docs/ru/deployment.md, docs/en/deployment.md
+      Proof: code scripts/install-web.ps1
+      Proof: docs docs/ru/deployment.md
 
 ## Фаза 4: Android v2
 
@@ -90,6 +99,12 @@
       Proof: code src/android/app/src/main/kotlin/com/kvn/client/ui/MainViewModel.kt v2ConfigJson
 - [x] T4.4 Сохранить DNS routing/direct — outcome: DNS-запросы перехватываются в mobile core, exclude-домены резолвятся direct и получают direct TCP/UDP; include/default идут через v2; fake-IP не нужен, выдаётся реальный IP. Touches: src/internal/client/direct.go, src/mobile/, src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnV2VpnService.kt
       Proof: code src/internal/client/direct.go handleDirectDNS
+- [x] T4.5 Android Settings/AppPicker UX — outcome: секции читаемы на тёмной теме, include/exclude показывают только count, выбор открывается в AppPicker, импорт DNS/routing с другого сервера, явное сохранение; Touches: src/android/app/src/main/kotlin/com/kvn/client/ui/SettingsScreen.kt, AppPickerScreen.kt, MainViewModel.kt
+      Proof: code src/android/app/src/main/kotlin/com/kvn/client/ui/SettingsScreen.kt SettingsCard
+- [x] T4.6 Android ↔ kvn-web QR/JSON parity — outcome: Android экспортирует web-совместимый `https://host:port` с TLS/routing, импортирует web- и Android-JSON без лишнего path; Touches: src/android/app/src/main/kotlin/com/kvn/client/ui/QrScannerScreen.kt, ConnectScreen.kt, src/android/app/src/test/java/com/kvn/client/config/ConfigSerializationTest.kt
+      Proof: test src/android/app/src/test/java/com/kvn/client/config/ConfigSerializationTest.kt testStealthSurfaceWebRoundTrip
+- [x] T4.7 ICMP echo proxy — outcome: IPv4 ping проходит через v2 stream/server raw ICMP; traceroute и прочие ICMP-типы не обещаются; Touches: src/internal/client/ping.go, src/internal/transport/icmp.go, src/internal/transport/client.go
+      Proof: code src/internal/transport/icmp.go handleICMP
 
 ## Фаза 5: Проверка и документация
 
@@ -113,14 +128,17 @@
 - AC-004 -> T3.2, T3.3
 - AC-005 -> T1.2, T5.2
 - AC-006 -> T3.4, T5.4
-- AC-007 -> T4.2, T4.3, T4.4
+- AC-007 -> T4.2, T4.3, T4.4, T4.5, T4.6
 - AC-008 -> T5.3
 - AC-009 -> T1.4, T5.1, T5.5
 - AC-010 -> T1.3, T2.1, T2.5
 - AC-011 -> T2.2, T2.3, T2.4, T2.5
+- AC-012 -> T3.5
 
 ## Заметки
 
 - T3.2 — самая рискованная задача: удалять v1 только после зелёных desktop/Android тестов.
 - T4.1 — gate: без успешного spike не начинать T4.2–T4.4.
 - Stale `kvn-web-v2` адаптер удалить в T1.1, не оставлять «на всякий случай».
+- T3.5 закрывает Windows packaging: desktop WebView default, замена `kvn-web` task и удаление v1.
+- T4.5–T4.7 — Android UX/QR и ICMP; TUN-leases остаются в архиве `v2-tun-assignment`.

@@ -15,7 +15,7 @@ Outputs: план cutover 2.0.0, uTLS + stealth, DPI-гейт и Android-пер�
 - `~/.config/kvn/config.yaml`; UI не показывает v1-поля.
 - uTLS-профили Chrome/Firefox/Safari с выбором и fallback; stealth-заголовки/путь/fallback по умолчанию.
 - DPI/active-probe автоматический прогон + один полевой регион.
-- Закрывает `AC-001`–`AC-006`, `AC-008`–`AC-011`; Android (`AC-007`) идёт следующим инкрементом в том же релизе.
+- Закрывает `AC-001`–`AC-006`, `AC-008`–`AC-012`; Android (`AC-007`) идёт следующим инкрементом в том же релизе.
 
 ## First Validation Path
 
@@ -31,6 +31,8 @@ Outputs: план cutover 2.0.0, uTLS + stealth, DPI-гейт и Android-пер�
 - DPI/active-probe гейт и отчёт.
 - Удаление v1-кода/entrypoint'ов из текущего дерева.
 - Android v2 data plane и сохранение DNS routing.
+- Windows installer: WebView desktop по умолчанию и cleanup v1.
+- Android UX/QR: AppPicker, импорт настроек, читаемые Settings, QR interoperability.
 - Docs/REPOSITORY_MAP/CONTEXT.
 
 ## Performance Budget
@@ -49,7 +51,8 @@ Outputs: план cutover 2.0.0, uTLS + stealth, DPI-гейт и Android-пер�
 - `src/internal/transport/tls/` или новый `src/internal/tlsprofile/` — несколько uTLS-профилей.
 - `src/internal/client/`, `src/internal/tcpstack/` — desktop v2 data plane; mobile-friendly API boundary.
 - `src/android/` — VpnService + Go mobile core или выбранный fallback; DNS routing остаётся.
-- `scripts/build.sh`, install/release scripts, `scripts/dpi-check.sh`, CI.
+- `scripts/` (build/install/release), `scripts/install-web.ps1`, `scripts/dpi-check.sh`, CI.
+- `src/android/app/src/main/kotlin/com/kvn/client/ui/` — Settings/AppPicker/QR; `src/internal/transport/icmp.go` — ICMP echo proxy.
 - `docs/ru|en/`, `REPOSITORY_MAP.md`, `src/*/CONTEXT.md`.
 - Удаляемые v1 surfaces: `src/cmd/{client,server,relay,gatetest,stability}`, `src/internal/bootstrap/{client,server,relay}`, `src/internal/{tunnel,protocol,session,nat,acl,admin,ratelimit,metrics}`, v1 transport/WS/QUIC/framing, v1 Android engine.
 
@@ -80,6 +83,7 @@ Outputs: план cutover 2.0.0, uTLS + stealth, DPI-гейт и Android-пер�
 - AC-009 → `scripts/dpi-check.sh` + active-probe отчёт, сеть/регион.
 - AC-010 → unit/integration ClientHello для 3 профилей + fallback.
 - AC-011 → перехват headers/path, adaptive padding (small/control/QUIC), active-probe fallback; default config.
+- AC-012 → PowerShell parser + Windows smoke: default desktop, task replacement, v1 cleanup; `-Browser` legacy.
 
 ## Данные и контракты
 
@@ -151,6 +155,8 @@ Outputs: план cutover 2.0.0, uTLS + stealth, DPI-гейт и Android-пер�
 
 - Android spike → v2 TUN/TCP + DNS routing (`AC-007`).
 - Android QUIC-UDP только после подтверждения необходимости; HTTP2 UDP fallback уже покрывает MVP.
+- Windows installer: WebView default, замена `kvn-web` task и cleanup v1.
+- Android UX/QR: AppPicker/import, читаемые Settings, QR/JSON round-trip.
 - Финальный release 2.0.0 и docs/REPOSITORY_MAP/CONTEXT.
 
 ## Порядок реализации
@@ -159,7 +165,8 @@ Outputs: план cutover 2.0.0, uTLS + stealth, DPI-гейт и Android-пер�
 2. Вынести TLS-профили, включить uTLS + stealth defaults, расширить DPI-скрипт.
 3. Удалить v1 entrypoints/пакеты, обновить build/install/release.
 4. Android spike; при успехе — Go mobile core и DNS routing.
-5. Финальный DPI-прогон, docs, REPOSITORY_MAP/CONTEXT, 2.0.0.
+5. Windows installer/Android UX/QR: desktop default, v1 cleanup, AppPicker и QR parity.
+6. Финальный DPI-прогон, docs, REPOSITORY_MAP/CONTEXT, 2.0.0.
 
 ## Риски
 
@@ -181,6 +188,10 @@ Outputs: план cutover 2.0.0, uTLS + stealth, DPI-гейт и Android-пер�
   Mitigation: spike на SETTINGS/priority/header order; если нельзя — явно документировать остаточный риск.
 - Случайный/cover-трафик выглядит как сканирование и привлекает IDS.
   Mitigation: default — только v2 endpoint; cover traffic opt-in и реалистичный.
+- Windows upgrade блокирует exe/старый task или оставляет v1.
+  Mitigation: остановить процессы/снять tasks, очистить legacy paths/PATH, заменить task и запустить заново; проверить PowerShell parser + Windows smoke.
+- Android Settings/QR расходятся с web-конфигом.
+  Mitigation: QR/JSON round-trip tests, единые endpoint/TLS/routing поля, AppPicker counts без вывода сырых списков.
 
 ## Rollout и compatibility
 
