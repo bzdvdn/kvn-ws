@@ -75,8 +75,8 @@ func TestListServersEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	servers := resp["servers"].([]any)
-	if len(servers) == 0 {
-		t.Fatal("expected at least 1 server (migration)")
+	if len(servers) != 0 {
+		t.Fatalf("expected empty v2 server list, got %d", len(servers))
 	}
 }
 
@@ -229,8 +229,9 @@ func TestDeleteServer(t *testing.T) {
 	mux.HandleFunc("DELETE /api/servers/{name}", s.handleDeleteServer)
 	mux.HandleFunc("GET /api/servers", s.handleListServers)
 
-	// Create an additional server (Default is auto-migrated, so 2 total)
+	// Create two servers so the last-server guard does not reject the delete.
 	doRequest(t, mux, "POST", "/api/servers", map[string]any{"name": "Extra"})
+	doRequest(t, mux, "POST", "/api/servers", map[string]any{"name": "Keep"})
 
 	// Delete Extra
 	w := doRequest(t, mux, "DELETE", "/api/servers/Extra", nil)

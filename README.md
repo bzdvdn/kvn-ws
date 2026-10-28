@@ -1,252 +1,57 @@
-<!-- @sk-task docs-and-release#T1.1: root README with badges and quickstart (AC-006) -->
-<!-- @sk-task docs-and-release#T4.1: full README with links to all docs (AC-006) -->
+# kvn-ws 2.0
 
-# kvn-ws
+**kvn-ws 2.0** — v2-only VPN: TLS 1.3 + HTTP/2 TCP split, QUIC datagrams для UDP, TUN и локальный proxy. v1 удалён из текущего дерева; старые v1-сборки доступны в [GitHub Releases](https://github.com/bzdvdn/kvn-ws/releases).
 
-[![Go Version](https://img.shields.io/badge/go-1.25%2B-blue)](https://golang.org)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/bzdvdn/kvn-ws)](https://github.com/bzdvdn/kvn-ws/releases)
+## Компоненты
 
-**kvn-ws** — VPN-туннель через WebSocket/QUIC с маскировкой под обычный веб-трафик. Написан на Go, работает в двух режимах: TUN (VPN) и локальный SOCKS5/HTTP CONNECT прокси. Включает веб-интерфейс (`kvn-web`) для управления конфигурацией и мониторинга.
+- `kvn-server` — v2-сервер (TCP + HTTP/2, optional QUIC UDP).
+- `kvn-client` — standalone v2-клиент (TUN/proxy).
+- `kvn-web` — v2-only web UI; конфиг в `~/.config/kvn/config.yaml`.
+- `kvn-desktop` — нативный wrapper для `kvn-web`.
+- Android-клиент — переводится на v2 в рамках 2.0.0.
 
-- Сервер и клиент в одном Docker-образе (multi-stage build)
-- TLS 1.3 + mTLS + WebSocket Binary Frames / QUIC
-- TUN (VPN) и Proxy (SOCKS5/HTTP CONNECT) режимы
-- Transparent proxy (iptables REDIRECT) + DNS proxy (Linux)
-- System proxy — автоустановка/восстановление HTTP_PROXY (Linux, macOS, Windows)
-- Обфускация трафика: uTLS (TLS fingerprint), WebSocket padding, QUIC XOR-obfuscation
-- SNI rotation — случайный SNI из белого списка при каждом подключении
-- Маршрутизация: server/direct, CIDR, DNS-имена, отдельные IP с ordered rules
-- DNS-роутинг — маршрутизация DNS-запросов по суффиксу домена
-- App-layer шифрование (AES-256-GCM, per-session key derivation)
-- Split-tunnel с kill-switch при потере соединения (nftables)
-- Dual-stack IPv4/IPv6
-- QUIC transport с автоматическим fallback на TCP
-- MaxMessageSize защита от OOM в QUIC-транспорте
-- Web UI (`kvn-web`) — конфигурация, логи, импорт/экспорт/QR, статус соединения, настройка Dual Channel (UDP на втором WS-канале) в Advanced/Global
-- Батчинг вторичного WS-канала — UDP/медиа (VoIP, QUIC) накапливаются и уходят одним WS-сообщением: при `padding.size: 512` overhead падает с 3–8× до ~1.1× (без просадки скорости), а при `padding.size: 128` робовойс уходит (крупные TCP-сегменты даёт батч, а не паддинг)
-- Android-клиент — dual-channel (второй WS-канал для UDP/VoIP-медиа) + батчинг вторичного канала, статус соединения (active/fallback, uptime), автообновление release без удаления
-- `scripts/speedtest.sh` — замер скорости к фиксированному endpoint (`speed.cloudflare.com` по умолчанию) до/после VPN для честного сравнения
-- Prometheus-метрики, сессионный менеджмент с BoltDB-персистентностью
-- CIDR ACL, rate limiting, per-token bandwidth management
-- Netlink API для управления маршрутами (без exec.Command)
-- SIGHUP hot-reload конфига
-- Graceful shutdown, health endpoints (/livez, /readyz, /health)
-- Кроссплатформенный клиент: Linux, macOS, Windows (Web UI), Android (приложение)
-
-## Quick start (30 sec)
+## Быстрый старт
 
 ```bash
-git clone https://github.com/bzdvdn/kvn-ws.git
-cd kvn-ws && cp -r examples/* .
-bash examples/run.sh
+./scripts/build.sh both
+cp configs/server.example.yaml configs/server.yaml
+sudo ./bin/kvn-server --config configs/server.yaml
+sudo ./bin/kvn-web --no-browser
 ```
 
-Web UI: http://127.0.0.1:2311
+`kvn-web`: http://127.0.0.1:2311
 
-Подробнее: [docs/en/quickstart.md](docs/en/quickstart.md) · [docs/ru/quickstart.md](docs/ru/quickstart.md)
+Сервер выдаёт каждому клиенту уникальный `tun_address` из пула; `client_id` генерируется клиентом автоматически, если его нет в JSON/QR.
 
-## Documentation
-
-| English                                 | Русский                                |
-| --------------------------------------- | -------------------------------------- |
-| [Quickstart](docs/en/quickstart.md)     | [Быстрый старт](docs/ru/quickstart.md) |
-| [Deployment](docs/en/deployment.md)     | [Развёртывание](docs/ru/deployment.md) |
-| [Configuration](docs/en/config.md)      | [Конфигурация](docs/ru/config.md)      |
-| [Relay Mode](docs/en/relay.md)          | [Режим Relay](docs/ru/relay.md)        |
-| [Architecture](docs/en/architecture.md) | [Архитектура](docs/ru/architecture.md) |
-
-## Installation
-
-### Server (Linux) — одна команда
-
-Устанавливает бинарник, генерирует конфиг со случайным токеном, настраивает systemd-сервис и nftables.
+## Установка
 
 ```bash
-sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-server.sh)"
+# сервер (root, systemd, TLS, TUN pool)
+sudo ./scripts/install-server.sh --port 443
+
+# клиент (root, systemd, TUN)
+sudo ./scripts/install-client.sh --server https://HOST:443 --token TOKEN
 ```
 
-С опциями (порт, подсеть, IPv6):
-```bash
-sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-server.sh)" -- --listen :8443 --subnet 10.20.0.0/16 --gateway 10.20.0.1
-```
+Скрипты также умеют скачивать `kvn-server`/`kvn-client` из GitHub Releases, если локального бинаря нет.
 
-### Client (Linux)
+## Конфигурация
 
-```bash
-# Install from release
-sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-client.sh)" \
-  -- -s wss://vpn.example.com/tunnel -t your-token
-```
+Единый конфиг 2.0: `~/.config/kvn/config.yaml`. При миграции старый v1-файл сохраняется как `config.yaml.v1.bak`; старый `~/.config/kvn/v2/config.yaml` импортируется один раз.
 
-### Client (Windows)
-
-```powershell
-# PowerShell (admin)
-iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-client.ps1 -OutFile install-client.ps1
-.\install-client.ps1 -Server "wss://vpn.example.com/tunnel" -Token "your-token" -RegisterTask
-```
-
-### Web UI (kvn-web) — одна команда
-
-Устанавливает бинарник, регистрирует сервис автозапуска (systemd/launchd/Windows Service) и запускает Web UI на порту 2311.
-
-**Linux / macOS:**
-```bash
-sudo bash -c "$(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.sh)" -- --desktop --start
-```
-
-**Windows (PowerShell Admin):**
-```powershell
-iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.ps1 -OutFile install-web.ps1; .\install-web.ps1 -Desktop -Start
-```
-
-Web UI: http://127.0.0.1:2311
-
-### Desktop App (kvn-desktop)
-
-Нативное десктопное приложение с WebView-окном для kvn-web.
-
-**Linux / macOS:** обёртка над уже запущенным systemd/launchd-сервисом, открывает WebView на `localhost:2311`.
-
-**Windows:** самозапускаемый — встраивает встроенный `webui.Server`, запрашивает UAC (embedded manifest), восстанавливает system proxy при закрытии.
-
-Устанавливается вместе с `install-web.sh`/`install-web.ps1` (флаг `--desktop` / `-Desktop`).
+Standalone:
 
 ```bash
-# Linux/macOS
-sudo ./scripts/install-web.sh --desktop --start
-
-# Windows (PowerShell Admin)
-.\scripts\install-web.ps1 -Desktop -Start
+cp configs/client.example.yaml configs/client.yaml
+sudo ./bin/kvn-client --config configs/client.yaml
 ```
 
-Сборка:
-```bash
-# Linux (требуется: apt install libgtk-3-dev libwebkit2gtk-4.1-dev)
-go build -o bin/kvn-desktop ./src/cmd/desktop
+## Документация
 
-# Windows cross (через Docker)
-docker build -f Dockerfile.kvn-desktop -o out .
-```
+- [v2 RU](docs/ru/v2.md) · [v2 EN](docs/en/v2.md)
+- [v1 legacy: скачать и запустить старый релиз](docs/ru/v1-legacy.md) · [EN](docs/en/v1-legacy.md)
+- [Release checklist 2.0.0](docs/ru/v2-release.md) · [EN](docs/en/v2-release.md)
+- [DPI lab report](docs/ru/v2-dpi-report.md) · [EN](docs/en/v2-dpi-report.md)
+- [CHANGELOG](CHANGELOG.md)
 
-## Configuration
-
-Минимальный `client.yaml`:
-
-```yaml
-server: wss://vpn.example.com/tunnel
-auth:
-  token: your-token
-```
-
-Детальная конфигурация — [docs/ru/config.md](docs/ru/config.md).
-
-## Web UI features
-
-- Мультисервер: добавление, переключение, удаление конфигураций серверов
-- Редактирование глобальных и per-server настроек через браузер
-- Поддержка TUN и Proxy режимов
-- Import/Export конфига (JSON, QR-код)
-- Мониторинг логов соединения с фильтром по уровню и поиском
-- Статус подключения в реальном времени
-- Transparent proxy + DNS proxy настройки (Linux)
-- System proxy toggle
-
-## Obfuscation
-
-Трафик маскируется под обычный HTTPS несколькими уровнями:
-
-- **uTLS** — подмена TLS fingerprint (Chrome HelloChrome_Auto)
-- **Padding** — дополнение WebSocket-сообщений случайными данными до кратного размера
-- **QUIC obfuscation** — XOR-обфускация QUIC-трафика с nonce через TLS Exporter
-- **SNI rotation** — случайный домен из списка `tls.sni`
-
-## Transport
-
-Два транспорта: TCP (WebSocket) и QUIC (UDP). QUIC используется по умолчанию, при недоступности — автоматический fallback на TCP.
-
-## Relay Mode
-
-Режим ретрансляции (relay) — два подрежима:
-
-**Bridge** — прозрачный pipe: принимает клиентов, проксирует трафик на upstream, не расшифровывает.
-**Terminator** — полноценный VPN-endpoint: расшифровывает, маршрутизирует (direct/upstream по CIDR + доменам), перехватывает DNS.
-
-### Terminator
-
-Terminator принимает WS/QUIC клиентов, выделяет IP из пула, поднимает TUN и маршрутизирует:
-
-- **Direct** — CIDR (`10.0.0.0/8`) и домены (`.internal.example`) → напрямую через TUN relay
-- **Upstream** — остальной трафик → через upstream VPN-сервер (WS или QUIC)
-- **DNS interception** — для direct-доменов relay форвардит DNS на `1.1.1.1:53` (настраивается)
-
-```yaml
-mode: relay
-server: wss://vpn.example.com/tunnel
-upstream_token: your-token           # токен для upstream (или env KVN_RELAY_AUTH_TOKEN)
-relay:
-  mode: terminator
-  listen: 0.0.0.0:443
-  routing:
-    direct_ranges:
-      - 10.0.0.0/8
-    direct_domains:
-      - .internal.example
-    dns:
-      upstream: "1.1.1.1:53"
-  network:
-    pool_ipv4:
-      subnet: 172.16.0.0/24
-      gateway: 172.16.0.1
-tls:
-  verify_mode: insecure
-```
-
-### Bridge relay
-
-Прозрачный pipe — relay не расшифровывает трафик:
-
-```yaml
-mode: relay
-server: wss://vpn.example.com/tunnel
-relay:
-  listen: 0.0.0.0:8443
-  ws_paths:
-    - /tunnel
-  max_connections: 200
-  quic:
-    keep_alive: 7
-    idle_timeout: 60
-```
-
-### Клиент через relay (bridge)
-
-```yaml
-mode: tun
-server: wss://relay:8443/tunnel
-auth:
-  token: your-token
-tls:
-  verify_mode: insecure
-```
-
-Подробнее: [docs/en/relay.md](docs/en/relay.md) · [docs/ru/relay.md](docs/ru/relay.md)
-Пример terminator: `examples/relay-terminator/`
-
-## Examples
-
-Готовые к запуску примеры в [examples/](examples/):
-
-- `docker-compose.yml` — сервер + клиент (WS и QUIC)
-- `server.yaml` / `client.yaml` — конфиги
-- `relay-terminator/docker-compose.yml` — relay-пример terminator (WS + QUIC клиенты)
-- `run.sh` — генерация TLS-сертификата и запуск
-
-## Changelog
-
-[CHANGELOG.md](CHANGELOG.md)
-
-## License
-
-MIT
+v1 не поддерживается в 2.0.0. Для v1 используйте старый release и его документацию из тега `v1.4.1`.

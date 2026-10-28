@@ -1,15 +1,10 @@
 package tls
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	mathrand "math/rand/v2"
-	"net"
 	"os"
-
-	utls "github.com/refraction-networking/utls"
 )
 
 // @sk-task foundation#T1.3: internal stubs (AC-002)
@@ -124,64 +119,4 @@ func NewClientTLSConfigFromSettings(settings ClientTLSSettings) (*tls.Config, er
 	}
 
 	return cfg, nil
-}
-
-var browserPresets = []utls.ClientHelloID{
-	utls.HelloChrome_Auto,
-	utls.HelloFirefox_Auto,
-	utls.HelloEdge_Auto,
-	utls.HelloSafari_Auto,
-}
-
-// #nosec G404 — non-cryptographic random browser preset selection
-func randomPreset() utls.ClientHelloID {
-	return browserPresets[mathrand.IntN(len(browserPresets))]
-}
-
-// @sk-task whitelist-obfuscation#T2.1: uTLS dial wrapper (AC-001)
-// DialWithUTLS establishes a TLS connection using uTLS with a random browser fingerprint.
-// Falls back to crypto/tls on any error if fallback is true.
-func DialWithUTLS(ctx context.Context, network, addr string, tlsCfg *tls.Config, fallback bool) (net.Conn, error) {
-	dialer := net.Dialer{}
-	rawConn, err := dialer.DialContext(ctx, network, addr)
-	if err != nil {
-		return nil, fmt.Errorf("tcp dial: %w", err)
-	}
-
-	utlsCfg := &utls.Config{
-		ServerName:         tlsCfg.ServerName,
-		InsecureSkipVerify: tlsCfg.InsecureSkipVerify,
-		RootCAs:            tlsCfg.RootCAs,
-		MinVersion:         tlsCfg.MinVersion,
-		NextProtos:         tlsCfg.NextProtos,
-	}
-
-	uconn := utls.UClient(rawConn, utlsCfg, randomPreset())
-	if err := uconn.Handshake(); err != nil {
-		_ = rawConn.Close()
-		if fallback {
-			dialer := net.Dialer{}
-			rawFallback, fbErr := dialer.DialContext(ctx, network, addr)
-			if fbErr != nil {
-				return nil, fmt.Errorf("tcp dial fallback: %w", fbErr)
-			}
-			tlsConn := tls.Client(rawFallback, tlsCfg)
-			if err := tlsConn.HandshakeContext(ctx); err != nil {
-				_ = rawFallback.Close()
-				return nil, fmt.Errorf("tls handshake fallback: %w", err)
-			}
-			return tlsConn, nil
-		}
-		return nil, fmt.Errorf("utls handshake: %w", err)
-	}
-	return uconn, nil
-}
-
-// @sk-task whitelist-obfuscation#T3.1: random SNI selection (AC-004)
-// SelectSNI picks a random domain from the list. Returns empty string if list is empty.
-func SelectSNI(list []string) string {
-	if len(list) == 0 {
-		return ""
-	}
-	return list[mathrand.IntN(len(list))] // #nosec G404 — non-cryptographic SNI load balancing only
 }

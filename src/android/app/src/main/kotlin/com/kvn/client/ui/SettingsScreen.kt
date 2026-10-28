@@ -1,739 +1,267 @@
 package com.kvn.client.ui
 
-import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kvn.client.config.ConnectionConfig
-import com.kvn.client.ui.theme.KvnPrimary
-import com.kvn.client.ui.theme.KvnSuccess
-import com.kvn.client.vpn.KvnVpnService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-// @sk-task android-log-tag#T2.4: removed old AlertDialog log viewer (AC-012)
-fun SettingsScreen(vm: MainViewModel = viewModel()) {
-    val context = LocalContext.current
-    val activeCfg by vm.activeServerConfig.collectAsState()
-    val activeName by vm.activeServerName.collectAsState()
-    val serverList by vm.servers.collectAsState()
-
-    var showAppPicker by remember { mutableStateOf(false) }
-    var appPickerModeAllow by remember { mutableStateOf(true) }
-
-    // Per-server DNS state
-    var editDns by remember(activeCfg) {
-        mutableStateOf(activeCfg?.dnsServers?.joinToString(",") ?: "")
-    }
-
-    // Per-server app filter state
-    var editAppInclude by remember(activeCfg) {
-        mutableStateOf(activeCfg?.appIncludeList?.joinToString(",") ?: "")
-    }
-    var editAppExclude by remember(activeCfg) {
-        mutableStateOf(activeCfg?.appExcludeList?.joinToString(",") ?: "")
-    }
-
-    // Per-server config state
-    var mtu by remember(activeCfg) { mutableStateOf((activeCfg?.mtu ?: 1500).toString()) }
-    var ipv6Enabled by remember(activeCfg) { mutableStateOf(activeCfg?.ipv6Enabled ?: false) }
-    var autoReconnect by remember(activeCfg) { mutableStateOf(activeCfg?.autoReconnect ?: true) }
-    var logLevel by remember(activeCfg) { mutableStateOf(activeCfg?.logLevel ?: "info") }
-    var maxMessageSize by remember(activeCfg) { mutableStateOf((activeCfg?.maxMessageSize ?: 65535).toString()) }
-    var multiplex by remember(activeCfg) { mutableStateOf(activeCfg?.multiplex ?: false) }
-    // @sk-task android-dual-ws#T1.1: dual channel toggle (AC-001)
-    var multiChannel by remember(activeCfg) { mutableStateOf(activeCfg?.multiChannel ?: false) }
-    var minBackoffSec by remember(activeCfg) { mutableStateOf((activeCfg?.minBackoffSec ?: 1).toString()) }
-    var maxBackoffSec by remember(activeCfg) { mutableStateOf((activeCfg?.maxBackoffSec ?: 30).toString()) }
-    var tlsVerifyMode by remember(activeCfg) { mutableStateOf(activeCfg?.tlsVerifyMode ?: "verify") }
-    var tlsServerName by remember(activeCfg) { mutableStateOf(activeCfg?.tlsServerName ?: "") }
-    var routingIncludeRanges by remember(activeCfg) { mutableStateOf(activeCfg?.routingIncludeRanges?.joinToString(",") ?: "") }
-    var routingExcludeRanges by remember(activeCfg) { mutableStateOf(activeCfg?.routingExcludeRanges?.joinToString(",") ?: "") }
-    var routingIncludeIps by remember(activeCfg) { mutableStateOf(activeCfg?.routingIncludeIps?.joinToString(",") ?: "") }
-    var routingExcludeIps by remember(activeCfg) { mutableStateOf(activeCfg?.routingExcludeIps?.joinToString(",") ?: "") }
-    var routingIncludeSources by remember(activeCfg) { mutableStateOf(activeCfg?.routingIncludeSources ?: "") }
-    var routingExcludeSources by remember(activeCfg) { mutableStateOf(activeCfg?.routingExcludeSources ?: "") }
-    var geoipPath by remember(activeCfg) { mutableStateOf(activeCfg?.geoipPath ?: "") }
-    var geoipUrl by remember(activeCfg) { mutableStateOf(activeCfg?.geoipUrl ?: "") }
-    var geositePath by remember(activeCfg) { mutableStateOf(activeCfg?.geositePath ?: "") }
-    var geositeUrl by remember(activeCfg) { mutableStateOf(activeCfg?.geositeUrl ?: "") }
-    var sourceTtlHours by remember(activeCfg) { mutableStateOf((activeCfg?.sourceTtlHours ?: 24).toString()) }
-    var cryptoEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.cryptoEnabled ?: false) }
-    var cryptoKey by remember(activeCfg) { mutableStateOf(activeCfg?.cryptoKey ?: "") }
-    var killSwitchEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.killSwitchEnabled ?: false) }
-    var obfuscationEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.obfuscationEnabled ?: false) }
-    var obfuscationUtls by remember(activeCfg) { mutableStateOf(activeCfg?.obfuscationUtls ?: false) }
-    var obfuscationPaddingEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.obfuscationPaddingEnabled ?: false) }
-    var obfuscationPaddingSize by remember(activeCfg) { mutableStateOf((activeCfg?.obfuscationPaddingSize ?: 0).toString()) }
-    // @sk-task stealth-surface-hardening#T5.1: stealth surface settings (AC-011..AC-014)
-    var obfuscationPaddingMode by remember(activeCfg) { mutableStateOf(activeCfg?.obfuscationPaddingMode ?: "fixed") }
-    var obfuscationNoPadHeaders by remember(activeCfg) { mutableStateOf((activeCfg?.obfuscationNoPadHeaders ?: emptyList()).joinToString(",")) }
-    var multiplexSubprotocols by remember(activeCfg) { mutableStateOf((activeCfg?.multiplexSubprotocols ?: emptyList()).joinToString(",")) }
-    var headersProfile by remember(activeCfg) { mutableStateOf(activeCfg?.headersProfile ?: "legacy") }
-    var reconnectJitterPct by remember(activeCfg) { mutableStateOf((activeCfg?.reconnectJitterPct ?: 0).toString()) }
-    // @sk-task fallback-auth-stealth#T3.2: stealth path settings (AC-006)
-    var stealthEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.stealthEnabled ?: false) }
-    var stealthPath by remember(activeCfg) { mutableStateOf(activeCfg?.stealthPath ?: "") }
-    var stealthLegacyPath by remember(activeCfg) { mutableStateOf(activeCfg?.stealthLegacyPath ?: "") }
-    var dnsCacheEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.dnsCacheEnabled ?: false) }
-
-    // @sk-task doze-resilience#T3.2: keep-awake toggle for screen-off stability (AC-007)
-    var keepAwakeEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.keepAwakeEnabled ?: false) }
-
-    // DNS routing state
-    var routingDomainsEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.routingDomainsEnabled ?: false) }
-    var routingExcludeDomains by remember(activeCfg) { mutableStateOf(activeCfg?.routingExcludeDomains?.joinToString(",") ?: "") }
-    var routingIncludeDomains by remember(activeCfg) { mutableStateOf(activeCfg?.routingIncludeDomains?.joinToString(",") ?: "") }
-
-    fun buildServerConfig(): ConnectionConfig {
-        val base = activeCfg ?: ConnectionConfig()
-        return base.copy(
-            dnsServers = editDns.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            appIncludeList = editAppInclude.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            appExcludeList = editAppExclude.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            mtu = mtu.toIntOrNull()?.coerceIn(576, 65535) ?: 1500,
-            ipv6Enabled = ipv6Enabled,
-            autoReconnect = autoReconnect,
-            logLevel = logLevel,
-            maxMessageSize = maxMessageSize.toIntOrNull()?.coerceIn(1024, 104_857_600) ?: 65535,
-            multiplex = multiplex,
-            multiChannel = multiChannel,
-            minBackoffSec = minBackoffSec.toIntOrNull() ?: 1,
-            maxBackoffSec = maxBackoffSec.toIntOrNull() ?: 30,
-            tlsVerifyMode = tlsVerifyMode,
-            tlsServerName = tlsServerName,
-            routingIncludeRanges = routingIncludeRanges.split(",").filter { it.isNotBlank() },
-            routingExcludeRanges = routingExcludeRanges.split(",").filter { it.isNotBlank() },
-            routingIncludeIps = routingIncludeIps.split(",").filter { it.isNotBlank() },
-            routingExcludeIps = routingExcludeIps.split(",").filter { it.isNotBlank() },
-            routingIncludeSources = routingIncludeSources,
-            routingExcludeSources = routingExcludeSources,
-            geoipPath = geoipPath,
-            geoipUrl = geoipUrl,
-            geositePath = geositePath,
-            geositeUrl = geositeUrl,
-            sourceTtlHours = sourceTtlHours.toIntOrNull() ?: 24,
-            cryptoEnabled = cryptoEnabled,
-            cryptoKey = cryptoKey,
-            killSwitchEnabled = killSwitchEnabled,
-            obfuscationEnabled = obfuscationEnabled,
-            obfuscationUtls = obfuscationUtls,
-            obfuscationPaddingEnabled = obfuscationPaddingEnabled,
-            obfuscationPaddingSize = obfuscationPaddingSize.toIntOrNull() ?: 0,
-            obfuscationPaddingMode = obfuscationPaddingMode.ifBlank { "fixed" },
-            obfuscationNoPadHeaders = obfuscationNoPadHeaders.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            multiplexSubprotocols = multiplexSubprotocols.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            headersProfile = headersProfile.ifBlank { "legacy" },
-            reconnectJitterPct = (reconnectJitterPct.toIntOrNull() ?: 0).coerceIn(0, 50),
-            stealthEnabled = stealthEnabled,
-            stealthPath = stealthPath.trim(),
-            stealthLegacyPath = stealthLegacyPath.trim(),
-            dnsCacheEnabled = dnsCacheEnabled,
-            routingDomainsEnabled = routingDomainsEnabled,
-            routingExcludeDomains = routingExcludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            routingIncludeDomains = routingIncludeDomains.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            keepAwakeEnabled = keepAwakeEnabled
-        )
-    }
-
-    val importTargets = serverList.filter { it.name != activeName }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+private fun SettingsCard(
+    title: String,
+    subtitle: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
     ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineSmall
-        )
-        Text(
-            text = "Server: $activeName",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        // DNS
-        SettingsSection(title = "DNS Servers") {
-            OutlinedTextField(
-                value = editDns,
-                onValueChange = { editDns = it },
-                label = { Text("DNS Servers (comma-separated)") },
-                placeholder = { Text("1.1.1.1,8.8.8.8") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (importTargets.isNotEmpty()) {
-                ImportFromServerSection(
-                    label = "Import DNS from",
-                    servers = importTargets,
-                    onImport = { sourceName ->
-                        val source = serverList.find { it.name == sourceName }?.config
-                        if (source != null) {
-                            editDns = source.dnsServers.joinToString(",")
-                            Toast.makeText(context, "DNS imported from $sourceName: ${source.dnsServers.size} server(s)", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                )
-            }
-        }
-
-        // DNS Routing
-        SettingsSection(title = "DNS Routing") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Domain-based Routing", modifier = Modifier.weight(1f))
-                Switch(checked = routingDomainsEnabled, onCheckedChange = { routingDomainsEnabled = it })
-            }
-            if (routingDomainsEnabled) {
-                OutlinedTextField(
-                    value = routingExcludeDomains,
-                    onValueChange = { routingExcludeDomains = it },
-                    label = { Text("Exclude Domains (suffixes, comma-separated)") },
-                    placeholder = { Text(".ru,.org") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = routingIncludeDomains,
-                    onValueChange = { routingIncludeDomains = it },
-                    label = { Text("Include Domains (suffixes, comma-separated)") },
-                    placeholder = { Text(".corp,.internal") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        // Per-app filtering
-        SettingsSection(title = "Per-App Filtering") {
-            Text("Mode", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = appPickerModeAllow,
-                    onClick = { appPickerModeAllow = true },
-                    label = { Text("Allowed apps") }
-                )
-                FilterChip(
-                    selected = !appPickerModeAllow,
-                    onClick = { appPickerModeAllow = false },
-                    label = { Text("Blocked apps") }
-                )
-            }
-            val currentList = if (appPickerModeAllow) editAppInclude else editAppExclude
-            val count = if (currentList.isBlank()) 0 else currentList.split(",").size
-            OutlinedButton(
-                onClick = { showAppPicker = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (count > 0) "Selected: $count apps" else "Select apps")
-            }
-            if (count > 0) {
-                val packages = currentList.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                val displayPackages = packages.take(10)
-                val packageLabels = remember(currentList) {
-                    val pm = context.packageManager
-                    displayPackages.associateWith { pkg ->
-                        try {
-                            val ai = pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA)
-                            pm.getApplicationLabel(ai).toString()
-                        } catch (_: Exception) { pkg }
-                    }
-                }
-                Column(modifier = Modifier.padding(top = 4.dp)) {
-                    for (pkg in displayPackages) {
-                        Text(
-                            text = packageLabels[pkg] ?: pkg,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    if (packages.size > 10) {
-                        Text(
-                            text = "+ ${packages.size - 10} more",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
-                }
-            }
-            if (importTargets.isNotEmpty()) {
-                ImportFromServerSection(
-                    label = "Import app filters from",
-                    servers = importTargets,
-                    onImport = { sourceName ->
-                        val source = serverList.find { it.name == sourceName }?.config
-                        if (source != null) {
-                            editAppInclude = source.appIncludeList.joinToString(",")
-                            editAppExclude = source.appExcludeList.joinToString(",")
-                            Toast.makeText(context, "App filters imported from $sourceName: ${source.appIncludeList.size} allowed + ${source.appExcludeList.size} blocked", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                )
-            }
-        }
-
-        // Advanced section
-        SettingsSection(title = "Advanced") {
-            OutlinedTextField(
-                value = mtu,
-                onValueChange = { mtu = it },
-                label = { Text("MTU") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("IPv6", modifier = Modifier.weight(1f))
-                Switch(checked = ipv6Enabled, onCheckedChange = { ipv6Enabled = it })
-            }
-            // @sk-task android-ui-status#T1: switch descriptions (AC-001)
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Text(
-                text = "Allow IPv6 traffic",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Auto Reconnect", modifier = Modifier.weight(1f))
-                Switch(checked = autoReconnect, onCheckedChange = { autoReconnect = it })
-            }
-            Text(
-                text = "Reconnect automatically on disconnect",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-            // @sk-task android-ui-status#T1: Log Level as plain field — dropdown animation crashes on some builds (AC-001)
-            OutlinedTextField(
-                value = logLevel,
-                onValueChange = { logLevel = it },
-                label = { Text("Log Level") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = maxMessageSize,
-                onValueChange = { maxMessageSize = it },
-                label = { Text("Max Message Size") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Multiplex", modifier = Modifier.weight(1f))
-                Switch(checked = multiplex, onCheckedChange = { multiplex = it })
-            }
-            Text(
-                text = "Connection multiplexing",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-            // @sk-task android-dual-ws#T1.1: dual channel toggle (AC-001)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Dual channel (UDP on 2nd WS)", modifier = Modifier.weight(1f))
-                Switch(checked = multiChannel, onCheckedChange = { multiChannel = it })
-            }
-            Text(
-                text = "Separate WebSocket for UDP (VoIP/media) — server must support it",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-            // @sk-task doze-resilience#T3.2: keep-awake toggle (AC-007)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Keep awake on screen off", modifier = Modifier.weight(1f))
-                Switch(checked = keepAwakeEnabled, onCheckedChange = { keepAwakeEnabled = it })
-            }
-            Text(
-                text = "Hold WakeLock/WifiLock while connected",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-        }
-
-        // Reconnect section
-        SettingsSection(title = "Reconnect") {
-            OutlinedTextField(
-                value = minBackoffSec,
-                onValueChange = { minBackoffSec = it },
-                label = { Text("Min Backoff (sec)") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = maxBackoffSec,
-                onValueChange = { maxBackoffSec = it },
-                label = { Text("Max Backoff (sec)") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        // TLS section
-        SettingsSection(title = "TLS") {
-            Text("Verify Mode", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = tlsVerifyMode == "verify",
-                    onClick = { tlsVerifyMode = "verify" },
-                    label = { Text("Verify") }
-                )
-                FilterChip(
-                    selected = tlsVerifyMode == "insecure",
-                    onClick = { tlsVerifyMode = "insecure" },
-                    label = { Text("Insecure") }
-                )
-                FilterChip(
-                    selected = tlsVerifyMode == "none",
-                    onClick = { tlsVerifyMode = "none" },
-                    label = { Text("None") }
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            OutlinedTextField(
-                value = tlsServerName,
-                onValueChange = { tlsServerName = it },
-                label = { Text("Server Name (SNI)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            content()
         }
-
-        // Routing section
-        SettingsSection(title = "Routing") {
-            OutlinedTextField(
-                value = routingIncludeRanges,
-                onValueChange = { routingIncludeRanges = it },
-                label = { Text("Include Ranges (CIDR, comma-separated)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = routingExcludeRanges,
-                onValueChange = { routingExcludeRanges = it },
-                label = { Text("Exclude Ranges (CIDR, comma-separated)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = routingIncludeIps,
-                onValueChange = { routingIncludeIps = it },
-                label = { Text("Include IPs (comma-separated)") },
-                placeholder = { Text("10.0.0.1,192.168.1.0/24") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = routingExcludeIps,
-                onValueChange = { routingExcludeIps = it },
-                label = { Text("Exclude IPs (comma-separated)") },
-                placeholder = { Text("10.0.0.2,192.168.1.100") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = routingIncludeSources,
-                onValueChange = { routingIncludeSources = it },
-                label = { Text("Include Sources (type:value, comma-separated)") },
-                placeholder = { Text("geoip:RU,cidr:10.0.0.0/8") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = routingExcludeSources,
-                onValueChange = { routingExcludeSources = it },
-                label = { Text("Exclude Sources (type:value, comma-separated)") },
-                placeholder = { Text("geoip:CN,cidr:192.168.0.0/16") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = geoipPath,
-                onValueChange = { geoipPath = it },
-                label = { Text("GeoIP Database Path") },
-                placeholder = { Text("/data/geoip.dat") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = geoipUrl,
-                onValueChange = { geoipUrl = it },
-                label = { Text("GeoIP Database URL") },
-                placeholder = { Text("https://example.com/geoip.dat") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = geositePath,
-                onValueChange = { geositePath = it },
-                label = { Text("GeoSite Database Path") },
-                placeholder = { Text("/data/geosite.dat") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = geositeUrl,
-                onValueChange = { geositeUrl = it },
-                label = { Text("GeoSite Database URL") },
-                placeholder = { Text("https://example.com/geosite.dat") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = sourceTtlHours,
-                onValueChange = { sourceTtlHours = it },
-                label = { Text("Source TTL (hours)") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(
-                onClick = { vm.refreshSources(buildServerConfig()) },
-                modifier = Modifier.fillMaxWidth().height(44.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = KvnPrimary,
-                    contentColor = Color.White
-                )
-            ) { Text("Refresh Sources") }
-        }
-
-        // Encryption section
-        SettingsSection(title = "Encryption") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Enabled", modifier = Modifier.weight(1f))
-                Switch(checked = cryptoEnabled, onCheckedChange = { cryptoEnabled = it })
-            }
-            if (cryptoEnabled) {
-                OutlinedTextField(
-                    value = cryptoKey,
-                    onValueChange = { cryptoKey = it },
-                    label = { Text("Encryption Key") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        // @sk-task android-latency-power-fix#T1.1: battery exemption button in UI (AC-001)
-        SettingsSection(title = "Battery") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Ignore battery optimizations", modifier = Modifier.weight(1f))
-                Button(onClick = {
-                    KvnVpnService.requestBatteryExemption(context)
-                }) { Text("Request") }
-            }
-        }
-
-        // Kill Switch section
-        SettingsSection(title = "Kill Switch") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Enabled", modifier = Modifier.weight(1f))
-                Switch(checked = killSwitchEnabled, onCheckedChange = { killSwitchEnabled = it })
-            }
-        }
-
-        // Obfuscation section
-        SettingsSection(title = "Obfuscation") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Enabled", modifier = Modifier.weight(1f))
-                Switch(checked = obfuscationEnabled, onCheckedChange = { obfuscationEnabled = it })
-            }
-            if (obfuscationEnabled) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("uTLS", modifier = Modifier.weight(1f))
-                    Switch(checked = obfuscationUtls, onCheckedChange = { obfuscationUtls = it })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Padding", modifier = Modifier.weight(1f))
-                    Switch(checked = obfuscationPaddingEnabled, onCheckedChange = { obfuscationPaddingEnabled = it })
-                }
-                if (obfuscationPaddingEnabled) {
-                    OutlinedTextField(
-                        value = obfuscationPaddingSize,
-                        onValueChange = { obfuscationPaddingSize = it },
-                        label = { Text("Padding Size") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        }
-
-        SettingsSection(title = "Stealth Surface") {
-            OutlinedTextField(
-                value = obfuscationPaddingMode,
-                onValueChange = { obfuscationPaddingMode = it },
-                label = { Text("Padding Mode (fixed/random)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = obfuscationNoPadHeaders,
-                onValueChange = { obfuscationNoPadHeaders = it },
-                label = { Text("No-Pad Headers (comma-separated)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = multiplexSubprotocols,
-                onValueChange = { multiplexSubprotocols = it },
-                label = { Text("Multiplex Subprotocols (comma-separated)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = headersProfile,
-                onValueChange = { headersProfile = it },
-                label = { Text("Headers Profile (legacy/browser)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = reconnectJitterPct,
-                onValueChange = { reconnectJitterPct = it },
-                label = { Text("Reconnect Jitter % (0-50)") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Stealth path (Bearer before upgrade)", modifier = Modifier.weight(1f))
-                Switch(checked = stealthEnabled, onCheckedChange = { stealthEnabled = it })
-            }
-            if (stealthEnabled) {
-                OutlinedTextField(
-                    value = stealthPath,
-                    onValueChange = { stealthPath = it },
-                    label = { Text("Stealth Path") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = stealthLegacyPath,
-                    onValueChange = { stealthLegacyPath = it },
-                    label = { Text("Legacy Path") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        // Save Config button
-        Button(
-            onClick = {
-                if (activeCfg != null) {
-                    // @sk-task android-ui-status#T1: validate MTU / Max Message Size before save (AC-001)
-                    val mtuVal = mtu.toIntOrNull()
-                    val mmsVal = maxMessageSize.toIntOrNull()
-                    if (mtuVal != null && mtuVal !in 576..65535) {
-                        Toast.makeText(context, "MTU must be 576–65535", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    if (mmsVal != null && mmsVal !in 1024..104_857_600) {
-                        Toast.makeText(context, "Max Message Size must be 1024–104857600", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    vm.saveCurrentServerConfig(buildServerConfig())
-                    Toast.makeText(context, "Server config saved", Toast.LENGTH_SHORT).show()
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = KvnSuccess,
-                contentColor = Color.White
-            )
-        ) { Text("Save Server Config") }
-
-        Spacer(modifier = Modifier.height(32.dp))
-    }
-
-    // App picker screen
-    if (showAppPicker) {
-        val currentList = if (appPickerModeAllow) editAppInclude else editAppExclude
-        val initialSet = if (currentList.isBlank()) emptySet()
-        else currentList.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
-        AppPickerScreen(
-            initialSelection = initialSet,
-            onSave = { selected ->
-                val joined = selected.joinToString(",")
-                if (appPickerModeAllow) editAppInclude = joined
-                else editAppExclude = joined
-                showAppPicker = false
-            },
-            onBack = { showAppPicker = false }
-        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ImportFromServerSection(
-    label: String,
-    servers: List<com.kvn.client.config.ServerEntry>,
-    onImport: (sourceName: String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf("") }
+fun SettingsScreen(vm: MainViewModel = viewModel()) {
+    val context = LocalContext.current
+    val activeCfg by vm.activeServerConfig.collectAsState()
+    val activeName by vm.activeServerName.collectAsState()
+    val serverList by vm.servers.collectAsState()
+    val importTargets = serverList.filter { it.name != activeName }
 
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it }
-    ) {
-        OutlinedTextField(
-            value = selected,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.menuAnchor().fillMaxWidth()
+    var dns by remember(activeCfg) { mutableStateOf(activeCfg?.dnsServers?.joinToString(", ") ?: "") }
+    var includeApps by remember(activeCfg) { mutableStateOf(activeCfg?.appIncludeList?.joinToString(", ") ?: "") }
+    var excludeApps by remember(activeCfg) { mutableStateOf(activeCfg?.appExcludeList?.joinToString(", ") ?: "") }
+    var excludeDomains by remember(activeCfg) { mutableStateOf(activeCfg?.routingExcludeDomains?.joinToString(", ") ?: "") }
+    var keepAwake by remember(activeCfg) { mutableStateOf(activeCfg?.keepAwakeEnabled ?: false) }
+    var logLevel by remember(activeCfg) { mutableStateOf(activeCfg?.logLevel ?: "info") }
+    var insecureTls by remember(activeCfg) { mutableStateOf(activeCfg?.tlsVerifyMode == "insecure") }
+    var showAppPicker by remember { mutableStateOf(false) }
+    var appPickerInclude by remember { mutableStateOf(true) }
+    var showImportDialog by remember { mutableStateOf(false) }
+
+    fun csv(value: String): List<String> =
+        value.split(",").map { it.trim() }.filter { it.isNotBlank() }
+
+    fun save() {
+        val base = activeCfg ?: ConnectionConfig()
+        vm.saveCurrentServerConfig(
+            base.copy(
+                dnsServers = csv(dns),
+                appIncludeList = csv(includeApps),
+                appExcludeList = csv(excludeApps),
+                routingExcludeDomains = csv(excludeDomains),
+                keepAwakeEnabled = keepAwake,
+                logLevel = logLevel,
+                tlsVerifyMode = if (insecureTls) "insecure" else "verify",
+                mtu = 1200,
+            )
         )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
+        Toast.makeText(context, "Settings saved", Toast.LENGTH_SHORT).show()
+    }
+
+    if (showAppPicker) {
+        AppPickerScreen(
+            initialSelection = if (appPickerInclude) csv(includeApps).toSet() else csv(excludeApps).toSet(),
+            onSave = { selected ->
+                val value = selected.joinToString(", ")
+                if (appPickerInclude) includeApps = value else excludeApps = value
+                showAppPicker = false
+            },
+            onBack = { showAppPicker = false },
+        )
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "KVN settings",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = activeCfg?.let { "${it.serverAddress}:${it.port}" } ?: "No active server",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        SettingsCard(
+            title = "Tunnel",
+            subtitle = "TUN address and gateway are assigned by the server.",
         ) {
-            servers.forEach { entry ->
-                DropdownMenuItem(
-                    text = { Text(entry.name) },
-                    onClick = {
-                        selected = entry.name
-                        expanded = false
-                    }
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Keep awake", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Stable connection while the screen is off",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = keepAwake, onCheckedChange = { keepAwake = it })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Allow insecure TLS", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "For self-signed certificates; disable for production",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = insecureTls, onCheckedChange = { insecureTls = it })
             }
         }
-    }
-    if (selected.isNotBlank()) {
+
+        SettingsCard(
+            title = "DNS",
+            subtitle = "Comma-separated resolvers used inside the tunnel.",
+        ) {
+            OutlinedTextField(
+                value = dns,
+                onValueChange = { dns = it },
+                label = { Text("DNS servers") },
+                placeholder = { Text("1.1.1.1, 8.8.8.8") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge,
+            )
+            OutlinedTextField(
+                value = excludeDomains,
+                onValueChange = { excludeDomains = it },
+                label = { Text("Direct domains") },
+                placeholder = { Text(".ru, .su") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge,
+            )
+        }
+
+        SettingsCard(
+            title = "Applications",
+            subtitle = "Choose whole apps or leave the lists empty to route all apps.",
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { appPickerInclude = true; showAppPicker = true },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Included (${csv(includeApps).size})")
+                }
+                OutlinedButton(
+                    onClick = { appPickerInclude = false; showAppPicker = true },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Excluded (${csv(excludeApps).size})")
+                }
+            }
+            if (importTargets.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = { showImportDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Import DNS / routing from another server") }
+            }
+            Text(
+                "Tap a button to review or change the selection.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        SettingsCard(
+            title = "Diagnostics",
+            subtitle = "Debug shows session, DNS/direct and stream details in kvn-web.",
+        ) {
+            Text("Log level", style = MaterialTheme.typography.bodyLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("debug", "info", "warn", "error").forEach { level ->
+                    FilterChip(
+                        selected = logLevel == level,
+                        onClick = { logLevel = level },
+                        label = { Text(level) },
+                    )
+                }
+            }
+        }
+
+        if (showImportDialog && importTargets.isNotEmpty()) {
+            AlertDialog(
+                onDismissRequest = { showImportDialog = false },
+                title = { Text("Import from another server") },
+                text = {
+                    Column {
+                        importTargets.forEach { entry ->
+                            TextButton(
+                                onClick = {
+                                    vm.importFromServer(entry.name)
+                                    showImportDialog = false
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(entry.name, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showImportDialog = false }) { Text("Cancel") }
+                },
+            )
+        }
+
         Button(
-            onClick = {
-                onImport(selected)
-                selected = ""
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Import from $selected") }
+            onClick = { save() },
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text("Save settings", style = MaterialTheme.typography.titleSmall)
+        }
+        Spacer(Modifier.height(8.dp))
     }
 }

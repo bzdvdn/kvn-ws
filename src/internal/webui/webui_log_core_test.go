@@ -12,7 +12,7 @@ import (
 // @sk-test webui-log-level-filter#T1.1: SSE gets all levels even when syslog is filtered (AC-003)
 func TestUILogSplitChannels(t *testing.T) {
 	var sse []LogEntry
-	sseCore := &uiLogCore{pushLog: func(le LogEntry) { sse = append(sse, le) }}
+	sseCore := &uiLogCore{pushLog: func(le LogEntry) { sse = append(sse, le) }, level: zapcore.DebugLevel}
 
 	var buf bytes.Buffer
 	atomicLevel := zap.NewAtomicLevelAt(zapcore.InfoLevel)
@@ -58,7 +58,7 @@ func TestUILogSplitChannels(t *testing.T) {
 // @sk-test webui-log-level-filter#T1.1: debug-level syslog keeps debug (AC-003)
 func TestUILogSplitChannelsDebug(t *testing.T) {
 	var sse []LogEntry
-	sseCore := &uiLogCore{pushLog: func(le LogEntry) { sse = append(sse, le) }}
+	sseCore := &uiLogCore{pushLog: func(le LogEntry) { sse = append(sse, le) }, level: zapcore.DebugLevel}
 
 	var buf bytes.Buffer
 	atomicLevel := zap.NewAtomicLevelAt(zapcore.DebugLevel)

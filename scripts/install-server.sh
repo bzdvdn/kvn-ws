@@ -1,315 +1,137 @@
 #!/usr/bin/env bash
-# Install kvn-ws server from GitHub release as a systemd service.
-# Usage:
-#   sudo ./install-server.sh
-#   sudo ./install-server.sh --listen :8443 --subnet 10.20.0.0/16 --gateway 10.20.0.1
-#   sudo ./install-server.sh --ipv6 --subnet6 fd01::/112 --gateway6 fd01::1
-#   bash <(curl -sL https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-server.sh) --listen :443
+# Install kvn-server 2.0 on Linux (systemd, TLS, TUN pool).
 set -euo pipefail
 
-REPO="bzdvdn/kvn-ws"
-VERSION="latest"
-BINDIR="${BINDIR:-/usr/local/bin}"
-CONFDIR="${CONFDIR:-/etc/kvn-ws}"
-SYSTEMD_DIR="/etc/systemd/system"
+REPO="${KVN_REPO:-bzdvdn/kvn-ws}"
+VERSION="${KVN_VERSION:-latest}"
+BIN_DIR="/usr/local/bin"
+CONF_DIR="/etc/kvn-ws"
+CERT_DIR="$CONF_DIR/certs"
+STATE_DIR="/var/lib/kvn"
+PORT=443
+TOKEN=""
+TUN_SUBNET="10.66.0.0/24"
+RANGE_START="10.66.0.2"
+RANGE_END="10.66.0.254"
+GATEWAY="10.66.0.1"
+LEASE_TTL=300
+QUIC_LISTEN=""
+NO_QUIC=false
+FORCE=false
 
-LISTEN=":443"
-SUBNET="10.10.0.0/24"
-GATEWAY="10.10.0.1"
-SUBNET6=""
-GATEWAY6=""
-RANGE_START=""
-RANGE_END=""
-ENABLE_IPV6=false
-
-# --- parse CLI flags ---
+usage() {
+  echo "Usage: sudo $0 [--port 443] [--token TOKEN] [--force] [--no-quic]"
+  echo "  --tun-subnet 10.66.0.0/24 --range-start 10.66.0.2 --range-end 10.66.0.254 --gateway 10.66.0.1"
+}
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --listen)
-      LISTEN="$2"; shift 2 ;;
-    --subnet)
-      SUBNET="$2"; shift 2 ;;
-    --gateway)
-      GATEWAY="$2"; shift 2 ;;
-    --subnet6)
-      SUBNET6="$2"; shift 2 ;;
-    --gateway6)
-      GATEWAY6="$2"; shift 2 ;;
-    --range-start)
-      RANGE_START="$2"; shift 2 ;;
-    --range-end)
-      RANGE_END="$2"; shift 2 ;;
-    --ipv6)
-      ENABLE_IPV6=true; shift ;;
-    --bindir)
-      BINDIR="$2"; shift 2 ;;
-    --confdir)
-      CONFDIR="$2"; shift 2 ;;
-    --version)
-      VERSION="$2"; shift 2 ;;
-    --help|-h)
-      echo "Usage: $0 [options]"
-      echo ""
-      echo "Network:"
-      echo "  --listen <addr>         Server listen address (default: :443)"
-      echo "  --subnet <cidr>         IPv4 pool subnet (default: 10.10.0.0/24)"
-      echo "  --gateway <ip>          IPv4 gateway (default: 10.10.0.1)"
-      echo "  --range-start <ip>      First allocatable IPv4 address"
-      echo "  --range-end <ip>        Last allocatable IPv4 address"
-      echo "  --ipv6                  Enable IPv6 pool"
-      echo "  --subnet6 <cidr>        IPv6 pool subnet (default: fd00::/112)"
-      echo "  --gateway6 <ip>         IPv6 gateway (default: fd00::1)"
-      echo ""
-      echo "Paths:"
-      echo "  --bindir <path>         Binary install directory (default: /usr/local/bin)"
-      echo "  --confdir <path>        Config directory (default: /etc/kvn-ws)"
-      echo ""
-      echo "Version:"
-      echo "  --version <tag>         GitHub release tag (default: latest)"
-      echo ""
-      echo "Examples:"
-      echo "  sudo $0 --listen :8443 --subnet 172.16.0.0/16 --gateway 172.16.0.1"
-      echo "  sudo $0 --ipv6 --subnet6 fd01::/112 --gateway6 fd01::1"
-      exit 0 ;;
-    *)
-      echo "Unknown option: $1" >&2
-      echo "Use --help for usage." >&2
-      exit 1 ;;
+    --port) PORT="$2"; shift 2 ;;
+    --token) TOKEN="$2"; shift 2 ;;
+    --tun-subnet) TUN_SUBNET="$2"; shift 2 ;;
+    --range-start) RANGE_START="$2"; shift 2 ;;
+    --range-end) RANGE_END="$2"; shift 2 ;;
+    --gateway) GATEWAY="$2"; shift 2 ;;
+    --lease-ttl) LEASE_TTL="$2"; shift 2 ;;
+    --no-quic) NO_QUIC=true; shift ;;
+    --force) FORCE=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+if [[ "$NO_QUIC" != true ]]; then QUIC_LISTEN="0.0.0.0:$PORT"; fi
+if [[ "$(id -u)" -ne 0 ]]; then echo "Run as root (sudo)." >&2; exit 1; fi
+if ! command -v openssl >/dev/null; then echo "openssl is required." >&2; exit 1; fi
+if ! command -v curl >/dev/null; then echo "curl is required." >&2; exit 1; fi
 
-if [ "$EUID" -ne 0 ]; then
-  echo "This script must be run as root (sudo)." >&2
-  exit 1
-fi
-
-# --- detect OS/arch ---
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
-case "$ARCH" in
-  x86_64)  ARCH="amd64" ;;
-  aarch64) ARCH="arm64"  ;;
-  armv7l)  ARCH="armv7"  ;;
-  *)
-    echo "Unsupported architecture: $ARCH" >&2
-    exit 1
-    ;;
-esac
+case "$ARCH" in x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; esac
+if [[ "$OS" != linux ]]; then echo "This installer supports Linux; use the release archive on $OS." >&2; exit 1; fi
 
-if [ "$OS" != "linux" ]; then
-  echo "Server installation is linux-only. For client on $OS see docs." >&2
-  exit 1
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BIN_SRC=""
+for candidate in "$SCRIPT_DIR/kvn-server" "$SCRIPT_DIR/bin/kvn-server" "./bin/kvn-server"; do
+  if [[ -x "$candidate" ]]; then BIN_SRC="$candidate"; break; fi
+done
+if [[ -z "$BIN_SRC" ]]; then
+  if [[ "$VERSION" == latest ]]; then
+    VERSION="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)"
+  fi
+  TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+  ARCHIVE="kvn-$OS-$ARCH.tar.gz"
+  curl -fsSL "https://github.com/$REPO/releases/download/$VERSION/$ARCHIVE" -o "$TMP/$ARCHIVE"
+  tar -xzf "$TMP/$ARCHIVE" -C "$TMP" --strip-components=1
+  BIN_SRC="$TMP/kvn-server"
+fi
+install -m 0755 "$BIN_SRC" "$BIN_DIR/kvn-server"
+mkdir -p "$CONF_DIR" "$CERT_DIR" "$STATE_DIR"
+chmod 700 "$CONF_DIR" "$CERT_DIR"
+
+if [[ ! -f "$CERT_DIR/server.pem" || ! -f "$CERT_DIR/server-key.pem" ]]; then
+  HOST="$(hostname -f 2>/dev/null || hostname)"
+  IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  SAN="DNS:$HOST"
+  [[ -n "$IP" ]] && SAN="$SAN,IP:$IP"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+    -keyout "$CERT_DIR/server-key.pem" -out "$CERT_DIR/server.pem" \
+    -subj "/CN=$HOST" -addext "subjectAltName=$SAN" >/dev/null 2>&1
+  chmod 600 "$CERT_DIR/server-key.pem"
 fi
 
-# --- resolve version ---
-if [ "$VERSION" = "latest" ]; then
-  VERSION="$(curl -sL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)"
-  echo "Resolved latest version: $VERSION"
-fi
-
-ARCHIVE="kvn-${OS}-${ARCH}.tar.gz"
-URL="https://github.com/$REPO/releases/download/$VERSION/$ARCHIVE"
-CHECKSUM_URL="https://github.com/$REPO/releases/download/$VERSION/${ARCHIVE}.sha256"
-
-# --- download ---
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
-
-echo "Downloading $URL ..."
-curl -sL "$URL" -o "$TMPDIR/$ARCHIVE"
-
-# --- verify checksum ---
-echo "Verifying checksum ..."
-CHECKSUM_LINE="$(curl -sL "$CHECKSUM_URL" 2>/dev/null | grep -E '^[a-f0-9]{64}[[:space:]]' || true)"
-if [ -n "$CHECKSUM_LINE" ]; then
-  CHECKSUM_VAL="${CHECKSUM_LINE%%[[:space:]]*}"
-  printf "%s  %s\n" "$CHECKSUM_VAL" "$TMPDIR/$ARCHIVE" | sha256sum -c - || {
-    echo "Checksum verification FAILED." >&2
-    exit 1
-  }
+if [[ -z "$TOKEN" ]]; then TOKEN="$(openssl rand -hex 24)"; fi
+CONF="$CONF_DIR/server.yaml"
+if [[ -f "$CONF" && "$FORCE" != true ]]; then
+  echo "Config exists: $CONF (use --force to overwrite)" >&2
 else
-  echo "Checksum file not found or invalid format, skipping verification."
-fi
-
-# --- extract ---
-mkdir -p "$BINDIR" "$CONFDIR"
-tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" --strip-components=1
-
-install -m 0755 "$TMPDIR/server" "$BINDIR/kvn-server"
-
-# --- build network config yaml ---
-NETWORK_YAML="network:
-  pool_ipv4:
-    subnet: ${SUBNET}
-    gateway: ${GATEWAY}"
-
-if [ -n "$RANGE_START" ]; then
-  NETWORK_YAML="${NETWORK_YAML}
-    range_start: ${RANGE_START}"
-fi
-if [ -n "$RANGE_END" ]; then
-  NETWORK_YAML="${NETWORK_YAML}
-    range_end: ${RANGE_END}"
-fi
-
-if [ "$ENABLE_IPV6" = true ]; then
-  if [ -z "$SUBNET6" ]; then
-    SUBNET6="fd00::/112"
-  fi
-  if [ -z "$GATEWAY6" ]; then
-    GATEWAY6="fd00::1"
-  fi
-  NETWORK_YAML="${NETWORK_YAML}
-  pool_ipv6:
-    subnet: ${SUBNET6}
-    gateway: ${GATEWAY6}"
-fi
-
-# --- create default config if not exists ---
-if [ ! -f "$CONFDIR/server.yaml" ]; then
-  TOKEN="$(openssl rand -hex 24)"
-  cat > "$CONFDIR/server.yaml" <<EOF
-listen: ${LISTEN}
-transport: quic
-ws_paths:
-  - ws/
-  - /api/v1/events
-  - /tunel
-obfuscation:
-  enabled: true
-  utls:
-    enabled: true
-    fallback: true
-  padding:
-    enabled: true
-    size: 512
+  cat > "$CONF" <<YAML
+listen: 0.0.0.0:$PORT
+quic_listen: $QUIC_LISTEN
 tls:
-  cert: ${CONFDIR}/certs/cert.pem
-  key: ${CONFDIR}/certs/key.pem
-${NETWORK_YAML}
-session:
-  max_clients: 100
-  idle_timeout_sec: 120
-  secondary_batch_hold_ms: 2
-rate_limiting:
-  packets_per_sec: 40000
-origin:
-  allow_empty: true
+  cert: $CERT_DIR/server.pem
+  key: $CERT_DIR/server-key.pem
 auth:
-  mode: token
   tokens:
     - name: default
-      secret: ${TOKEN}
-dns_upstreams:
-  - "1.1.1.1:53"
-  - "8.8.8.8:53"
-logging:
-  level: info
-EOF
-  echo "Generated default config at $CONFDIR/server.yaml"
-  echo "  -> Auth token: ${TOKEN}"
-  echo "  -> Listen: ${LISTEN}"
-  echo "  -> Subnet: ${SUBNET}"
-  echo "  -> Gateway: ${GATEWAY}"
-  if [ "$ENABLE_IPV6" = true ]; then
-    echo "  -> Subnet6: ${SUBNET6}"
-    echo "  -> Gateway6: ${GATEWAY6}"
-  fi
+      secret: $TOKEN
+fallback:
+  title: Welcome
+max_streams: 512
+tun:
+  subnet: $TUN_SUBNET
+  range_start: $RANGE_START
+  range_end: $RANGE_END
+  gateway: $GATEWAY
+  lease_ttl_sec: $LEASE_TTL
+  lease_file: $STATE_DIR/tun-leases.json
+YAML
+  chmod 600 "$CONF"
 fi
 
-# --- write systemd unit ---
-cat > "$SYSTEMD_DIR/kvn-server.service" <<SYSTEMD
+cat > /etc/systemd/system/kvn-server.service <<UNIT
 [Unit]
-Description=kvn-ws VPN server
+Description=KVN v2 server
 After=network-online.target
 Wants=network-online.target
-
 [Service]
 Type=simple
-ExecStart=${BINDIR}/kvn-server --config ${CONFDIR}/server.yaml
-Restart=always
-RestartSec=5
+ExecStart=$BIN_DIR/kvn-server --config $CONF
+Restart=on-failure
+RestartSec=2
 LimitNOFILE=65536
-AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN
-DeviceAllow=/dev/net/tun
-StateDirectory=kvn-ws
-WorkingDirectory=${CONFDIR}
-
+Environment=HOME=/root
 [Install]
 WantedBy=multi-user.target
-SYSTEMD
+UNIT
 
-echo "systemd unit written: $SYSTEMD_DIR/kvn-server.service"
-
+# Stop the old test service if present.
+systemctl disable --now kvn-v2-server.service 2>/dev/null || true
 systemctl daemon-reload
-
-# --- enable IP forwarding ---
-sysctl_conf="/etc/sysctl.d/99-kvn.conf"
-echo "Configuring IP forwarding ..."
-cat > "$sysctl_conf" <<SYSCTL
-# kvn-ws — enable IP forwarding for TUN traffic
-net.ipv4.ip_forward=1
-SYSCTL
-if [ "$ENABLE_IPV6" = true ]; then
-  echo "net.ipv6.conf.all.forwarding=1" >> "$sysctl_conf"
-fi
-sysctl -p "$sysctl_conf" >/dev/null 2>&1
-
-# --- nftables: allow forwarding through TUN ---
-echo "Configuring nftables FORWARD rules ..."
-nft add table inet kvn-forward 2>/dev/null || true
-nft add chain inet kvn-forward forward '{ type filter hook forward priority 0; policy drop; }' 2>/dev/null || true
-nft add rule inet kvn-forward forward iifname "kvn" accept 2>/dev/null || true
-nft add rule inet kvn-forward forward oifname "kvn" accept 2>/dev/null || true
-
-# --- persist nftables rules ---
-mkdir -p /etc/nftables
-nft list ruleset > /etc/nftables/kvn.ruleset 2>/dev/null || true
-
-# --- systemd oneshot to load nft rules on boot ---
-nft_svc="/etc/systemd/system/kvn-nftables.service"
-cat > "$nft_svc" <<NFTSVC
-[Unit]
-Description=Load kvn-ws nftables rules
-Before=kvn-server.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/sbin/nft -f /etc/nftables/kvn.ruleset
-ExecStop=/sbin/nft delete table inet kvn-forward 2>/dev/null; /sbin/nft delete table ip kvn-nat 2>/dev/null; /sbin/nft delete table ip6 kvn-nat 2>/dev/null; true
-
-[Install]
-WantedBy=multi-user.target
-NFTSVC
-systemctl daemon-reload
-systemctl enable kvn-nftables.service 2>/dev/null || true
-
-echo ""
-echo "=== Installation complete ==="
-echo ""
-echo "Next steps:"
-echo "  1. Place TLS certificate at ${CONFDIR}/certs/cert.pem and ${CONFDIR}/certs/key.pem"
-echo "     or generate self-signed:"
-echo "       mkdir -p ${CONFDIR}/certs"
-echo "       openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\"
-echo "         -keyout ${CONFDIR}/certs/key.pem \\"
-echo "         -out ${CONFDIR}/certs/cert.pem \\"
-echo "         -subj '/CN=$(hostname)'"
-echo "  2. Review config: ${CONFDIR}/server.yaml"
-echo "  3. Enable and start:"
-echo "       systemctl enable --now kvn-server"
-echo "  4. Check logs:"
-echo "       journalctl -u kvn-server -f"
-echo "  5. Client config (auth token: ${TOKEN}):"
-echo "       server: wss://YOUR_SERVER_IP/api/v1/events"
-echo "       auth.token: ${TOKEN}"
-echo "       obfuscation:"
-echo "         enabled: true"
-echo "         utls:"
-echo "           enabled: true"
-echo "           fallback: true"
-echo "         padding:"
-echo "           enabled: true"
-echo "           size: 512"
-echo ""
+systemctl enable --now kvn-server.service
+sleep 1
+systemctl --no-pager --full status kvn-server.service | head -12 || true
+echo
+echo "Installed."
+echo "  config: $CONF"
+echo "  token:  $TOKEN"
+echo "  tun:    $TUN_SUBNET ($RANGE_START-$RANGE_END, gw $GATEWAY)"
+echo "  service: systemctl status kvn-server"

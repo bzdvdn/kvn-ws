@@ -11,7 +11,7 @@ import com.kvn.client.config.ConnectionConfig
 import com.kvn.client.config.ServerEntry
 
 import com.kvn.client.transport.ConnectionState
-import com.kvn.client.vpn.KvnVpnService
+import com.kvn.client.vpn.KvnV2VpnService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -193,10 +193,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveCurrentServerConfig(config: ConnectionConfig) {
         viewModelScope.launch {
             val current = savedAppConfig.value
+            val active = current.activeServer.ifBlank { current.servers.firstOrNull()?.name ?: "Default" }
+            var found = false
             val updatedServers = current.servers.map {
-                if (it.name == current.activeServer) it.copy(config = config) else it
+                if (it.name == active) {
+                    found = true
+                    it.copy(config = config)
+                } else it
+            }.toMutableList()
+            if (!found) {
+                updatedServers += ServerEntry(active, config)
             }
-            val updated = current.copy(servers = updatedServers)
+            val updated = current.copy(activeServer = active, servers = updatedServers)
             appConfigStore.save(updated)
             _isDirty.value = false
         }
@@ -213,7 +221,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     entry.copy(config = entry.config.copy(
                         dnsServers = source.dnsServers,
                         appIncludeList = source.appIncludeList,
-                        appExcludeList = source.appExcludeList
+                        appExcludeList = source.appExcludeList,
+                        routingIncludeRanges = source.routingIncludeRanges,
+                        routingExcludeRanges = source.routingExcludeRanges,
+                        routingIncludeIps = source.routingIncludeIps,
+                        routingExcludeIps = source.routingExcludeIps,
+                        routingIncludeDomains = source.routingIncludeDomains,
+                        routingExcludeDomains = source.routingExcludeDomains,
                     ))
                 } else entry
             }
@@ -226,10 +240,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             saveCurrentServerConfig(config)
             if (_connectionState.value == ConnectionState.CONNECTED) {
-                KvnVpnService.stop(getApplication())
+                KvnV2VpnService.stop(getApplication())
                 _connectionState.value = ConnectionState.DISCONNECTED
             }
         }
+    }
+
+    private val v2ClientId: String by lazy {
+        prefs.getString("v2_client_id", null) ?: java.util.UUID.randomUUID().toString().also {
+            prefs.edit().putString("v2_client_id", it).apply()
+        }
+    }
+
+    private fun v2ConfigJson(config: ConnectionConfig): String {
+        val host = config.serverAddress.ifBlank { "127.0.0.1" }
+        val endpoint = if (host.startsWith("http://") || host.startsWith("https://")) {
+            host
+        } else {
+            "https://$host:${config.port}"
+        }
+        val server = org.json.JSONObject()
+            .put("name", "default")
+            .put("endpoint", endpoint)
+            .put("token", config.token)
+        val routing = org.json.JSONObject()
+            .put("default_route", "server")
+            .put("exclude_ranges", org.json.JSONArray(config.routingExcludeRanges))
+            .put("exclude_ips", org.json.JSONArray(config.routingExcludeIps))
+            .put("exclude_domains", org.json.JSONArray(config.routingExcludeDomains))
+        val dns = org.json.JSONObject()
+            .put("listen", "127.0.0.153:53")
+            .put("upstreams", org.json.JSONArray(config.dnsServers.ifEmpty {
+                listOf("1.1.1.1:53", "8.8.8.8:53")
+            }))
+        return org.json.JSONObject()
+            .put("active_server", "default")
+            .put("client_id", v2ClientId)
+            .put("servers", org.json.JSONArray().put(server))
+            .put("mode", "tun")
+            .put("mtu", 1200)
+            .put("quic_enabled", false)
+            .put("routing", routing)
+            .put("dns_proxy", dns)
+            .put("tls", org.json.JSONObject().put("verify_mode", config.tlsVerifyMode.ifBlank { "verify" }))
+            .put("utls", org.json.JSONObject().put("enabled", true).put("profile", "chrome").put("fallback", true))
+            .put("stealth", org.json.JSONObject().put("enabled", true).put("padding", true).put("padding_size", 64))
+            .toString()
     }
 
     // @sk-task kvn-android#T2.3: connect to server (AC-001, AC-006)
@@ -247,41 +303,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _errorMessage.value = null
             saveState(ConnectionState.CONNECTING)
             _trafficHistory.clear()
-            KvnVpnService.start(
+            KvnV2VpnService.start(
                 getApplication(),
-                config,
-                appIncludeList = config.appIncludeList,
-                appExcludeList = config.appExcludeList,
-                dnsServers = config.dnsServers,
-                onStateChange = { state ->
-                    // @sk-task android-ui-status#T1: count reconnect attempts (AC-001)
+                v2ConfigJson(config),
+                onState = { state ->
                     if (state == ConnectionState.RECONNECTING) _reconnectAttempt.value += 1
                     _connectionState.value = state
                     saveState(state)
                 },
-                onTrafficUpdate = { rx, tx ->
+                onError = { msg -> _errorMessage.value = msg },
+                onTraffic = { rx, tx ->
                     _rxBytes.value = rx
                     _txBytes.value = tx
                     _trafficHistory.record(rx, tx)
                 },
-                onError = { msg ->
-                    _errorMessage.value = msg
-                },
-                onDualChannel = { active ->
-                    _dualChannelActive.value = active
-                }
+                includeApps = config.appIncludeList,
+                excludeApps = config.appExcludeList,
             )
         }
     }
 
     // @sk-task kvn-android#T2.3: disconnect from server (AC-006)
     fun disconnect() {
-        KvnVpnService.stop(getApplication())
         _connectionState.value = ConnectionState.DISCONNECTED
         _errorMessage.value = null
         _dualChannelActive.value = false
         _reconnectAttempt.value = 0
         saveState(ConnectionState.DISCONNECTED)
+        KvnV2VpnService.stop(getApplication())
     }
 
     private fun saveState(state: ConnectionState) {

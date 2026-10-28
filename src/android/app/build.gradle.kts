@@ -40,11 +40,15 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.kvn.client"
+        applicationId = "com.kvn.v2client"
         minSdk = 26
         targetSdk = 35
+        // -Pabi=arm64-v8a builds a much smaller test APK.
+        (project.findProperty("abi") as String?)?.let { abi ->
+            ndk { abiFilters += abi.split(",").map { it.trim() } }
+        }
         versionCode = versionCodeInt
-        versionName = "1.4.1"
+        versionName = "2.0.0"
     }
 
     buildFeatures {
@@ -78,10 +82,12 @@ android {
 }
 
 base {
-    archivesName = "kvn-client"
+    archivesName = "kvn-v2-client"
 }
 
 dependencies {
+    implementation(files("libs/kvn-v2.aar"))
+
     // Compose
     implementation(platform("androidx.compose:compose-bom:2024.01.00"))
     implementation("androidx.compose.ui:ui")

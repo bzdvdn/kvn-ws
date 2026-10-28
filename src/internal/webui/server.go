@@ -27,8 +27,10 @@ type Server struct {
 	configDir  string
 	baseCtx    context.Context
 	connectMu  sync.Mutex
+	v2Only     bool
 }
 
+// New creates the v2-only web UI server. There is no v1 UI in 2.0.0.
 func New(port int) (*Server, error) {
 	userCfgDir, err := os.UserConfigDir()
 	if err != nil {
@@ -51,6 +53,7 @@ func New(port int) (*Server, error) {
 	s := &Server{
 		state:     state,
 		configDir: configDir,
+		v2Only:    true,
 	}
 
 	mux := http.NewServeMux()
@@ -118,5 +121,6 @@ func (s *Server) handlePlatform(w http.ResponseWriter, r *http.Request) {
 		"os":                    runtime.GOOS,
 		"transparent_supported": transparentSupported,
 		"tun_supported":         tunSupported,
+		"v2_only":               s.v2Only,
 	})
 }

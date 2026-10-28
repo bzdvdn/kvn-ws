@@ -10,6 +10,7 @@ export interface AppState {
   status: Status;
   platform: string;
   tunSupported: boolean;
+  v2Only: boolean;
   logs: LogEntry[];
   metrics: MetricSnapshot[];
   latestMetric: MetricSnapshot | null;
@@ -73,6 +74,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   statusRef.current = status;
   const [platform, setPlatform] = useState("");
   const [tunSupported, setTunSupported] = useState(true);
+  const [v2Only, setV2Only] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logPaused, setLogPaused] = useState(false);
   const logPausedRef = useRef(false);
@@ -102,10 +104,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const r = await fetch("/api/servers");
       const data: ServersResponse = await r.json();
-      setServers(data.servers);
-      const target = switchTo || data.active_server || data.servers[0]?.name || "";
+      const list = data.servers || [];
+      setServers(list);
+      const target = switchTo || data.active_server || list[0]?.name || "";
       setActiveServer(target);
-      const srv = data.servers.find((s) => s.name === target);
+      const srv = list.find((s) => s.name === target);
       setServerConfig({ ...srv });
       // Don't clobber the "connected" indicator while a connection is actually live —
       // only resync it from the backend's persisted active_server when we're not
@@ -132,7 +135,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     loadServers();
     loadGlobalConfig();
-    fetch("/api/platform").then(r => r.json()).then((d: PlatformResponse) => { setPlatform(d.os || ""); setTunSupported(d.tun_supported ?? true); }).catch(() => {});
+    fetch("/api/platform").then(r => r.json()).then((d: PlatformResponse) => { setPlatform(d.os || ""); setTunSupported(d.tun_supported ?? true); setV2Only(!!d.v2_only); }).catch(() => {});
   }, [loadServers, loadGlobalConfig]);
 
   useEffect(() => {
@@ -389,7 +392,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [showToast]);
 
   const ctx: AppState = {
-    servers, activeServer, connectedServer, serverConfig, globalConfig, status, platform, tunSupported, logs, metrics, latestMetric, dirty, saving, toast,
+    servers, activeServer, connectedServer, serverConfig, globalConfig, status, platform, tunSupported, v2Only, logs, metrics, latestMetric, dirty, saving, toast,
     connect, disconnect, saveAll, addServer, deleteServer, selectServer, exportConfig, doImport, showToast,
     updateServer, nestServer, nestServer2, updateGlobal, nestGlobal,
     addSourceRule, removeSourceRule, updateSourceRule, refreshSources,

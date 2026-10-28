@@ -5,25 +5,16 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"io"
 	"math"
 	"net"
 	"net/netip"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/dns"
-	"github.com/bzdvdn/kvn-ws/src/internal/transport/framing"
 )
-
-type StreamConn interface {
-	ReadMessage() ([]byte, error)
-	WriteMessage([]byte) error
-	SetReadDeadline(t time.Time) error
-	SetWriteDeadline(t time.Time) error
-	Close() error
-}
 
 // @sk-task dns-upstreams-list#T2.1: upstream string → upstreams []string + fallback (AC-005)
 // @sk-task transparent-proxy#T1.3: DNS proxy server skeleton (DEC-003)
@@ -38,10 +29,6 @@ type Server struct {
 	upstreams     []string
 	conn          *net.UDPConn
 	configMu      sync.RWMutex
-	pendingMu     sync.Mutex
-	stream        StreamConn
-	nextID        uint32
-	pending       map[uint32]chan []byte
 	routeDirect   func(domain string) bool
 	origResolves  []string
 	tracker       *dns.Tracker
@@ -53,19 +40,7 @@ func New(listenAddr string, upstreams ...string) *Server {
 	if len(upstreams) == 0 {
 		upstreams = []string{"1.1.1.1:53", "8.8.8.8:53"}
 	}
-	return &Server{listenAddr: listenAddr, upstreams: upstreams, pending: make(map[uint32]chan []byte)}
-}
-
-func (s *Server) SetStream(stream StreamConn) {
-	s.configMu.Lock()
-	s.stream = stream
-	s.configMu.Unlock()
-}
-
-func (s *Server) ClearStream() {
-	s.configMu.Lock()
-	s.stream = nil
-	s.configMu.Unlock()
+	return &Server{listenAddr: listenAddr, upstreams: upstreams}
 }
 
 // @sk-task transparent-proxy#T5.4: domain-based DNS routing — RouteFunc for excluded domains
@@ -140,30 +115,9 @@ func (s *Server) Shutdown() error {
 	return nil
 }
 
-// HandleDNSResponse delivers a DNS response from the tunnel to a pending query.
-// resp is owned by the caller; we copy it here because the caller may return
-// its buffer to a pool after this call returns.
-func (s *Server) HandleDNSResponse(streamID uint32, resp []byte) {
-	s.pendingMu.Lock()
-	ch, ok := s.pending[streamID]
-	if ok {
-		delete(s.pending, streamID)
-	}
-	s.pendingMu.Unlock()
-	if ok {
-		respCopy := make([]byte, len(resp))
-		copy(respCopy, resp)
-		select {
-		case ch <- respCopy:
-		default:
-		}
-	}
-}
-
 // @sk-task transparent-proxy#T2.3: forward DNS query to upstream via TCP (AC-009)
 func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) {
 	s.configMu.RLock()
-	stream := s.stream
 	routeDirect := s.routeDirect
 	origResolves := s.origResolves
 	upstreams := s.upstreams
@@ -177,12 +131,7 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 		}
 	}
 
-	if stream != nil {
-		s.forwardViaTunnel(ctx, query, raddr, stream)
-		return
-	}
-
-	// fallback: direct TCP to upstreams in order (used when tunnel not available)
+	// direct TCP to upstreams in order
 
 	if len(upstreams) == 0 {
 		return
@@ -334,63 +283,10 @@ func extractDNSDomain(msg []byte) string {
 	return strings.Join(labels, ".")
 }
 
-func (s *Server) forwardViaTunnel(ctx context.Context, query []byte, raddr *net.UDPAddr, stream StreamConn) {
-	streamID := atomic.AddUint32(&s.nextID, 1)
-	ch := make(chan []byte, 1)
-	s.pendingMu.Lock()
-	s.pending[streamID] = ch
-	s.pendingMu.Unlock()
-
-	defer func() {
-		s.pendingMu.Lock()
-		delete(s.pending, streamID)
-		s.pendingMu.Unlock()
-	}()
-
-	payload := make([]byte, 4+len(query))
-	binary.BigEndian.PutUint32(payload[0:4], streamID)
-	copy(payload[4:], query)
-
-	f := framing.Frame{
-		Type:    framing.FrameTypeDNS,
-		Payload: payload,
-	}
-	encoded, err := f.Encode()
-	if err != nil {
-		return
-	}
-	defer framing.ReturnBuffer(encoded)
-
-	if err := stream.WriteMessage(encoded); err != nil {
-		return
-	}
-
-	select {
-	case resp := <-ch:
-		// @sk-task dns-response-tracker#T3.2: track IPs from tunnel-forwarded DNS response
-		if domain := extractDNSDomain(query); domain != "" {
-			s.configMu.RLock()
-			tracker := s.tracker
-			s.configMu.RUnlock()
-			if tracker != nil {
-				tracker.TrackResponse(domain, resp)
-			}
-		}
-		_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
-		_, _ = s.conn.WriteToUDP(resp, raddr)
-	case <-time.After(10 * time.Second):
-	case <-ctx.Done():
-	}
-}
-
-func readUint16(r *bufio.Reader) (uint16, error) {
-	b, err := r.ReadByte()
-	if err != nil {
+func readUint16(r io.Reader) (uint16, error) {
+	var b [2]byte
+	if _, err := io.ReadFull(r, b[:]); err != nil {
 		return 0, err
 	}
-	b2, err := r.ReadByte()
-	if err != nil {
-		return 0, err
-	}
-	return uint16(b)<<8 | uint16(b2), nil
+	return binary.BigEndian.Uint16(b[:]), nil
 }

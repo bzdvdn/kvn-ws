@@ -13,7 +13,7 @@ export const rules = {
   wsUrl: (): ValidationRule => ({
     validate: (val) => {
       if (!val.trim()) return undefined;
-      return /^wss?:\/\//.test(val) ? undefined : "Must start with ws:// or wss://";
+      return /^(wss?|https):\/\//.test(val) ? undefined : "Must start with ws://, wss:// or https://";
     },
   }),
   positiveNumber: (msg = "Must be a positive number"): ValidationRule => ({

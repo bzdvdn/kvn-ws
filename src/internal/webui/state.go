@@ -3,9 +3,6 @@ package webui
 import (
 	"context"
 	"sync"
-
-	"github.com/bzdvdn/kvn-ws/src/internal/bootstrap/client"
-	metricclient "github.com/bzdvdn/kvn-ws/src/internal/metrics/client"
 )
 
 type Status string
@@ -17,6 +14,16 @@ const (
 	StatusError        Status = "error"
 )
 
+type MetricSnapshot struct {
+	TxBytes    int64   `json:"tx_bytes"`
+	RxBytes    int64   `json:"rx_bytes"`
+	LatencyMS  float64 `json:"latency_ms"`
+	UptimeS    int64   `json:"uptime_s"`
+	TxSpeed    float64 `json:"tx_speed"`
+	RxSpeed    float64 `json:"rx_speed"`
+	Reconnects int64   `json:"reconnects"`
+}
+
 type LogEntry struct {
 	Line   string `json:"line"`
 	Level  string `json:"level"`
@@ -26,31 +33,34 @@ type LogEntry struct {
 }
 
 // @sk-task kvn-web#T1.3: app state management (AC-003, AC-004)
+// managedClient is the subset of v1/v2 clients used by webui lifecycle.
+type managedClient interface {
+	StopTun()
+}
+
 type AppState struct {
-	mu              sync.Mutex
-	cl              *client.Client
-	cancel          context.CancelFunc
-	doneCh          chan struct{}
-	status          Status
-	logCh           chan LogEntry
-	subCh           chan chan LogEntry
-	statusCh        chan Status
-	statusSubCh     chan chan Status
-	metricCh        chan metricclient.MetricSnapshot
-	metricSubCh     chan chan metricclient.MetricSnapshot
-	metricCollector *metricclient.Collector
+	mu          sync.Mutex
+	cl          managedClient
+	cancel      context.CancelFunc
+	doneCh      chan struct{}
+	status      Status
+	logCh       chan LogEntry
+	subCh       chan chan LogEntry
+	statusCh    chan Status
+	statusSubCh chan chan Status
+	metricCh    chan MetricSnapshot
+	metricSubCh chan chan MetricSnapshot
 }
 
 func NewAppState() *AppState {
 	return &AppState{
-		status:          StatusDisconnected,
-		logCh:           make(chan LogEntry, 1000),
-		subCh:           make(chan chan LogEntry),
-		statusCh:        make(chan Status, 100),
-		statusSubCh:     make(chan chan Status),
-		metricCh:        make(chan metricclient.MetricSnapshot, 100),
-		metricSubCh:     make(chan chan metricclient.MetricSnapshot),
-		metricCollector: metricclient.NewCollector(),
+		status:      StatusDisconnected,
+		logCh:       make(chan LogEntry, 1000),
+		subCh:       make(chan chan LogEntry),
+		statusCh:    make(chan Status, 100),
+		statusSubCh: make(chan chan Status),
+		metricCh:    make(chan MetricSnapshot, 100),
+		metricSubCh: make(chan chan MetricSnapshot),
 	}
 }
 
@@ -70,13 +80,13 @@ func (s *AppState) setStatus(st Status) {
 	}
 }
 
-func (s *AppState) Client() *client.Client {
+func (s *AppState) Client() managedClient {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cl
 }
 
-func (s *AppState) setClient(cl *client.Client) {
+func (s *AppState) setClient(cl managedClient) {
 	s.mu.Lock()
 	s.cl = cl
 	s.mu.Unlock()
@@ -106,32 +116,25 @@ func (s *AppState) SetDoneCh(doneCh chan struct{}) {
 	s.mu.Unlock()
 }
 
-func (s *AppState) MetricCollector() *metricclient.Collector {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.metricCollector
-}
-
-func (s *AppState) PushMetric(m metricclient.MetricSnapshot) {
+func (s *AppState) PushMetric(m MetricSnapshot) {
 	select {
 	case s.metricCh <- m:
 	default:
 	}
 }
 
-func (s *AppState) SubscribeMetric() chan metricclient.MetricSnapshot {
-	ch := make(chan metricclient.MetricSnapshot, 100)
+func (s *AppState) SubscribeMetric() chan MetricSnapshot {
+	ch := make(chan MetricSnapshot, 100)
 	s.metricSubCh <- ch
 	return ch
 }
 
-func (s *AppState) UnsubscribeMetric(ch chan metricclient.MetricSnapshot) {
+func (s *AppState) UnsubscribeMetric(ch chan MetricSnapshot) {
 	s.metricSubCh <- ch
 }
 
-// @sk-task kvn-web-redesign#T1.2: broadcast metrics to SSE subscribers (AC-013)
 func (s *AppState) broadcastMetrics(ctx context.Context) {
-	subs := map[chan metricclient.MetricSnapshot]struct{}{}
+	subs := map[chan MetricSnapshot]struct{}{}
 	for {
 		select {
 		case <-ctx.Done():

@@ -7,3 +7,4 @@ app/build/
 .cxx/
 *.iml
 .idea/
+app/libs/*.aar

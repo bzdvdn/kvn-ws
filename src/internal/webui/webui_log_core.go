@@ -10,13 +10,17 @@ import (
 // composed with via zapcore.NewTee.
 type uiLogCore struct {
 	pushLog func(LogEntry)
+	level   zapcore.Level
 }
 
 func (c *uiLogCore) Enabled(level zapcore.Level) bool {
-	return true
+	return level >= c.level
 }
 
 func (c *uiLogCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry { //nolint:gocritic // matches zapcore.Core interface
+	if !c.Enabled(entry.Level) {
+		return ce
+	}
 	return ce.AddCore(entry, c)
 }
 

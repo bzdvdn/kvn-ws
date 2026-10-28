@@ -1,0 +1,22 @@
+# KVN v2 server example. v2 is intentionally not wire-compatible with v1.
+listen: 0.0.0.0:443
+tls:
+  cert: /etc/kvn-ws/certs/server.pem
+  key: /etc/kvn-ws/certs/server-key.pem
+auth:
+  tokens:
+    - name: default
+      secret: change-me
+fallback:
+  title: Acme Telemetry
+  # upstream: https://real-site.example
+tun:
+  subnet: 10.66.0.0/24
+  range_start: 10.66.0.2
+  range_end: 10.66.0.254
+  gateway: 10.66.0.1
+  lease_ttl_sec: 300
+  lease_file: /var/lib/kvn/tun-leases.json
+max_streams: 512
+# Optional QUIC datagram side channel for UDP
+# quic_listen: 0.0.0.0:8443

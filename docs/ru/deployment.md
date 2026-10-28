@@ -274,22 +274,24 @@ sudo launchctl unload /Library/LaunchDaemons/com.kvn-web.daemon.plist
 sudo launchctl list com.kvn-web.daemon
 ```
 
-### Windows — служба Windows
+### Windows — WebView-клиент (по умолчанию)
 
 #### Быстрая установка (одна команда)
 
 ```powershell
-iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.ps1 -OutFile install-web.ps1; .\install-web.ps1 -Start
+iwr -useb https://github.com/bzdvdn/kvn-ws/releases/latest/download/install-web.ps1 -OutFile install-web.ps1; .\install-web.ps1
 ```
 
-Web UI: http://127.0.0.1:2311
+Устанавливает `kvn-desktop.exe` (WebView-окно) и `kvn-web.exe`, создаёт ярлык на рабочем столе и scheduled task `kvn-web` для автостарта сервера. Повторная установка заменяет старый task и чистит legacy-установку v1 (`kvn-client`, `C:\Program Files\kvn-ws`, `C:\ProgramData\kvn-ws`).
 
-#### Управление службой
+Для старого браузерного режима: ` .\install-web.ps1 -Browser [-Startup]`.
+
+#### Управление автостартом
 
 ```powershell
-Start-Service KVNWeb
-Stop-Service KVNWeb
-Get-Service KVNWeb
+Get-ScheduledTask -TaskName kvn-web
+Start-ScheduledTask -TaskName kvn-web
+Stop-ScheduledTask -TaskName kvn-web
 ```
 
 ### Настройка через Web UI

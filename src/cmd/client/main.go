@@ -2,24 +2,38 @@ package main
 
 import (
 	"context"
-	"log"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/bzdvdn/kvn-ws/src/internal/bootstrap/client"
+	"github.com/bzdvdn/kvn-ws/src/internal/client"
+	"github.com/bzdvdn/kvn-ws/src/internal/config"
+	"github.com/bzdvdn/kvn-ws/src/internal/logger"
 )
 
-// @sk-task foundation#T1.1: Go module init (AC-001)
-// @sk-task foundation#T3.2: client main with graceful shutdown (AC-010)
-// @sk-task core-tunnel-mvp#T4.1: client forwarding loops (AC-007, AC-008)
-// @sk-task core-tunnel-mvp#T4.2: graceful shutdown (AC-010)
-// @sk-task production-hardening#T4.2: reconnect + kill-switch (AC-001, AC-003)
-// @sk-task production-hardening#T4.3: pflag CLI (AC-011)
+// @sk-task kvn-v2-transport#T2.0: v2 proxy client entrypoint for early testing (AC-001)
 func main() {
-	cl, err := client.New()
+	configPath := flag.String("config", "configs/client.yaml", "path to v2 client config")
+	flag.Parse()
+	cfg, err := config.LoadV2ClientConfig(*configPath)
 	if err != nil {
-		log.Fatalf("client: %v", err)
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		os.Exit(1)
 	}
-
-	if err := cl.Run(context.Background()); err != nil {
-		log.Printf("client stopped with error: %v", err)
+	if cfg.Mode == "" {
+		cfg.Mode = "proxy"
+	}
+	logger, _, err := logger.New("info")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "logger: %v\n", err)
+		os.Exit(1)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	if err := client.New(cfg, logger).Run(ctx); err != nil && ctx.Err() == nil {
+		fmt.Fprintf(os.Stderr, "v2 client: %v\n", err)
+		os.Exit(1)
 	}
 }
