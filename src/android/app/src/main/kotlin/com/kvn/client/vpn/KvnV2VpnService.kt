@@ -26,6 +26,8 @@ class KvnV2VpnService : VpnService() {
         private const val NOTIFICATION_ID = 2
         private const val EXTRA_CONFIG = "config_json"
         private const val ACTION_STOP = "com.kvn.client.action.STOP_V2_VPN"
+        private const val EXTRA_INCLUDE = "include_apps"
+        private const val EXTRA_EXCLUDE = "exclude_apps"
 
         @Volatile private var stateListener: ((ConnectionState) -> Unit)? = null
         @Volatile private var errorListener: ((String) -> Unit)? = null
@@ -37,12 +39,16 @@ class KvnV2VpnService : VpnService() {
             onState: ((ConnectionState) -> Unit)? = null,
             onError: ((String) -> Unit)? = null,
             onTraffic: ((Long, Long) -> Unit)? = null,
+            includeApps: List<String> = emptyList(),
+            excludeApps: List<String> = emptyList(),
         ) {
             stateListener = onState
             errorListener = onError
             trafficListener = onTraffic
             val i = Intent(context, KvnV2VpnService::class.java)
                 .putExtra(EXTRA_CONFIG, configJson)
+                .putStringArrayListExtra(EXTRA_INCLUDE, ArrayList(includeApps))
+                .putStringArrayListExtra(EXTRA_EXCLUDE, ArrayList(excludeApps))
             context.startService(i)
         }
 
@@ -63,6 +69,8 @@ class KvnV2VpnService : VpnService() {
             return START_NOT_STICKY
         }
         val configJson = intent?.getStringExtra(EXTRA_CONFIG)
+        val includeApps = intent?.getStringArrayListExtra(EXTRA_INCLUDE).orEmpty()
+        val excludeApps = intent?.getStringArrayListExtra(EXTRA_EXCLUDE).orEmpty()
         if (configJson.isNullOrBlank()) {
             stopSelf()
             return START_NOT_STICKY
@@ -71,7 +79,7 @@ class KvnV2VpnService : VpnService() {
         startForeground(NOTIFICATION_ID, notification())
         scope.launch {
             try {
-                startV2(configJson)
+                startV2(configJson, includeApps, excludeApps)
             } catch (e: Exception) {
                 AppLogger.e("V2VPN", "start failed: ${e.message}")
                 errorListener?.invoke(e.message ?: "v2 start failed")
@@ -82,7 +90,7 @@ class KvnV2VpnService : VpnService() {
         return START_STICKY
     }
 
-    private fun startV2(configJson: String) {
+    private fun startV2(configJson: String, includeApps: List<String>, excludeApps: List<String>) {
         val session = JSONObject(Mobile.resolve(configJson))
         val address = session.getString("tun_address")
         val slash = address.indexOf('/')
@@ -97,7 +105,13 @@ class KvnV2VpnService : VpnService() {
             .addAddress(ip, prefix)
             .addRoute("0.0.0.0", 0)
             .addDnsServer("1.1.1.1")
-        runCatching { builder.addDisallowedApplication(packageName) }
+        if (includeApps.isNotEmpty()) {
+            for (pkg in includeApps) runCatching { builder.addAllowedApplication(pkg) }
+        } else {
+            for (pkg in excludeApps) runCatching { builder.addDisallowedApplication(pkg) }
+            // Keep the Go transport outside the VPN loop.
+            runCatching { builder.addDisallowedApplication(packageName) }
+        }
         val pfd = builder.establish() ?: error("VpnService.establish returned null")
         tunFd = pfd
         try {

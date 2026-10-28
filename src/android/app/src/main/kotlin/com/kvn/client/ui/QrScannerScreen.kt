@@ -662,7 +662,12 @@ private fun webToAndroidConfig(web: WebConfig): ConnectionConfig {
 fun configToWebJson(config: ConnectionConfig): String {
     val root = JSONObject()
 
-    root.put("server", "${config.serverAddress}:${config.port}${config.serverPath}")
+    val endpoint = if (config.serverAddress.startsWith("http://") || config.serverAddress.startsWith("https://")) {
+        config.serverAddress
+    } else {
+        "https://${config.serverAddress}:${config.port}"
+    }
+    root.put("server", endpoint)
     root.put("transport", config.transport)
     root.put("mode", config.mode)
     root.put("mtu", config.mtu)

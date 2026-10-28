@@ -519,6 +519,22 @@ fun ConnectScreen(vm: MainViewModel = viewModel()) {
                 )
             }
 
+            OutlinedButton(
+                onClick = {
+                    val cfg = buildConfig()
+                    if (cfg.serverAddress.isBlank()) {
+                        Toast.makeText(context, "Enter Server URL", Toast.LENGTH_SHORT).show()
+                    } else {
+                        vm.saveCurrentServerConfig(cfg)
+                        Toast.makeText(context, "Server saved", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+                enabled = disconnected
+            ) {
+                Text("Save server")
+            }
+
             // Connect/Disconnect button
             Button(
                 onClick = {

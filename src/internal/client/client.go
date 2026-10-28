@@ -179,6 +179,7 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 	c.latencyMS.Store(uint64(time.Since(sessionStart).Milliseconds()))
 	c.startedAt = time.Now()
 	go c.latencyLoop(ctx, endpoint)
+	c.logger.Debug("v2 session resolved", zap.String("tun_address", session.TUNAddress), zap.String("tun_gateway", session.TUNGateway), zap.Int64("latency_ms", int64(c.latencyMS.Load())))
 	ip, _, err := net.ParseCIDR(session.TUNAddress)
 	if err != nil {
 		return fmt.Errorf("tun assignment address: %w", err)
@@ -276,6 +277,7 @@ func (c *Client) runTUN(ctx context.Context) error {
 	c.latencyMS.Store(uint64(time.Since(sessionStart).Milliseconds()))
 	c.startedAt = time.Now()
 	go c.latencyLoop(ctx, endpoint)
+	c.logger.Debug("v2 session resolved", zap.String("tun_address", session.TUNAddress), zap.String("tun_gateway", session.TUNGateway), zap.Int64("latency_ms", int64(c.latencyMS.Load())))
 	dev := tun.NewTunDevice()
 	if err := dev.Open(); err != nil {
 		return fmt.Errorf("open v2 tun: %w", err)
@@ -511,6 +513,7 @@ func resolvServers() []string {
 
 func (c *Client) handleConn(ctx context.Context, client net.Conn, dst string, httpClient *transport.Client) {
 	defer func() { _ = client.Close() }()
+	c.logger.Debug("v2 proxy stream", zap.String("target", dst))
 	stream, err := httpClient.DialTCP(ctx, dst)
 	if err != nil {
 		c.logger.Warn("v2 stream dial failed", zap.String("dst", dst), zap.Error(err))

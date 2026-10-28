@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	"golang.org/x/net/dns/dnsmessage"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
@@ -94,6 +96,7 @@ func (c *Client) handleDirectDNS(packet []byte, dev interface {
 	if rules.MatchDomain(domain) != routing.RouteDirect {
 		return false
 	}
+	c.logger.Debug("v2 direct DNS", zap.String("domain", domain))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -123,6 +126,7 @@ func (c *Client) handleDirectDNS(packet []byte, dev interface {
 		var a [4]byte
 		copy(a[:], v4)
 		cache.Add(netip.AddrFrom4(a), 60*time.Second)
+		c.logger.Debug("v2 direct DNS address", zap.String("domain", domain), zap.String("ip", v4.String()))
 		if err := builder.AResource(dnsmessage.ResourceHeader{
 			Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 60,
 		}, dnsmessage.AResource{A: a}); err != nil {

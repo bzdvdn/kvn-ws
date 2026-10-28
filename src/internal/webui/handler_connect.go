@@ -94,8 +94,10 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		pushLog := s.state.PushLog
+		uiLevel := zapcore.InfoLevel
+		_ = uiLevel.UnmarshalText([]byte(logLevel))
 		hookLogger := baseLogger.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
-			return zapcore.NewTee(&uiLogCore{pushLog: pushLog}, core)
+			return zapcore.NewTee(&uiLogCore{pushLog: pushLog, level: uiLevel}, core)
 		}))
 		active := wcfg.ActiveServer
 		v2cfg := &config.V2ClientConfig{

@@ -7,6 +7,8 @@ import (
 	"net"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
@@ -26,6 +28,7 @@ func (c *Client) handlePing(_ context.Context, httpClient *transport.Client, pac
 	if target == nil {
 		return
 	}
+	c.logger.Debug("v2 ping", zap.String("target", target.String()))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	stream, err := httpClient.DialICMP(ctx, target.String())

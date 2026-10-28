@@ -193,10 +193,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveCurrentServerConfig(config: ConnectionConfig) {
         viewModelScope.launch {
             val current = savedAppConfig.value
+            val active = current.activeServer.ifBlank { current.servers.firstOrNull()?.name ?: "Default" }
+            var found = false
             val updatedServers = current.servers.map {
-                if (it.name == current.activeServer) it.copy(config = config) else it
+                if (it.name == active) {
+                    found = true
+                    it.copy(config = config)
+                } else it
+            }.toMutableList()
+            if (!found) {
+                updatedServers += ServerEntry(active, config)
             }
-            val updated = current.copy(servers = updatedServers)
+            val updated = current.copy(activeServer = active, servers = updatedServers)
             appConfigStore.save(updated)
             _isDirty.value = false
         }
@@ -213,7 +221,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     entry.copy(config = entry.config.copy(
                         dnsServers = source.dnsServers,
                         appIncludeList = source.appIncludeList,
-                        appExcludeList = source.appExcludeList
+                        appExcludeList = source.appExcludeList,
+                        routingIncludeRanges = source.routingIncludeRanges,
+                        routingExcludeRanges = source.routingExcludeRanges,
+                        routingIncludeIps = source.routingIncludeIps,
+                        routingExcludeIps = source.routingExcludeIps,
+                        routingIncludeDomains = source.routingIncludeDomains,
+                        routingExcludeDomains = source.routingExcludeDomains,
                     ))
                 } else entry
             }
@@ -268,7 +282,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("quic_enabled", false)
             .put("routing", routing)
             .put("dns_proxy", dns)
-            .put("tls", org.json.JSONObject().put("verify_mode", "insecure"))
+            .put("tls", org.json.JSONObject().put("verify_mode", config.tlsVerifyMode.ifBlank { "verify" }))
             .put("utls", org.json.JSONObject().put("enabled", true).put("profile", "chrome").put("fallback", true))
             .put("stealth", org.json.JSONObject().put("enabled", true).put("padding", true).put("padding_size", 64))
             .toString()
@@ -302,7 +316,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _rxBytes.value = rx
                     _txBytes.value = tx
                     _trafficHistory.record(rx, tx)
-                }
+                },
+                includeApps = config.appIncludeList,
+                excludeApps = config.appExcludeList,
             )
         }
     }

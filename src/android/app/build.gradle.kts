@@ -43,6 +43,10 @@ android {
         applicationId = "com.kvn.v2client"
         minSdk = 26
         targetSdk = 35
+        // -Pabi=arm64-v8a builds a much smaller test APK.
+        (project.findProperty("abi") as String?)?.let { abi ->
+            ndk { abiFilters += abi.split(",").map { it.trim() } }
+        }
         versionCode = versionCodeInt
         versionName = "2.0.0"
     }
