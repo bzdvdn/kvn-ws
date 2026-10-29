@@ -30,7 +30,7 @@ data class ConnectionConfig(
     val mode: String = "tun",
     val transport: String = "tcp",
     // @sk-task v2-standard#T4.8: optional QUIC datagram side channel for real-time UDP (AC-007)
-    val quicEnabled: Boolean = false,
+    val quicEnabled: Boolean = true,
     // Advanced
     val mtu: Int = 1500,
     val ipv6Enabled: Boolean = false,

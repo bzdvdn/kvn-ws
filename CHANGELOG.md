@@ -8,31 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
-
-- **Relay: padding-parity и `X-KVN-NoPad` на обоих плечах** — relay в режимах `bridge` и `terminator` теперь использует те же правила padding, что client/server, и участвует в no-pad-переговорах вторичного (UDP) канала. Terminator согласует unpadded со входящим клиентом и отдельно со своим upstream; bridge подтверждает клиенту no-pad только если upstream тоже подтвердил, поэтому смешанного состояния нет. Старые peer'ы и отказ upstream остаются в padded-режиме.
-
-### Changed
-
-- **Relay: `obfuscation.enabled` больше не включает padding неявно** — padding включается только `obfuscation.padding.enabled: true`, как у client/server; `padding.size` по умолчанию `512`, `padding.realtime_unpadded` управляет no-pad для real-time канала.
-
-### Fixed
-
-- **Primary TCP снова работает через backpressure** — убрана drop-очередь primary из v1.4.1: TCP-кадры больше не теряются при заторе канала и не создают bufferbloat. Bounded drop-очередь осталась только для secondary UDP (real-time), где дроп старых пакетов — корректное поведение.
-- **TUN read/write без per-packet аллокаций** — `sizes` вынесен на стек, буферы записи с headroom переиспользуются через `sync.Pool`; меньше GC-джиттера на высоком pps.
-
-### Added
-
-- **Stealth surface hardening (opt-in)** — `obfuscation.padding.mode: random` паддит только малые кадры без изменения wire-формата; настраиваемые alias-списки `no_pad_headers` и `multiplex_subprotocols` сохраняют старых peer'ов; decoy API отвечает на активные probe; клиентские `headers_profile: browser`, `keepalive_jitter_pct`, `reconnect_jitter_pct`. Все дефолты legacy, mixed-version совместимость покрыта тестами.
-
-### Added
-
-- **Stealth fallback и Bearer-auth до upgrade** — новый opt-in `stealth_path`: `Authorization: Bearer` проверяется до WebSocket upgrade; невалидный/пустой токен получает fallback-сайт или reverse-proxy (`fallback.upstream`/`fallback.title`), а не tunnel-ошибку. Legacy path и ClientHello-auth сохранены для старых клиентов; клиент пробует stealth path и откатывается на legacy. В stealth-режиме health/metrics скрыты от внешних запросов. Добавлены настройки kvn-web и Android (Bearer + fallback).
-
-### Added
-
-- **KVN v2: TCP-first stealth transport (experimental)** — отдельный v2-протокол (несовместим с v1): TLS 1.3 + HTTP/2, TCP split-connection через gVisor netstack, отдельный stream на TCP-flow, UDP best-effort streams, QUIC datagram side channel для UDP (одно общее QUIC-соединение, flow ID, fallback на HTTP/2), Bearer до stream и fallback-сайт. kvn-web запускает v2 client in-process, поддерживает protocol selector v1/v2, TUN и полный Advanced (routing/DNS/TLS/proxy). v1-серверы и клиенты не затронуты.
-
 ## [2.0.0] - 2026-10-29
 
 ### Added
@@ -54,6 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Android Settings** — тёмная тема Material 3, читаемые карточки, явное сохранение сервера, QUIC/UDP и insecure TLS управляются per-server.
 - **Windows installer** — при обновлении останавливает старые процессы, заменяет `kvn-web` task и запускает её заново; `--force` серверного installer делает backup конфига.
 - **CI/release** — фиксированный Android keystore через GitHub secrets, AAR upload, исправлена упаковка Windows release (убран отсутствующий `install-client.ps1`).
+- **Android/Linux QUIC** — QUIC UDP включён по умолчанию для новых Android-конфигов и в `install-client.sh`; при недоступном UDP остаётся HTTP/2 fallback.
+- **Linux server installer** — проверяет sha256 release-архива, делает backup конфига при `--force` и перезапускает `kvn-server` при обновлении.
 
 ### Fixed
 
@@ -63,6 +40,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Windows upgrade** — self-signed TLS и старые exe больше не мешают переустановке; installer перезапускает `kvn-server`/`kvn-web` с новым конфигом.
 - **Android QR** — импорт/экспорт конфигов между Android и `kvn-web` без пустого serverPath; QUIC-флаг сохраняется в QR.
 - **DNS/direct routing** — exclude-домены резолвятся напрямую, direct TCP/UDP не уходит в туннель; Android получает реальные IP вместо fake-IP.
+- **Метрики RX/TX** — направления TUN исправлены: `Read` теперь считается upload/TX, `Write` — download/RX; это затрагивает `kvn-web`, CLI и Android.
+- **DNS coexistence** — original/corporate DNS пробуется первым, публичные upstreams используются как fallback; loopback/kvn DNS не зацикливается; DNS-proxy не переключает `/etc/resolv.conf`, пока не забиндился.
+- **ICMP/ping** — исправлен тип ответа `application/icmp`, устранён deadlock при отправке запроса и убран лишний RTT: ICMP payload отправляется одним буферизованным запросом, а не через streaming pipe.
 
 ### Removed
 
@@ -75,7 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **v1 несовместим с v2** — старые серверы, клиенты и конфиги не работают с 2.0.0; для v1 используйте старый release.
 - **Android package** — новое приложение `com.kvn.v2client`; данные старого приложения не мигрируются автоматически, серверы нужно добавить через QR/JSON или вручную.
 - **Self-signed TLS** — тестовый server installer по умолчанию создаёт self-signed сертификат; для Android включайте `Allow insecure TLS`, для production используйте доверенный сертификат.
-- **QUIC** — Android QUIC UDP по умолчанию выключен; для звонков его нужно включить, иначе UDP идёт через HTTP/2/TCP fallback.
+- **QUIC** — QUIC UDP включён по умолчанию для новых конфигов; если UDP 443 недоступен, клиент откатывается на HTTP/2 UDP/TCP fallback.
 
 ## [1.4.1] 2026-10-23
 

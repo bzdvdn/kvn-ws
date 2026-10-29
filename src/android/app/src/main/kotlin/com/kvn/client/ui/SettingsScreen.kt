@@ -67,7 +67,7 @@ fun SettingsScreen(vm: MainViewModel = viewModel()) {
     var keepAwake by remember(activeCfg) { mutableStateOf(activeCfg?.keepAwakeEnabled ?: false) }
     var logLevel by remember(activeCfg) { mutableStateOf(activeCfg?.logLevel ?: "info") }
     var insecureTls by remember(activeCfg) { mutableStateOf(activeCfg?.tlsVerifyMode == "insecure") }
-    var quicEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.quicEnabled ?: false) }
+    var quicEnabled by remember(activeCfg) { mutableStateOf(activeCfg?.quicEnabled ?: true) }
     var showAppPicker by remember { mutableStateOf(false) }
     var appPickerInclude by remember { mutableStateOf(true) }
     var showImportDialog by remember { mutableStateOf(false) }

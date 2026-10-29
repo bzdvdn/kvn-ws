@@ -117,14 +117,14 @@ func (c *V2ServerConfig) Validate() error {
 			return fmt.Errorf("v2 server fallback.upstream must be an http(s) URL")
 		}
 	}
-	if err := validateTUN(c.TUN); err != nil {
+	if err := validateTUN(&c.TUN); err != nil {
 		return err
 	}
 	return nil
 }
 
-func validateTUN(t TUNConfig) error {
-	_, err := tunpool.New(tunpool.Config{
+func validateTUN(t *TUNConfig) error {
+	_, err := tunpool.New(&tunpool.Config{
 		Subnet: t.Subnet, RangeStart: t.RangeStart, RangeEnd: t.RangeEnd,
 		Gateway: t.Gateway, LeaseTTLSec: t.LeaseTTLSec, LeaseFile: t.LeaseFile,
 	})
@@ -294,7 +294,7 @@ func LoadV2ServerConfig(path string) (*V2ServerConfig, error) {
 }
 
 // @sk-task v2-tun-assignment#T2.1: persist generated client id outside portable QR/JSON
-func EnsureClientID(path string, configured string) string {
+func EnsureClientID(path, configured string) string {
 	if configured != "" {
 		return configured
 	}

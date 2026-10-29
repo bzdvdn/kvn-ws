@@ -185,7 +185,8 @@ func (f *serverUDPFlow) readLoop() {
 		_ = f.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		n, err := f.conn.Read(buf)
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
 				select {
 				case <-f.done:
 					return

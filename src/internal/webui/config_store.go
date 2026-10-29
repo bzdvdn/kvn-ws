@@ -27,9 +27,10 @@ func (s *Server) loadWebUIConfig() (*config.WebUIConfig, error) {
 		if hasV2Server(cfg) {
 			filtered := *cfg
 			filtered.Servers = nil
-			for _, entry := range cfg.Servers {
+			for i := range cfg.Servers {
+				entry := &cfg.Servers[i]
 				if entry.Protocol == "v2" {
-					filtered.Servers = append(filtered.Servers, entry)
+					filtered.Servers = append(filtered.Servers, *entry)
 				}
 			}
 			if len(filtered.Servers) != len(cfg.Servers) {

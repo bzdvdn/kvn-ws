@@ -30,21 +30,27 @@ func (s *Server) handleICMP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad target", http.StatusBadRequest)
 		return
 	}
+	// Send response headers before reading the request body. The client uses a
+	// streaming HTTP/2 request and can only start writing after Do returns.
+	w.Header().Set("Content-Type", "application/icmp")
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 	payload, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
 	if err != nil || len(payload) < 8 {
-		http.Error(w, "bad icmp payload", http.StatusBadRequest)
+		s.logger.Debug("v2 icmp payload rejected", zap.Error(err), zap.Int("len", len(payload)))
 		return
 	}
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
 		s.logger.Warn("icmp listen failed", zap.Error(err))
-		http.Error(w, "icmp unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	if _, err := conn.WriteTo(payload, addr); err != nil {
-		http.Error(w, "icmp write failed", http.StatusBadGateway)
+		s.logger.Warn("icmp write failed", zap.Error(err))
 		return
 	}
 	id := binary.BigEndian.Uint16(payload[4:6])
@@ -53,7 +59,7 @@ func (s *Server) handleICMP(w http.ResponseWriter, r *http.Request) {
 	for {
 		n, _, rerr := conn.ReadFrom(buf)
 		if rerr != nil {
-			http.Error(w, "icmp timeout", http.StatusGatewayTimeout)
+			s.logger.Debug("icmp reply timeout", zap.Error(rerr))
 			return
 		}
 		if n < 8 || buf[0] != 0 || binary.BigEndian.Uint16(buf[4:6]) != id || binary.BigEndian.Uint16(buf[6:8]) != seq {

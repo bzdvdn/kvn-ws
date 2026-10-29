@@ -56,6 +56,7 @@ cat > "$CONF" <<YAML
 active_server: default
 mode: $MODE
 mtu: 1200
+quic_enabled: true
 proxy_listen: 127.0.0.1:2310
 tls:
   verify_mode: insecure

@@ -69,7 +69,10 @@ var readScratchPool = sync.Pool{
 // @sk-task tun-data-path#T2.1: single-buf Read (AC-002)
 // @sk-task tunnel-primary-backpressure#T1.3: no per-packet sizes allocation (AC-003)
 func (t *tunDevice) Read(buf []byte) (int, error) {
-	sc := readScratchPool.Get().(*readScratch)
+	sc, ok := readScratchPool.Get().(*readScratch)
+	if !ok {
+		sc = &readScratch{}
+	}
 	sc.bufs[0] = buf
 	sc.sizes[0] = 0
 	n, err := t.device.Read(sc.bufs[:], sc.sizes[:], 0)
@@ -123,7 +126,10 @@ var writeScratchPool = sync.Pool{
 // @sk-task tun-data-path#T2.2: Write offset=12 virtioNetHdrLen (AC-001)
 func (t *tunDevice) Write(buf []byte) (int, error) {
 	need := writeHeadroom + len(buf)
-	sc := writeScratchPool.Get().(*writeScratch)
+	sc, ok := writeScratchPool.Get().(*writeScratch)
+	if !ok {
+		sc = &writeScratch{buf: make([]byte, writeHeadroom+2048)}
+	}
 	if cap(sc.buf) < need {
 		sc.buf = make([]byte, need)
 	}
@@ -206,13 +212,20 @@ func (t *tunDevice) AddExcludeRoute(cidr string, phyGateway net.IP, phyIface str
 	if ipNet.IP.To4() == nil {
 		return nil
 	}
-	cmd := exec.Command("ip", "route", "replace", cidr, "via", phyGateway.String(), "dev", phyIface) // #nosec G204
+	args := []string{"route", "replace", cidr}
+	gw := ""
+	if phyGateway != nil && !phyGateway.IsUnspecified() {
+		gw = phyGateway.String()
+		args = append(args, "via", gw)
+	}
+	args = append(args, "dev", phyIface)
+	cmd := exec.Command("ip", args...) // #nosec G204
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("add exclude route %s via %s dev %s: %w: %s", cidr, phyGateway, phyIface, err, string(out))
+		return fmt.Errorf("add exclude route %s via %s dev %s: %w: %s", cidr, gw, phyIface, err, string(out))
 	}
 	t.mu.Lock()
-	t.routes = append(t.routes, routeMeta{cidr: cidr, gw: phyGateway.String(), iface: phyIface})
+	t.routes = append(t.routes, routeMeta{cidr: cidr, gw: gw, iface: phyIface})
 	t.mu.Unlock()
 	return nil
 }
@@ -226,10 +239,17 @@ func (t *tunDevice) RemoveExcludeRoute(cidr string, phyGateway net.IP, phyIface 
 	if ipNet.IP.To4() == nil {
 		return nil
 	}
-	cmd := exec.Command("ip", "route", "del", cidr, "via", phyGateway.String(), "dev", phyIface) // #nosec G204
+	args := []string{"route", "del", cidr}
+	gw := ""
+	if phyGateway != nil && !phyGateway.IsUnspecified() {
+		gw = phyGateway.String()
+		args = append(args, "via", gw)
+	}
+	args = append(args, "dev", phyIface)
+	cmd := exec.Command("ip", args...) // #nosec G204
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("remove exclude route %s via %s dev %s: %w: %s", cidr, phyGateway, phyIface, err, string(out))
+		return fmt.Errorf("remove exclude route %s via %s dev %s: %w: %s", cidr, gw, phyIface, err, string(out))
 	}
 	return nil
 }
@@ -241,7 +261,12 @@ func (t *tunDevice) CleanupExcludeRoutes() {
 	t.routes = nil
 	t.mu.Unlock()
 	for _, r := range routes {
-		cmd := exec.Command("ip", "route", "del", r.cidr, "via", r.gw, "dev", r.iface) // #nosec G204
+		args := []string{"route", "del", r.cidr}
+		if r.gw != "" {
+			args = append(args, "via", r.gw)
+		}
+		args = append(args, "dev", r.iface)
+		cmd := exec.Command("ip", args...) // #nosec G204
 		_ = cmd.Run()
 	}
 }
@@ -284,23 +309,41 @@ func SaveDefaultRoute() (net.IP, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("get default route: %w", err)
 	}
-	fields := strings.Fields(string(out))
-	if len(fields) < 3 || fields[0] != "default" {
-		return nil, "", fmt.Errorf("unexpected default route format: %s", strings.TrimSpace(string(out)))
+	return parseDefaultRoute(string(out))
+}
+
+// parseDefaultRoute accepts both gateway routes and point-to-point routes:
+// "default via 192.0.2.1 dev eth0" and "default dev ppp0 scope link".
+func parseDefaultRoute(out string) (net.IP, string, error) {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return nil, "", fmt.Errorf("no default route")
 	}
-	gateway := net.ParseIP(fields[2])
-	if gateway == nil {
-		return nil, "", fmt.Errorf("parse gateway %s", fields[2])
+	fields := strings.Fields(lines[0])
+	if len(fields) < 2 || fields[0] != "default" {
+		return nil, "", fmt.Errorf("unexpected default route format: %s", strings.TrimSpace(out))
+	}
+	var gateway net.IP
+	idx := 1
+	if fields[idx] == "via" {
+		if len(fields) < 3 {
+			return nil, "", fmt.Errorf("default route has via without gateway: %s", strings.TrimSpace(out))
+		}
+		gateway = net.ParseIP(fields[2])
+		if gateway == nil {
+			return nil, "", fmt.Errorf("parse gateway %s", fields[2])
+		}
+		idx = 3
 	}
 	iface := ""
-	for i, f := range fields {
-		if f == "dev" && i+1 < len(fields) {
+	for i := idx; i+1 < len(fields); i++ {
+		if fields[i] == "dev" {
 			iface = fields[i+1]
 			break
 		}
 	}
 	if iface == "" {
-		return nil, "", fmt.Errorf("no dev in default route: %s", strings.TrimSpace(string(out)))
+		return nil, "", fmt.Errorf("no dev in default route: %s", strings.TrimSpace(out))
 	}
 	return gateway, iface, nil
 }

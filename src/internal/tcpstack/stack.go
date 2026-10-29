@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"sync"
 
 	"go.uber.org/zap"
 
@@ -32,8 +31,6 @@ type Stack struct {
 	stack  *stack.Stack
 	dial   DialFunc
 	logger *zap.Logger
-	mu     sync.Mutex
-	closed bool
 }
 
 // New creates a gVisor netstack for one local TUN address.

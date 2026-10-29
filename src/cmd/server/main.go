@@ -42,7 +42,7 @@ func main() {
 		name, ok := tokens[token]
 		return name, ok
 	}
-	pool, perr := tunpool.New(tunpool.Config{
+	pool, perr := tunpool.New(&tunpool.Config{
 		Subnet: cfg.TUN.Subnet, RangeStart: cfg.TUN.RangeStart, RangeEnd: cfg.TUN.RangeEnd,
 		Gateway: cfg.TUN.Gateway, LeaseTTLSec: cfg.TUN.LeaseTTLSec, LeaseFile: cfg.TUN.LeaseFile,
 	})
@@ -90,6 +90,6 @@ func main() {
 	logger.Info("v2 server listening", zap.String("addr", cfg.Listen))
 	if err := httpServer.ListenAndServeTLS(cfg.TLS.Cert, cfg.TLS.Key); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintf(os.Stderr, "v2 server: %v\n", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:gocritic // terminal error path; deferred signal stop is irrelevant
 	}
 }

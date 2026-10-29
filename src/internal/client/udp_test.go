@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"encoding/binary"
 	"net"
 	"testing"
@@ -19,7 +20,7 @@ func TestBuildUDPReply(t *testing.T) {
 	if got := binary.BigEndian.Uint16(pkt[22:24]); got != 12345 {
 		t.Fatalf("dst port = %d", got)
 	}
-	if string(pkt[28:]) != string(payload) {
+	if !bytes.Equal(pkt[28:], payload) {
 		t.Fatalf("payload = %q", pkt[28:])
 	}
 	if binary.BigEndian.Uint16(pkt[10:12]) == 0 {

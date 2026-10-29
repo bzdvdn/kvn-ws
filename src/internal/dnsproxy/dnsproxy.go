@@ -208,11 +208,27 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 // @sk-task dns-response-tracker#T2.2: track excluded domain IPs (AC-005)
 // @sk-task dns-response-tracker#T3.5: try all resolvers, not only first (TUN multi-resolver fallback)
 func (s *Server) resolveDirect(ctx context.Context, query []byte, raddr *net.UDPAddr, resolvers []string) {
-	if len(resolvers) == 0 {
+	// Direct domains should still resolve when the original resolver is
+	// unavailable (for example, another VPN's DNS is not reachable). Try the
+	// original list first, then the configured public upstreams.
+	candidates := append([]string{}, resolvers...)
+	for _, upstream := range s.upstreams {
+		duplicate := false
+		for _, existing := range candidates {
+			if existing == upstream {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			candidates = append(candidates, upstream)
+		}
+	}
+	if len(candidates) == 0 {
 		return
 	}
 	domain := extractDNSDomain(query)
-	for _, ns := range resolvers {
+	for _, ns := range candidates {
 		nsAddr, err := net.ResolveUDPAddr("udp", ns)
 		if err != nil {
 			continue

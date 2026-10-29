@@ -56,7 +56,7 @@ type entry struct {
 }
 
 // New validates the range and returns an empty pool.
-func New(cfg Config) (*Pool, error) {
+func New(cfg *Config) (*Pool, error) {
 	_, subnet, err := net.ParseCIDR(cfg.Subnet)
 	if err != nil || subnet.IP.To4() == nil {
 		return nil, fmt.Errorf("%w: subnet must be IPv4 CIDR", ErrInvalid)

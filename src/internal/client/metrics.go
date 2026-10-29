@@ -25,18 +25,22 @@ type countingTun struct {
 	tx *atomic.Int64
 }
 
+// Read reads packets written by the kernel into TUN: these are outbound
+// (upload) packets, so they belong to TxBytes.
 func (d *countingTun) Read(p []byte) (int, error) {
 	n, err := d.TunDevice.Read(p)
 	if n > 0 {
-		d.rx.Add(int64(n))
+		d.tx.Add(int64(n))
 	}
 	return n, err
 }
 
+// Write injects packets from the tunnel into the kernel: these are inbound
+// (download) packets, so they belong to RxBytes.
 func (d *countingTun) Write(p []byte) (int, error) {
 	n, err := d.TunDevice.Write(p)
 	if n > 0 {
-		d.tx.Add(int64(n))
+		d.rx.Add(int64(n))
 	}
 	return n, err
 }

@@ -145,6 +145,32 @@ func TestNetlinkCompile(t *testing.T) {
 	}
 }
 
+func TestParseDefaultRoutePointToPoint(t *testing.T) {
+	gw, iface, err := parseDefaultRoute("default dev ppp0 scope link\n")
+	if err != nil {
+		t.Fatalf("parseDefaultRoute: %v", err)
+	}
+	if gw != nil {
+		t.Fatalf("gateway = %v, want nil", gw)
+	}
+	if iface != "ppp0" {
+		t.Fatalf("iface = %q, want ppp0", iface)
+	}
+}
+
+func TestParseDefaultRouteWithGateway(t *testing.T) {
+	gw, iface, err := parseDefaultRoute("default via 192.0.2.1 dev eth0 proto dhcp metric 100\n")
+	if err != nil {
+		t.Fatalf("parseDefaultRoute: %v", err)
+	}
+	if gw == nil || !gw.Equal(net.ParseIP("192.0.2.1")) {
+		t.Fatalf("gateway = %v, want 192.0.2.1", gw)
+	}
+	if iface != "eth0" {
+		t.Fatalf("iface = %q, want eth0", iface)
+	}
+}
+
 func TestMockTunInjectAndRead(t *testing.T) {
 	m := NewMockTunDevice()
 	if err := m.Open(); err != nil {

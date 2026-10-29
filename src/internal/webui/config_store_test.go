@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -10,14 +11,14 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
 )
 
-func setupV2TestServer(t *testing.T) (*Server, string) {
+func setupV2TestServer(t *testing.T) (s *Server, configDir string) {
 	t.Helper()
 	dir := t.TempDir()
-	configDir := filepath.Join(dir, "kvn")
+	configDir = filepath.Join(dir, "kvn")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{state: NewAppState(), configDir: configDir, v2Only: true}
+	s = &Server{state: NewAppState(), configDir: configDir, v2Only: true}
 	return s, configDir
 }
 
@@ -75,7 +76,7 @@ func TestConfigStoreIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("v1 backup missing: %v", err)
 	}
-	if string(backup) != string(before) {
+	if !bytes.Equal(backup, before) {
 		t.Fatalf("v1 config backup changed:\n%s\n---\n%s", before, backup)
 	}
 
@@ -160,14 +161,14 @@ func TestConfigStoreMigratesLegacyV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(after) == string(before) {
+	if bytes.Equal(after, before) {
 		t.Fatal("migration did not unify v2 config")
 	}
 	backup, err := os.ReadFile(rootPath + ".v1.bak")
 	if err != nil {
 		t.Fatalf("v1 backup missing: %v", err)
 	}
-	if string(backup) != string(before) {
+	if !bytes.Equal(backup, before) {
 		t.Fatal("v1 backup changed")
 	}
 }

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"io"
@@ -16,7 +17,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 )
 
-func echoTCP(t *testing.T) (string, func()) {
+func echoTCP(t *testing.T) (addr string, closeFn func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -113,7 +114,7 @@ func TestProxyClientEndToEnd(t *testing.T) {
 	if _, err := io.ReadFull(conn, got); err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(payload) {
+	if !bytes.Equal(got, payload) {
 		t.Fatalf("echo = %q, want %q", got, payload)
 	}
 }

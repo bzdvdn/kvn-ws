@@ -31,16 +31,12 @@ func (c *Client) handlePing(parent context.Context, httpClient *transport.Client
 	c.logger.Debug("v2 ping", zap.String("target", target.String()))
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
-	stream, err := httpClient.DialICMP(ctx, target.String())
+	replyBody, err := httpClient.DialICMP(ctx, target.String(), packet[ihl:])
 	if err != nil {
 		return
 	}
-	defer stream.Close()
-	if _, err := stream.Write(packet[ihl:]); err != nil {
-		return
-	}
-	_ = stream.CloseWrite()
-	reply, err := io.ReadAll(io.LimitReader(stream, 64<<10))
+	defer replyBody.Close()
+	reply, err := io.ReadAll(io.LimitReader(replyBody, 64<<10))
 	if err != nil || len(reply) < 8 || reply[0] != 0 {
 		return
 	}

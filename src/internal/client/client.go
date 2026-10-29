@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -112,7 +113,7 @@ func (c *Client) runProxy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	httpClient, err := transport.NewClientWithOptions(endpoint, server.Token, c.transportOptions(tlsCfg))
+	httpClient, err := c.newTransportClient(endpoint, server.Token, tlsCfg)
 	if err != nil {
 		return err
 	}
@@ -148,7 +149,7 @@ func (c *Client) ResolveTUN(ctx context.Context) (transport.TUNSession, error) {
 	if err != nil {
 		return transport.TUNSession{}, err
 	}
-	httpClient, err := transport.NewClientWithOptions(endpoint, server.Token, c.transportOptions(tlsCfg))
+	httpClient, err := c.newTransportClient(endpoint, server.Token, tlsCfg)
 	if err != nil {
 		return transport.TUNSession{}, err
 	}
@@ -165,7 +166,7 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 	if err != nil {
 		return err
 	}
-	httpClient, err := transport.NewClientWithOptions(endpoint, server.Token, c.transportOptions(tlsCfg))
+	httpClient, err := c.newTransportClient(endpoint, server.Token, tlsCfg)
 	if err != nil {
 		return err
 	}
@@ -263,7 +264,7 @@ func (c *Client) runTUN(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	httpClient, err := transport.NewClientWithOptions(endpoint, server.Token, c.transportOptions(tlsCfg))
+	httpClient, err := c.newTransportClient(endpoint, server.Token, tlsCfg)
 	if err != nil {
 		return err
 	}
@@ -343,13 +344,32 @@ func (c *Client) runTUN(ctx context.Context) error {
 	if len(upstreams) == 0 {
 		upstreams = []string{"1.1.1.1:53", "8.8.8.8:53"}
 	}
+	origResolvers := resolvServers()
+	// Keep public upstreams outside the TUN. Original/corporate DNS is
+	// deliberately not forced through phyIface: another VPN may have a more
+	// specific route for it (e.g. ppp0).
 	for _, upstream := range upstreams {
 		host, _, splitErr := net.SplitHostPort(upstream)
 		if splitErr != nil {
 			continue
 		}
-		if ns := net.ParseIP(host).To4(); ns != nil {
+		if ns := net.ParseIP(host).To4(); ns != nil && !ns.IsLoopback() {
 			_ = dev.AddExcludeRoute(ns.String()+"/32", phyGW, phyIface)
+		}
+	}
+	// Try the original/corporate resolver first for all names, then public
+	// upstreams. This restores split DNS coexistence with another VPN.
+	dnsUpstreams := append([]string{}, origResolvers...)
+	for _, upstream := range upstreams {
+		duplicate := false
+		for _, existing := range dnsUpstreams {
+			if existing == upstream {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			dnsUpstreams = append(dnsUpstreams, upstream)
 		}
 	}
 	gateway := net.ParseIP(session.TUNGateway)
@@ -364,8 +384,8 @@ func (c *Client) runTUN(ctx context.Context) error {
 
 	dnsCtx, dnsCancel := context.WithCancel(ctx)
 	defer dnsCancel()
-	dnsSrv := dnsproxy.New(dnsProxyListen, upstreams...)
-	dnsSrv.SetOrigResolvers(resolvServers())
+	dnsSrv := dnsproxy.New(dnsProxyListen, dnsUpstreams...)
+	dnsSrv.SetOrigResolvers(origResolvers)
 	var routeSet *routing.RuleSet
 	if c.cfg.Routing != nil {
 		routeSet, _ = routing.NewRuleSet(c.cfg.Routing, c.logger)
@@ -384,20 +404,35 @@ func (c *Client) runTUN(ctx context.Context) error {
 		})
 		dnsSrv.SetDirectRouteFunc(func(ips []netip.Addr) {
 			for _, a := range ips {
-				if a.IsPrivate() || a.IsLoopback() {
+				if a.IsPrivate() || a.IsLoopback() || !a.Is4() {
 					continue
 				}
 				_ = dev.AddExcludeRoute(a.String()+"/32", phyGW, phyIface)
 			}
 		})
 	}
-	go func() { _ = dnsSrv.Run(dnsCtx) }()
-	defer func() { _ = dnsSrv.Shutdown() }()
-	if backup, berr := dnsproxy.BackupResolvConf(); berr == nil && backup != nil {
-		if oerr := dnsproxy.OverrideResolvConf(dnsProxyListen); oerr != nil {
-			c.logger.Warn("v2 dns override failed", zap.Error(oerr))
-		} else {
-			defer func() { _ = backup.Restore() }()
+	dnsErrCh := make(chan error, 1)
+	go func() { dnsErrCh <- dnsSrv.Run(dnsCtx) }()
+	defer func() {
+		if dnsSrv != nil {
+			_ = dnsSrv.Shutdown()
+		}
+	}()
+	// Do not replace system DNS until the proxy has actually bound its UDP
+	// socket. Otherwise a port conflict leaves resolv.conf pointing at a dead
+	// resolver and breaks the other VPN's DNS.
+	select {
+	case derr := <-dnsErrCh:
+		c.logger.Warn("v2 dns proxy unavailable; keeping system DNS", zap.Error(derr))
+		dnsCancel()
+		dnsSrv = nil
+	case <-time.After(100 * time.Millisecond):
+		if backup, berr := dnsproxy.BackupResolvConf(); berr == nil && backup != nil {
+			if oerr := dnsproxy.OverrideResolvConf(dnsProxyListen); oerr != nil {
+				c.logger.Warn("v2 dns override failed", zap.Error(oerr))
+			} else {
+				defer func() { _ = backup.Restore() }()
+			}
 		}
 	}
 
@@ -503,12 +538,44 @@ func resolvServers() []string {
 	for sc.Scan() {
 		fields := strings.Fields(sc.Text())
 		if len(fields) == 2 && fields[0] == "nameserver" {
-			if ip := net.ParseIP(fields[1]); ip != nil {
+			// Never use the local kvn DNS proxy (or another loopback stub) as
+			// an "original" resolver: a direct-domain lookup would loop back
+			// into dnsproxy and never reach the other VPN's corporate DNS.
+			if ip := net.ParseIP(fields[1]); ip != nil && !ip.IsLoopback() {
 				out = append(out, net.JoinHostPort(ip.String(), "53"))
 			}
 		}
 	}
+	if len(out) == 0 {
+		out = resolvectlServers()
+	}
 	return out
+}
+
+// resolvectlServers reads upstream resolvers from systemd-resolved. When
+// /etc/resolv.conf points to 127.0.0.53, the real corporate DNS lives on a
+// link (for example ppp0), not in that stub file.
+func resolvectlServers() []string {
+	out, err := exec.Command("resolvectl", "dns").Output()
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	servers := make([]string, 0, 4)
+	for _, field := range strings.Fields(string(out)) {
+		raw := strings.TrimSuffix(field, ":")
+		ip := net.ParseIP(raw)
+		if ip == nil || ip.IsLoopback() {
+			continue
+		}
+		addr := net.JoinHostPort(ip.String(), "53")
+		if _, ok := seen[addr]; ok {
+			continue
+		}
+		seen[addr] = struct{}{}
+		servers = append(servers, addr)
+	}
+	return servers
 }
 
 func (c *Client) handleConn(ctx context.Context, client net.Conn, dst string, httpClient *transport.Client) {
@@ -554,6 +621,11 @@ func normalizeEndpoint(raw string) (string, error) {
 	u.Path = transport.DefaultPath
 	u.RawQuery = ""
 	return u.String(), nil
+}
+
+func (c *Client) newTransportClient(endpoint, token string, tlsCfg *tls.Config) (*transport.Client, error) {
+	opts := c.transportOptions(tlsCfg)
+	return transport.NewClientWithOptions(endpoint, token, &opts)
 }
 
 func (c *Client) transportOptions(tlsCfg *tls.Config) transport.ClientOptions {

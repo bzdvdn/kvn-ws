@@ -34,6 +34,6 @@ func main() {
 	defer stop()
 	if err := client.New(cfg, logger).Run(ctx); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "v2 client: %v\n", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:gocritic // terminal error path; deferred signal stop is irrelevant
 	}
 }

@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -178,7 +179,8 @@ func (s *Server) handleUDP(w http.ResponseWriter, r *http.Request) {
 			_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			n, rerr := conn.Read(buf)
 			if rerr != nil {
-				if ne, ok := rerr.(net.Error); ok && ne.Timeout() {
+				var ne net.Error
+				if errors.As(rerr, &ne) && ne.Timeout() {
 					select {
 					case <-r.Context().Done():
 						return

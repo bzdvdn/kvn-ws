@@ -1,13 +1,14 @@
 package tunpool
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
 
 func testPool(t *testing.T) (*Pool, *time.Time) {
 	t.Helper()
-	p, err := New(Config{
+	p, err := New(&Config{
 		Subnet: "10.66.0.0/24", RangeStart: "10.66.0.2", RangeEnd: "10.66.0.3",
 		Gateway: "10.66.0.1", LeaseTTLSec: 60,
 	})
@@ -46,7 +47,7 @@ func TestExhaustedAndExpiry(t *testing.T) {
 	if _, err := p.Lease("b"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Lease("c"); err != ErrExhausted {
+	if _, err := p.Lease("c"); !errors.Is(err, ErrExhausted) {
 		t.Fatalf("want exhausted, got %v", err)
 	}
 	*now = now.Add(61 * time.Second)
@@ -63,7 +64,7 @@ func TestPersistenceAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/leases.json"
 	cfg := Config{Subnet: "10.66.0.0/24", RangeStart: "10.66.0.2", RangeEnd: "10.66.0.3", Gateway: "10.66.0.1", LeaseTTLSec: 60, LeaseFile: path}
-	p1, err := New(cfg)
+	p1, err := New(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestPersistenceAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, err := New(cfg)
+	p2, err := New(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

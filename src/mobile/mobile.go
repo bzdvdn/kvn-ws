@@ -88,10 +88,10 @@ func Start(configJSON string, fd int) (*Client, error) {
 	return c, nil
 }
 
-// RxBytes returns the number of bytes read from TUN.
+// RxBytes returns download bytes written into TUN.
 func (c *Client) RxBytes() int64 { return c.dev.rx.Load() }
 
-// TxBytes returns the number of bytes written to TUN.
+// TxBytes returns upload bytes read from TUN.
 func (c *Client) TxBytes() int64 { return c.dev.tx.Load() }
 
 // Stop cancels the session and closes the TUN descriptor.
@@ -135,6 +135,8 @@ func (d *fdDevice) Open() error { return nil }
 
 // Close is intentionally a no-op: Kotlin VpnService owns the fd.
 func (d *fdDevice) Close() error { return nil }
+
+// Read reads packets from the Android TUN fd: outbound (upload) traffic.
 func (d *fdDevice) Read(p []byte) (int, error) {
 	for {
 		n, err := syscall.Read(d.fd, p)
@@ -143,12 +145,13 @@ func (d *fdDevice) Read(p []byte) (int, error) {
 			continue
 		}
 		if n > 0 {
-			d.rx.Add(int64(n))
+			d.tx.Add(int64(n))
 		}
 		return n, err
 	}
 }
 
+// Write writes packets into the Android TUN fd: inbound (download) traffic.
 func (d *fdDevice) Write(p []byte) (int, error) {
 	for {
 		n, err := syscall.Write(d.fd, p)
@@ -157,7 +160,7 @@ func (d *fdDevice) Write(p []byte) (int, error) {
 			continue
 		}
 		if n > 0 {
-			d.tx.Add(int64(n))
+			d.rx.Add(int64(n))
 		}
 		return n, err
 	}

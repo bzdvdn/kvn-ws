@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -33,11 +34,12 @@ type Client struct {
 
 // NewClient creates a shared v2 HTTP/2 client with legacy-compatible defaults.
 func NewClient(endpoint, token string, tlsCfg *tls.Config) (*Client, error) {
-	return NewClientWithOptions(endpoint, token, DefaultClientOptions(tlsCfg))
+	opts := DefaultClientOptions(tlsCfg)
+	return NewClientWithOptions(endpoint, token, &opts)
 }
 
 // NewClientWithOptions creates a shared v2 HTTP/2 client for endpoint.
-func NewClientWithOptions(endpoint, token string, opts ClientOptions) (*Client, error) {
+func NewClientWithOptions(endpoint, token string, opts *ClientOptions) (*Client, error) {
 	if opts.TLS == nil {
 		return nil, errors.New("tls config is required")
 	}
@@ -116,7 +118,7 @@ func (c *Client) Session(ctx context.Context, clientID string) (TUNSession, erro
 		return TUNSession{}, err
 	}
 	u.Path = DefaultPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
 	if err != nil {
 		return TUNSession{}, err
 	}
@@ -151,13 +153,40 @@ func (c *Client) DialTCP(ctx context.Context, target string) (*Stream, error) {
 	return &Stream{body: resp.Body, writer: pw, padding: c.padding, padSize: c.paddingSize}, nil
 }
 
-// DialICMP opens one ICMP echo request stream to target.
-func (c *Client) DialICMP(ctx context.Context, target string) (*Stream, error) {
-	resp, pw, err := c.open(ctx, http.MethodPatch, DefaultPath, target, "application/icmp", false)
+// DialICMP sends one ICMP echo request and returns the response body.
+// The payload is buffered before Do, so the client does not wait for response
+// headers before sending the ICMP body (avoids an extra client/server RTT).
+func (c *Client) DialICMP(ctx context.Context, target string, payload []byte) (io.ReadCloser, error) {
+	u, err := url.Parse(c.endpoint)
 	if err != nil {
 		return nil, err
 	}
-	return &Stream{body: resp.Body, writer: pw}, nil
+	u.Path = DefaultPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, u.String(), bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.ContentLength = int64(len(payload))
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/icmp")
+	if c.clientID != "" {
+		req.Header.Set("X-Request-ID", c.clientID)
+	}
+	if c.targetHeader != "" {
+		req.Header.Set(c.targetHeader, target)
+	} else {
+		req.Host = target
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("v2 icmp dial: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/icmp") {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("v2 icmp status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return resp.Body, nil
 }
 
 // DialUDP opens a best-effort UDP flow to target.
@@ -200,7 +229,9 @@ func (c *Client) open(ctx context.Context, method, path, target, contentType str
 		_ = pw.Close()
 		return nil, nil, fmt.Errorf("v2 %s dial: %w", path, err)
 	}
-	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/octet-stream") {
+	contentTypeOK := strings.HasPrefix(resp.Header.Get("Content-Type"), "application/octet-stream") ||
+		strings.HasPrefix(resp.Header.Get("Content-Type"), "application/icmp")
+	if resp.StatusCode != http.StatusOK || !contentTypeOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		_ = resp.Body.Close()
 		_ = pw.Close()

@@ -99,7 +99,7 @@ class ConfigSerializationTest {
         assertEquals("", config.serverPath)
         assertEquals("tun", config.mode)
         assertEquals("tcp", config.transport)
-        assertFalse(config.quicEnabled)
+        assertTrue(config.quicEnabled)
         assertEquals("verify", config.tlsVerifyMode)
         assertFalse(config.killSwitchEnabled)
         assertFalse(config.cryptoEnabled)

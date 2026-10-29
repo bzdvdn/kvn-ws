@@ -14,7 +14,7 @@ import (
 func TestFallback(t *testing.T) {
 	h := NewFallback(config.FallbackCfg{Title: "Acme"})
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Acme") {
 		t.Fatalf("static fallback status=%d body=%q", rr.Code, rr.Body.String())
 	}
@@ -26,7 +26,7 @@ func TestFallback(t *testing.T) {
 	}))
 	defer upstream.Close()
 	h = NewFallback(config.FallbackCfg{Upstream: upstream.URL})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.Header.Set("Authorization", "Bearer secret")
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req)

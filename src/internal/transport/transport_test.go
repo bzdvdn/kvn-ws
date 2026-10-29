@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -22,7 +23,7 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/tunpool"
 )
 
-func echoTarget(t *testing.T) (string, func()) {
+func echoTarget(t *testing.T) (addr string, closeFn func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -73,8 +74,55 @@ func TestStreamRoundTrip(t *testing.T) {
 	if _, err := io.ReadFull(stream, buf); err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(buf) != string(payload) {
+	if !bytes.Equal(buf, payload) {
 		t.Fatalf("echo = %q, want %q", buf, payload)
+	}
+}
+
+// @sk-test v2-standard#T4.7: ICMP stream accepts application/icmp response (AC-007)
+func TestDialICMPStream(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			http.Error(w, "method", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/icmp")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		body, _ := io.ReadAll(r.Body)
+		reply := []byte{0, 0, 0, 0, 0, 1, 0, 1}
+		if len(body) >= 8 {
+			reply = append(reply, body[8:]...)
+		}
+		_, _ = w.Write(reply)
+	})
+	ts := httptest.NewUnstartedServer(mux)
+	ts.EnableHTTP2 = true
+	ts.StartTLS()
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	tlsCfg := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2"}}
+	opts := ClientOptions{TLS: tlsCfg}
+	client, err := NewClientWithOptions(ts.URL, "secret", &opts)
+	if err != nil {
+		t.Fatalf("NewClientWithOptions: %v", err)
+	}
+	body, err := client.DialICMP(ctx, "127.0.0.1", []byte{8, 0, 0, 0, 0, 1, 0, 1})
+	if err != nil {
+		t.Fatalf("DialICMP: %v", err)
+	}
+	defer func() { _ = body.Close() }()
+	reply, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(reply) < 8 || reply[0] != 0 {
+		t.Fatalf("bad ICMP reply: %x", reply)
 	}
 }
 
@@ -143,7 +191,7 @@ func TestUDPStreamRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read packet: %v", err)
 	}
-	if string(got) != string(payload) {
+	if !bytes.Equal(got, payload) {
 		t.Fatalf("udp echo = %q, want %q", got, payload)
 	}
 }
@@ -161,7 +209,10 @@ func TestSlowFlowDoesNotBlockAnother(t *testing.T) {
 			if err != nil {
 				return
 			}
-			defer c.Close() // hold the connection open without reading
+			go func(conn net.Conn) {
+				time.Sleep(5 * time.Second)
+				_ = conn.Close()
+			}(c) // hold the connection open without reading
 		}
 	}()
 	fastTarget, closeFast := echoTarget(t)
@@ -204,7 +255,7 @@ func TestSlowFlowDoesNotBlockAnother(t *testing.T) {
 	if _, err := io.ReadFull(fast, got); err != nil {
 		t.Fatalf("fast read: %v", err)
 	}
-	if string(got) != string(payload) {
+	if !bytes.Equal(got, payload) {
 		t.Fatalf("fast echo = %q", got)
 	}
 }
@@ -259,7 +310,7 @@ func TestQUICDatagramUDPFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(got) != string(payload) {
+	if !bytes.Equal(got, payload) {
 		t.Fatalf("quic echo = %q", got)
 	}
 }
@@ -301,7 +352,7 @@ func TestPaddedTCPStreamRoundTrip(t *testing.T) {
 	opts.UTLSProfile = ""
 	opts.Padding = true
 	opts.PaddingSize = 64
-	client, err := NewClientWithOptions(ts.URL, "secret", opts)
+	client, err := NewClientWithOptions(ts.URL, "secret", &opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +371,7 @@ func TestPaddedTCPStreamRoundTrip(t *testing.T) {
 	if _, err := io.ReadFull(stream, got); err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(payload) {
+	if !bytes.Equal(got, payload) {
 		t.Fatalf("padded echo = %q, want %q", got, payload)
 	}
 }
@@ -359,7 +410,7 @@ func TestPaddedUDPStreamRoundTrip(t *testing.T) {
 	opts.UTLSProfile = ""
 	opts.Padding = true
 	opts.PaddingSize = 64
-	client, err := NewClientWithOptions(ts.URL, "secret", opts)
+	client, err := NewClientWithOptions(ts.URL, "secret", &opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +429,7 @@ func TestPaddedUDPStreamRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(payload) {
+	if !bytes.Equal(got, payload) {
 		t.Fatalf("padded udp = %q, want %q", got, payload)
 	}
 }
@@ -412,7 +463,7 @@ func TestUnknownPathFallback(t *testing.T) {
 
 // @sk-test v2-tun-assignment#T1.3: authenticated session returns a pooled TUN lease (AC-002)
 func TestSessionEndpoint(t *testing.T) {
-	pool, err := tunpool.New(tunpool.Config{
+	pool, err := tunpool.New(&tunpool.Config{
 		Subnet: "10.66.0.0/24", RangeStart: "10.66.0.2", RangeEnd: "10.66.0.3",
 		Gateway: "10.66.0.1", LeaseTTLSec: 60,
 	})
@@ -429,7 +480,7 @@ func TestSessionEndpoint(t *testing.T) {
 	ts.StartTLS()
 	defer ts.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/", http.NoBody)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("X-Request-ID", "client-a")
@@ -452,7 +503,7 @@ func TestSessionEndpoint(t *testing.T) {
 
 // @sk-test v2-tun-assignment#T1.3: unauthorized session request gets fallback (AC-009)
 func TestSessionUnauthorizedFallback(t *testing.T) {
-	pool, _ := tunpool.New(tunpool.Config{
+	pool, _ := tunpool.New(&tunpool.Config{
 		Subnet: "10.66.0.0/24", RangeStart: "10.66.0.2", RangeEnd: "10.66.0.3",
 		Gateway: "10.66.0.1", LeaseTTLSec: 60,
 	})
@@ -466,7 +517,7 @@ func TestSessionUnauthorizedFallback(t *testing.T) {
 	ts.StartTLS()
 	defer ts.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/", http.NoBody)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Request-ID", "client-a")
 	resp, err := ts.Client().Do(req)
