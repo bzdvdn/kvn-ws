@@ -23,7 +23,51 @@ sudo ./bin/kvn-web --no-browser
 
 Сервер выдаёт каждому клиенту уникальный `tun_address` из пула; `client_id` генерируется клиентом автоматически, если его нет в JSON/QR.
 
-## Установка
+## Установка из релиза 2.0.0
+
+Скрипты рассчитаны на готовые артефакты из GitHub Releases. Для своего тега замените `v2.0.0` на актуальный.
+
+### Сервер на Linux
+
+```bash
+curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.0/install-server.sh -o /tmp/install-server.sh
+sudo bash /tmp/install-server.sh --port 443
+```
+
+Скрипт поставит `kvn-server`, создаст self-signed TLS и конфиг в `/etc/kvn-ws/server.yaml`, запустит systemd-сервис и выведет token.
+
+### Клиент на Linux
+
+```bash
+curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.0/install-client.sh -o /tmp/install-client.sh
+sudo bash /tmp/install-client.sh --server https://SERVER:443 --token TOKEN
+```
+
+Для proxy-режима добавьте `--proxy`; для своих direct-доменов — `--exclude-domains .ru,.we-on`.
+
+### kvn-web + desktop
+
+Linux и macOS:
+
+```bash
+curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.0/install-web.sh -o /tmp/install-web.sh
+sudo bash /tmp/install-web.sh --start --desktop
+```
+
+Устанавливает `kvn-web`, `kvn-desktop`, systemd/launchd-сервис и ярлык приложения. Web UI: http://127.0.0.1:2311
+
+Windows (PowerShell от администратора):
+
+```powershell
+iwr -useb https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.0/install-web.ps1 -OutFile install-web.ps1
+powershell -ExecutionPolicy Bypass -File .\install-web.ps1
+```
+
+По умолчанию ставится `kvn-desktop` (WebView) + `kvn-web` с автостартом. Старый браузерный режим: `-Browser`. Legacy v1 при установке удаляется автоматически.
+
+Для self-signed сертификата включите `Allow insecure TLS` в настройках клиента; для production используйте доверенный сертификат.
+
+## Сборка из исходников
 
 ```bash
 # сервер (root, systemd, TLS, TUN pool)
@@ -31,6 +75,9 @@ sudo ./scripts/install-server.sh --port 443
 
 # клиент (root, systemd, TUN)
 sudo ./scripts/install-client.sh --server https://HOST:443 --token TOKEN
+
+# web + desktop из локальной сборки
+sudo ./scripts/install-web.sh --start --desktop
 ```
 
 Скрипты также умеют скачивать `kvn-server`/`kvn-client` из GitHub Releases, если локального бинаря нет.
