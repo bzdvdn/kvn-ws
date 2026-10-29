@@ -62,6 +62,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
@@ -122,10 +124,16 @@ jobs:
           keyAlias=$KEY_ALIAS
           storeFile=$KEYSTORE
           EOF
-      - name: Build APK (release)
+      - name: Build APK (release, arm64)
         run: |
           cd src/android
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease -Pabi=arm64-v8a
+      - name: Verify APK signature
+        run: |
+          APK=src/android/app/build/outputs/apk/release/kvn-v2-client-release.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          ls -lh "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
