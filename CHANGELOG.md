@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-30
+
+### Fixed
+
+- **Android VPN после блокировки экрана** — добавлены `setUnderlyingNetworks`, network callback, watchdog-проверка сессии, автоматический restart при смене/потере сети и partial wake lock для `Keep awake`; VPN больше не должен оставаться «иконкой без трафика».
+- **Android release APK** — release-сборка теперь arm64-only (меньше размер), получает корректный `versionCode` из полной git-истории и проверяется `apksigner` перед публикацией.
+
+### Changed
+
+- Android `versionName` поднят до `2.0.1`.
+
 ## [2.0.0] - 2026-10-29
 
 ### Added
@@ -42,6 +53,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **DNS/direct routing** — exclude-домены резолвятся напрямую, direct TCP/UDP не уходит в туннель; Android получает реальные IP вместо fake-IP.
 - **Метрики RX/TX** — направления TUN исправлены: `Read` теперь считается upload/TX, `Write` — download/RX; это затрагивает `kvn-web`, CLI и Android.
 - **DNS coexistence** — original/corporate DNS пробуется первым, публичные upstreams используются как fallback; loopback/kvn DNS не зацикливается; DNS-proxy не переключает `/etc/resolv.conf`, пока не забиндился.
+- **Android screen-lock recovery** — добавлены `setUnderlyingNetworks`, network callback, watchdog-проверка сессии и partial wake lock по настройке `Keep awake`; при смене сети/потере HTTP/2 сессия перезапускается автоматически.
 - **ICMP/ping** — исправлен тип ответа `application/icmp`, устранён deadlock при отправке запроса и убран лишний RTT: ICMP payload отправляется одним буферизованным запросом, а не через streaming pipe.
 
 ### Removed

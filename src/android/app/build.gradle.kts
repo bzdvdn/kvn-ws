@@ -48,7 +48,7 @@ android {
             ndk { abiFilters += abi.split(",").map { it.trim() } }
         }
         versionCode = versionCodeInt
-        versionName = "2.0.0"
+        versionName = "2.0.1"
     }
 
     buildFeatures {

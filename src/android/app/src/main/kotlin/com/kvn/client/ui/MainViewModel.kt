@@ -280,6 +280,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("mode", "tun")
             .put("mtu", 1200)
             .put("quic_enabled", config.quicEnabled)
+            .put("keep_awake", config.keepAwakeEnabled)
             .put("routing", routing)
             .put("dns_proxy", dns)
             .put("tls", org.json.JSONObject().put("verify_mode", config.tlsVerifyMode.ifBlank { "verify" }))

@@ -5,13 +5,18 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import com.kvn.client.logger.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import com.kvn.client.transport.ConnectionState
@@ -60,7 +65,16 @@ class KvnV2VpnService : VpnService() {
 
     private var client: Client? = null
     private var tunFd: ParcelFileDescriptor? = null
-    private var trafficJob: kotlinx.coroutines.Job? = null
+    private var trafficJob: Job? = null
+    private var restartJob: Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var lastConfigJson: String? = null
+    private var lastIncludeApps: List<String> = emptyList()
+    private var lastExcludeApps: List<String> = emptyList()
+    private var lastNetworkHandle: Long? = null
+    private var networkLost = false
+    private var keepAwake = false
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -75,6 +89,9 @@ class KvnV2VpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
+        lastConfigJson = configJson
+        lastIncludeApps = includeApps
+        lastExcludeApps = excludeApps
         if (client != null) return START_STICKY
         startForeground(NOTIFICATION_ID, notification())
         scope.launch {
@@ -91,6 +108,7 @@ class KvnV2VpnService : VpnService() {
     }
 
     private fun startV2(configJson: String, includeApps: List<String>, excludeApps: List<String>) {
+        keepAwake = runCatching { JSONObject(configJson).optBoolean("keep_awake", false) }.getOrDefault(false)
         val session = JSONObject(Mobile.resolve(configJson))
         val address = session.getString("tun_address")
         val slash = address.indexOf('/')
@@ -124,37 +142,139 @@ class KvnV2VpnService : VpnService() {
             throw e
         }
         stateListener?.invoke(ConnectionState.CONNECTED)
+        acquireWakeLock()
+        registerNetworkCallback()
         trafficJob = scope.launch {
+            var healthTick = 0
             while (true) {
                 val active = client ?: break
+                if (active.error().isNotBlank()) {
+                    AppLogger.w("V2VPN", "Go session failed: ${active.error()}")
+                    scope.launch { restartV2() }
+                    break
+                }
                 trafficListener?.invoke(active.rxBytes(), active.txBytes())
-                kotlinx.coroutines.delay(1000)
+                healthTick++
+                if (healthTick % 30 == 0) {
+                    // Doze/NAT can silently blackhole the HTTP/2 connection
+                    // while the VpnService fd (and VPN icon) stays alive.
+                    try {
+                        Mobile.resolve(lastConfigJson ?: break)
+                    } catch (e: Exception) {
+                        AppLogger.w("V2VPN", "health probe failed: ${e.message}")
+                        scope.launch { restartV2() }
+                        break
+                    }
+                }
+                delay(1000)
             }
         }
         AppLogger.i("V2VPN", "started ip=$address gateway=$gateway")
     }
 
-    private fun stopV2() {
+    private fun stopClientAndTun() {
+        restartJob?.cancel()
+        restartJob = null
         trafficJob?.cancel()
         trafficJob = null
+        unregisterNetworkCallback()
+        releaseWakeLock()
+        val pfd = tunFd
+        tunFd = null
+        // Closing the actual VpnService fd unblocks the Go TUN read loop.
+        runCatching { pfd?.close() }
         val active = client
         client = null
-        // Closing the original ParcelFileDescriptor tears down the Android VPN
-        // interface even if the Go read loop is still unwinding.
-        runCatching { tunFd?.close() }
-        tunFd = null
         if (active != null) {
-            // Do not block the main thread waiting for the Go read loop.
             scope.launch {
                 withTimeoutOrNull(3000) { runCatching { active.stop() } }
             }
         }
+    }
+
+    private fun stopV2() {
+        stopClientAndTun()
         stateListener?.invoke(ConnectionState.DISCONNECTED)
         stateListener = null
         errorListener = null
         trafficListener = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun restartV2() {
+        val cfg = lastConfigJson ?: return
+        AppLogger.i("V2VPN", "restarting after network/session change")
+        stateListener?.invoke(ConnectionState.CONNECTING)
+        stopClientAndTun()
+        restartJob = scope.launch {
+            delay(750)
+            if (lastConfigJson != cfg) return@launch
+            try {
+                startV2(cfg, lastIncludeApps, lastExcludeApps)
+            } catch (e: Exception) {
+                AppLogger.e("V2VPN", "restart failed: ${e.message}")
+                errorListener?.invoke(e.message ?: "v2 restart failed")
+                stateListener?.invoke(ConnectionState.DISCONNECTED)
+                stopV2()
+            }
+        }
+    }
+
+    private fun registerNetworkCallback() {
+        unregisterNetworkCallback()
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                runCatching { setUnderlyingNetworks(arrayOf(network)) }
+                val previous = lastNetworkHandle
+                val changed = networkLost || (previous != null && previous != network.networkHandle)
+                lastNetworkHandle = network.networkHandle
+                networkLost = false
+                if (changed && client != null) {
+                    scope.launch { restartV2() }
+                }
+            }
+
+            override fun onLost(network: Network) {
+                if (lastNetworkHandle == network.networkHandle) {
+                    lastNetworkHandle = null
+                    networkLost = true
+                    runCatching { setUnderlyingNetworks(null) }
+                }
+            }
+        }
+        networkCallback = callback
+        runCatching { cm.registerDefaultNetworkCallback(callback) }
+        cm.activeNetwork?.let { network ->
+            lastNetworkHandle = network.networkHandle
+            runCatching { setUnderlyingNetworks(arrayOf(network)) }
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        runCatching {
+            getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(callback)
+        }
+        lastNetworkHandle = null
+        networkLost = false
+    }
+
+    private fun acquireWakeLock() {
+        releaseWakeLock()
+        if (!keepAwake) return
+        val pm = getSystemService(PowerManager::class.java) ?: return
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KVN:Vpn").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { runCatching { it.release() } }
+        wakeLock = null
     }
 
     override fun onDestroy() {
