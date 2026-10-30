@@ -3,7 +3,9 @@ package com.kvn.client.vpn
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
@@ -78,6 +80,15 @@ class KvnV2VpnService : VpnService() {
     private var networkLost = false
     private var restarting = false
     private var keepAwake = false
+    private var screenReceiverRegistered = false
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_USER_PRESENT && client != null) {
+                AppLogger.i("V2VPN", "device unlocked; refreshing stale transport")
+                scope.launch { restartV2() }
+            }
+        }
+    }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -147,6 +158,7 @@ class KvnV2VpnService : VpnService() {
         stateListener?.invoke(ConnectionState.CONNECTED)
         acquireWakeLock()
         registerNetworkCallback()
+        registerScreenReceiver()
         trafficJob = scope.launch {
             var healthTick = 0
             var healthFailures = 0
@@ -186,6 +198,7 @@ class KvnV2VpnService : VpnService() {
         trafficJob?.cancel()
         trafficJob = null
         unregisterNetworkCallback()
+        unregisterScreenReceiver()
         releaseWakeLock()
         val pfd = tunFd
         tunFd = null
@@ -277,6 +290,24 @@ class KvnV2VpnService : VpnService() {
         }
         lastNetworkHandle = null
         networkLost = false
+    }
+
+    private fun registerScreenReceiver() {
+        if (screenReceiverRegistered) return
+        val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(screenReceiver, filter)
+        }
+        screenReceiverRegistered = true
+    }
+
+    private fun unregisterScreenReceiver() {
+        if (!screenReceiverRegistered) return
+        runCatching { unregisterReceiver(screenReceiver) }
+        screenReceiverRegistered = false
     }
 
     private fun acquireWakeLock() {
