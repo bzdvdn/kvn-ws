@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **Android VPN после блокировки экрана** — добавлены `setUnderlyingNetworks`, network callback, watchdog-проверка сессии, автоматический restart при смене/потере сети и partial wake lock для `Keep awake`; VPN больше не должен оставаться «иконкой без трафика».
+- **Android VPN после блокировки экрана** — добавлены `setUnderlyingNetworks`, network callback с фильтром `NOT_VPN`, watchdog-проверка сессии, debounce/guard от self-trigger restart, partial wake lock для `Keep awake`; VPN больше не должен оставаться «иконкой без трафика» или зацикливаться на reconnect.
 - **Android release APK** — release-сборка теперь arm64-only (меньше размер), получает корректный `versionCode` из полной git-истории и проверяется `apksigner` перед публикацией.
 
 ### Changed

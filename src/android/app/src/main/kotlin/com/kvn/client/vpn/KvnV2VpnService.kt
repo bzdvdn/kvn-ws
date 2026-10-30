@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -74,6 +76,7 @@ class KvnV2VpnService : VpnService() {
     private var lastExcludeApps: List<String> = emptyList()
     private var lastNetworkHandle: Long? = null
     private var networkLost = false
+    private var restarting = false
     private var keepAwake = false
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -146,6 +149,7 @@ class KvnV2VpnService : VpnService() {
         registerNetworkCallback()
         trafficJob = scope.launch {
             var healthTick = 0
+            var healthFailures = 0
             while (true) {
                 val active = client ?: break
                 if (active.error().isNotBlank()) {
@@ -160,10 +164,14 @@ class KvnV2VpnService : VpnService() {
                     // while the VpnService fd (and VPN icon) stays alive.
                     try {
                         Mobile.resolve(lastConfigJson ?: break)
+                        healthFailures = 0
                     } catch (e: Exception) {
-                        AppLogger.w("V2VPN", "health probe failed: ${e.message}")
-                        scope.launch { restartV2() }
-                        break
+                        healthFailures++
+                        AppLogger.w("V2VPN", "health probe failed ($healthFailures/2): ${e.message}")
+                        if (healthFailures >= 2) {
+                            scope.launch { restartV2() }
+                            break
+                        }
                     }
                 }
                 delay(1000)
@@ -198,25 +206,32 @@ class KvnV2VpnService : VpnService() {
         stateListener = null
         errorListener = null
         trafficListener = null
+        restarting = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun restartV2() {
         val cfg = lastConfigJson ?: return
+        if (restarting) return
+        restarting = true
         AppLogger.i("V2VPN", "restarting after network/session change")
         stateListener?.invoke(ConnectionState.CONNECTING)
         stopClientAndTun()
         restartJob = scope.launch {
-            delay(750)
-            if (lastConfigJson != cfg) return@launch
             try {
-                startV2(cfg, lastIncludeApps, lastExcludeApps)
-            } catch (e: Exception) {
-                AppLogger.e("V2VPN", "restart failed: ${e.message}")
-                errorListener?.invoke(e.message ?: "v2 restart failed")
-                stateListener?.invoke(ConnectionState.DISCONNECTED)
-                stopV2()
+                delay(750)
+                if (lastConfigJson != cfg) return@launch
+                try {
+                    startV2(cfg, lastIncludeApps, lastExcludeApps)
+                } catch (e: Exception) {
+                    AppLogger.e("V2VPN", "restart failed: ${e.message}")
+                    errorListener?.invoke(e.message ?: "v2 restart failed")
+                    stateListener?.invoke(ConnectionState.DISCONNECTED)
+                    stopV2()
+                }
+            } finally {
+                restarting = false
             }
         }
     }
@@ -226,11 +241,13 @@ class KvnV2VpnService : VpnService() {
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                runCatching { setUnderlyingNetworks(arrayOf(network)) }
+                // Keep KVN on the physical network, not on its own VPN network.
                 val previous = lastNetworkHandle
                 val changed = networkLost || (previous != null && previous != network.networkHandle)
+                if (!changed && previous != null) return
                 lastNetworkHandle = network.networkHandle
                 networkLost = false
+                runCatching { setUnderlyingNetworks(arrayOf(network)) }
                 if (changed && client != null) {
                     scope.launch { restartV2() }
                 }
@@ -245,11 +262,11 @@ class KvnV2VpnService : VpnService() {
             }
         }
         networkCallback = callback
-        runCatching { cm.registerDefaultNetworkCallback(callback) }
-        cm.activeNetwork?.let { network ->
-            lastNetworkHandle = network.networkHandle
-            runCatching { setUnderlyingNetworks(arrayOf(network)) }
-        }
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        runCatching { cm.registerNetworkCallback(request, callback) }
     }
 
     private fun unregisterNetworkCallback() {
