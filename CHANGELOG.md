@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-11-01
+
+### Fixed
+
+- **Android: зависание сети при длительной сессии** — каждый gVisor forward-запрос теперь завершается (`Complete`), поэтому новые TCP-соединения перестают блокироваться после исчерпания forward-бюджета.
+- **Android: молча умерший транспорт** — включены HTTP/2 keepalive (`ReadIdleTimeout`/`PingTimeout`) и таймауты uTLS-диаллера; health-проверка идёт по живому соединению, а не через новое TLS-рукопожатие.
+- **Android: медленный direct DNS** — резолв excluded-доменов вынесен из цикла чтения TUN в ограниченный пул и больше не останавливает остальной трафик.
+- **Android: остановка TUN** — дескриптор переведён в non-blocking с `poll` и stop-сигналом; Kotlin останавливает Go-клиент до закрытия fd, остановка ограничена по времени.
+- **Android: отмена flow** — контекст сессии пробрасывается в `tcpstack`, отмена flow отменяет исходящий dial.
+- **Android: сетевой жизненный цикл** — default-network callback без reconnect-шторма при Wi-Fi+LTE, unlock восстанавливает только нездоровую сессию, новый конфиг применяется без «вечного Connecting», single-flight restart.
+- **Android: QUIC-старт** — handshake ограничен 3 с и внешним контекстом 5 с, при недоступном UDP клиент быстро откатывается на HTTP/2 UDP.
+- **Android: DNS из конфига** — VpnService объявляет пользовательские DNS-серверы; собственный процесс всегда исключён из VPN.
+- **Android: ресурсы** — при завершении сессии закрываются idle HTTP/2-соединения, число одновременных ICMP-пингов ограничено.
+
+### Changed
+
+- Android `versionName` поднят до `2.0.2`.
+- Debug-сборка поддерживает `-PdebugAppIdSuffix=.debug` и устанавливается рядом с release-сборкой.
+
 ## [2.0.1] - 2026-10-30
 
 ### Fixed

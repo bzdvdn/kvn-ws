@@ -114,7 +114,7 @@ func (c *Client) handleDirectDNS(ctx context.Context, packet []byte, dev interfa
 	}
 	c.logger.Debug("v2 direct DNS", zap.String("domain", domain))
 
-	c.dispatchDirectDNS(ctx, directDNSQuery{
+	c.dispatchDirectDNS(ctx, &directDNSQuery{
 		domain:   domain,
 		srcIP:    append(net.IP(nil), srcIP...),
 		dstIP:    append(net.IP(nil), dstIP...),
@@ -125,7 +125,7 @@ func (c *Client) handleDirectDNS(ctx context.Context, packet []byte, dev interfa
 	return true
 }
 
-func (c *Client) dispatchDirectDNS(ctx context.Context, q directDNSQuery, dev interface {
+func (c *Client) dispatchDirectDNS(ctx context.Context, q *directDNSQuery, dev interface {
 	Write([]byte) (int, error)
 }, cache *directCache) {
 	if c.directDNSSem == nil {
@@ -143,7 +143,7 @@ func (c *Client) dispatchDirectDNS(ctx context.Context, q directDNSQuery, dev in
 	}
 }
 
-func (c *Client) resolveDirectDNS(ctx context.Context, q directDNSQuery, dev interface {
+func (c *Client) resolveDirectDNS(ctx context.Context, q *directDNSQuery, dev interface {
 	Write([]byte) (int, error)
 }, cache *directCache) {
 	rctx, cancel := context.WithTimeout(ctx, 3*time.Second)

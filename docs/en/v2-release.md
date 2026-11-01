@@ -1,4 +1,14 @@
-# v2 2.0.0 — release checklist
+# v2 — release checklist
+
+## 2.0.2 — Android network fixes
+
+- [x] Android: network stalls fixed (forward lifecycle, keepalive/health, async direct DNS, bounded TUN stop, ctx propagation).
+- [x] Android: lifecycle resilience (default-network callback, unlock health gate, bounded QUIC, DNS from config, restart gate, cleanup).
+- [x] CI-equivalent locally: `go test -race ./src/...`, `go vet`, `gosec`, `golangci-lint`, `check-v2-only.sh`, `build.sh both`, AAR/APK.
+- [x] `versionName` 2.0.2, CHANGELOG 2.0.2.
+- [ ] Tag `v2.0.2` and release workflow check (Android signing secrets required).
+
+## 2.0.0
 
 - [x] v1 runtime removed; `kvn-client`, `kvn-server`, `kvn-web` are v2-only.
 - [x] `kvn-web` v2-only, unified `~/.config/kvn/config.yaml`, v1 → `.v1.bak`.

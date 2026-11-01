@@ -48,7 +48,7 @@ android {
             ndk { abiFilters += abi.split(",").map { it.trim() } }
         }
         versionCode = versionCodeInt
-        versionName = "2.0.1"
+        versionName = "2.0.2"
     }
 
     buildFeatures {
@@ -70,6 +70,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Optional: build a debug APK that installs next to a release
+            // build (different signature) without uninstalling prod.
+            (project.findProperty("debugAppIdSuffix") as String?)?.let { suffix ->
+                applicationIdSuffix = suffix
+                versionNameSuffix = suffix
+            }
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(
