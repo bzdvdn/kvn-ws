@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "slug": "android-network-stall",
+  "base_sha": "15127a77e1936e2069f93fbbea0bb5ee2240e2ef",
+  "head_sha": "f0edc1acbce734687630d05e188e041f94ffec6c",
+  "base_branch": "master",
+  "base_source": "inferred",
+  "source": "git",
+  "generated_at": "2026-11-01T08:29:30Z",
+  "dirty": true,
+  "commits": [
+    {
+      "sha": "f0edc1acbce734687630d05e188e041f94ffec6c",
+      "subject": "fix android vpn network stalls"
+    }
+  ],
+  "files": [
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnV2VpnService.kt",
+      "status": "M",
+      "additions": 21,
+      "deletions": 5,
+      "tasks": [
+        "T2.3",
+        "T4.2"
+      ],
+      "anchors": [
+        "startV2",
+        "stopClientAndTun"
+      ]
+    },
+    {
+      "path": "src/internal/client/client.go",
+      "status": "M",
+      "additions": 35,
+      "deletions": 7,
+      "tasks": [
+        "T2.2",
+        "T3.1",
+        "T4.3"
+      ]
+    },
+    {
+      "path": "src/internal/client/direct.go",
+      "status": "M",
+      "additions": 64,
+      "deletions": 17,
+      "tasks": [
+        "T3.1"
+      ],
+      "anchors": [
+        "dispatchDirectDNS"
+      ]
+    },
+    {
+      "path": "src/internal/client/direct_test.go",
+      "status": "A",
+      "additions": 162,
+      "tasks": [
+        "T3.2"
+      ],
+      "anchors": [
+        "TestHandleDirectDNSEscapesReadLoop"
+      ]
+    },
+    {
+      "path": "src/internal/tcpstack/stack.go",
+      "status": "M",
+      "additions": 21,
+      "deletions": 5,
+      "tasks": [
+        "T1.1",
+        "T1.2",
+        "T4.3"
+      ],
+      "anchors": [
+        "New",
+        "handle"
+      ]
+    },
+    {
+      "path": "src/internal/tcpstack/stack_test.go",
+      "status": "A",
+      "additions": 180,
+      "tasks": [
+        "T1.2",
+        "T4.4"
+      ],
+      "anchors": [
+        "TestForwardRequestsReleased"
+      ]
+    },
+    {
+      "path": "src/internal/tlsprofile/profile.go",
+      "status": "M",
+      "additions": 2,
+      "deletions": 1,
+      "tasks": [
+        "T2.1"
+      ]
+    },
+    {
+      "path": "src/internal/transport/client.go",
+      "status": "M",
+      "additions": 14,
+      "tasks": [
+        "T2.1",
+        "T2.2"
+      ],
+      "anchors": [
+        "NewClientWithOptions"
+      ]
+    },
+    {
+      "path": "src/internal/transport/transport_test.go",
+      "status": "M",
+      "additions": 71,
+      "tasks": [
+        "T2.4"
+      ],
+      "anchors": [
+        "TestClientHealthReusesConnection"
+      ]
+    },
+    {
+      "path": "src/mobile/fddevice_test.go",
+      "status": "A",
+      "additions": 97,
+      "tasks": [
+        "T4.4"
+      ],
+      "anchors": [
+        "TestFDDeviceReadStopsOnClose"
+      ]
+    },
+    {
+      "path": "src/mobile/mobile.go",
+      "status": "M",
+      "additions": 93,
+      "deletions": 20,
+      "tasks": [
+        "T2.2",
+        "T4.1"
+      ],
+      "anchors": [
+        "Health",
+        "Read"
+      ]
+    }
+  ],
+  "declared_not_changed": [
+    "сверяются через `speckeep trace android-network-stall --files`"
+  ],
+  "artifacts": [
+    "specs/active/android-network-stall/spec.md",
+    "specs/active/android-network-stall/tasks.md",
+    "specs/active/android-network-stall/trace-meta.json",
+    "specs/active/android-network-stall/verify.md"
+  ]
+}

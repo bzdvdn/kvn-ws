@@ -5,6 +5,6 @@
   "base_branch": "master",
   "base_source": "inferred",
   "created_at": "2026-11-01T08:11:49Z",
-  "head_sha": "15127a77e1936e2069f93fbbea0bb5ee2240e2ef",
+  "head_sha": "f0edc1acbce734687630d05e188e041f94ffec6c",
   "branch": "feature/android-network-stall"
 }
