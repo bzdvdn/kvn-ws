@@ -32,6 +32,8 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
+const quicStartTimeout = 5 * time.Second
+
 // Client runs one selected v2 server.
 type Client struct {
 	cfg    *config.V2ClientConfig
@@ -43,6 +45,7 @@ type Client struct {
 	http   *transport.Client
 
 	directDNSSem chan struct{}
+	pingSem      chan struct{}
 
 	rxBytes    atomic.Int64
 	txBytes    atomic.Int64
@@ -55,7 +58,12 @@ func New(cfg *config.V2ClientConfig, logger *zap.Logger) *Client {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Client{cfg: cfg, logger: logger, directDNSSem: make(chan struct{}, directDNSWorkers)}
+	return &Client{
+		cfg:          cfg,
+		logger:       logger,
+		directDNSSem: make(chan struct{}, directDNSWorkers),
+		pingSem:      make(chan struct{}, maxConcurrentPings),
+	}
 }
 
 // @sk-task kvn-v2-transport#T3.3: release TUN during webui disconnect/reconnect (AC-005)
@@ -141,6 +149,7 @@ func (c *Client) runProxy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer httpClient.Close()
 	var proxyAuth *proxy.ProxyAuth
 	if c.cfg.ProxyAuth != nil {
 		proxyAuth = &proxy.ProxyAuth{Username: c.cfg.ProxyAuth.Username, Password: c.cfg.ProxyAuth.Password}
@@ -177,6 +186,7 @@ func (c *Client) ResolveTUN(ctx context.Context) (transport.TUNSession, error) {
 	if err != nil {
 		return transport.TUNSession{}, err
 	}
+	defer httpClient.Close()
 	sessionCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	return httpClient.Session(sessionCtx, c.cfg.ClientID)
@@ -198,6 +208,7 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 	// of dialing a brand-new connection.
 	c.setHTTPClient(httpClient)
 	defer c.setHTTPClient(nil)
+	defer httpClient.Close()
 	sessionStart := time.Now()
 	sessionCtx, sessionCancel := context.WithTimeout(ctx, 2*time.Second)
 	session, err := httpClient.Session(sessionCtx, c.cfg.ClientID)
@@ -238,7 +249,9 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 		if qep == "" {
 			qep = defaultQUICEndpoint(endpoint)
 		}
-		qc, qerr := transport.NewQUICClient(ctx, qep, server.Token, tlsCfg, c.logger)
+		qctx, qcancel := context.WithTimeout(ctx, quicStartTimeout)
+		qc, qerr := transport.NewQUICClient(qctx, qep, server.Token, tlsCfg, c.logger)
+		qcancel()
 		if qerr != nil {
 			c.logger.Warn("v2 QUIC datagrams unavailable, using HTTP/2 UDP fallback", zap.Error(qerr))
 		} else {
@@ -296,6 +309,7 @@ func (c *Client) runTUN(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer httpClient.Close()
 	sessionStart := time.Now()
 	sessionCtx, sessionCancel := context.WithTimeout(ctx, 2*time.Second)
 	session, err := httpClient.Session(sessionCtx, c.cfg.ClientID)
@@ -476,7 +490,9 @@ func (c *Client) runTUN(ctx context.Context) error {
 		if qep == "" {
 			qep = defaultQUICEndpoint(endpoint)
 		}
-		qc, qerr := transport.NewQUICClient(ctx, qep, server.Token, tlsCfg, c.logger)
+		qctx, qcancel := context.WithTimeout(ctx, quicStartTimeout)
+		qc, qerr := transport.NewQUICClient(qctx, qep, server.Token, tlsCfg, c.logger)
+		qcancel()
 		if qerr != nil {
 			c.logger.Warn("v2 QUIC datagrams unavailable, using HTTP/2 UDP fallback", zap.String("endpoint", qep), zap.Error(qerr))
 		} else {

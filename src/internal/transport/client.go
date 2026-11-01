@@ -148,6 +148,17 @@ func (c *Client) Session(ctx context.Context, clientID string) (TUNSession, erro
 	return session, nil
 }
 
+// Close releases idle connections held by the transport. It does not affect
+// connections of other clients.
+func (c *Client) Close() {
+	if c == nil || c.http == nil {
+		return
+	}
+	if closer, ok := c.http.Transport.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
+
 // Health validates the live transport by issuing a session request on the
 // existing HTTP/2 connection. It returns the first transport error.
 func (c *Client) Health(ctx context.Context) error {

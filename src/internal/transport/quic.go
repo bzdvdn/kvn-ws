@@ -42,8 +42,9 @@ func ListenQUIC(addr string, tlsCfg *tls.Config, tokens TokenLookup, logger *zap
 	cfgTLS := tlsCfg.Clone()
 	cfgTLS.NextProtos = []string{"h3"}
 	ln, err := quic.ListenAddr(addr, cfgTLS, &quic.Config{
-		EnableDatagrams: true,
-		MaxIdleTimeout:  2 * time.Minute,
+		EnableDatagrams:      true,
+		MaxIdleTimeout:       2 * time.Minute,
+		HandshakeIdleTimeout: 3 * time.Second,
 	})
 	if err != nil {
 		return nil, err
@@ -238,8 +239,9 @@ func NewQUICClient(ctx context.Context, endpoint, token string, tlsCfg *tls.Conf
 	cfgTLS := tlsCfg.Clone()
 	cfgTLS.NextProtos = []string{"h3"}
 	conn, err := quic.DialAddr(ctx, endpoint, cfgTLS, &quic.Config{
-		EnableDatagrams: true,
-		MaxIdleTimeout:  2 * time.Minute,
+		EnableDatagrams:      true,
+		MaxIdleTimeout:       2 * time.Minute,
+		HandshakeIdleTimeout: 3 * time.Second,
 	})
 	if err != nil {
 		return nil, err

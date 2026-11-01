@@ -601,3 +601,46 @@ func TestClientHealthBoundedOnBlackhole(t *testing.T) {
 		t.Fatalf("Health() blocked for %v, want bounded by context", elapsed)
 	}
 }
+
+// TestClientCloseIdleConnections proves stopping a session releases the idle
+// HTTP/2 connection instead of leaving it open for the next session.
+func TestClientCloseIdleConnections(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tun_address":"10.66.0.10/24","tun_gateway":"10.66.0.1","lease_ttl_sec":60}`))
+	})
+	ts := httptest.NewUnstartedServer(mux)
+	ts.EnableHTTP2 = true
+	var closed atomic.Int32
+	ts.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateClosed {
+			closed.Add(1)
+		}
+	}
+	ts.StartTLS()
+	defer ts.Close()
+
+	tlsCfg := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2"}}
+	opts := DefaultClientOptions(tlsCfg)
+	opts.ClientID = "cid"
+	c, err := NewClientWithOptions(ts.URL, "secret", &opts)
+	if err != nil {
+		t.Fatalf("NewClientWithOptions: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := c.Session(ctx, "cid"); err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+	c.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for closed.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if closed.Load() == 0 {
+		t.Fatal("Close() did not close the idle HTTP/2 connection")
+	}
+}

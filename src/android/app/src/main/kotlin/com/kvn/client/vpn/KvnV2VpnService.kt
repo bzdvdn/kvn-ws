@@ -9,8 +9,6 @@ import android.content.IntentFilter
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -76,16 +74,26 @@ class KvnV2VpnService : VpnService() {
     private var lastConfigJson: String? = null
     private var lastIncludeApps: List<String> = emptyList()
     private var lastExcludeApps: List<String> = emptyList()
-    private var lastNetworkHandle: Long? = null
-    private var networkLost = false
-    private var restarting = false
+    private val networkTracker = NetworkTracker()
+    private val networksByHandle = HashMap<Long, Network>()
+    private val restartGate = RestartGate()
     private var keepAwake = false
     private var screenReceiverRegistered = false
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_USER_PRESENT && client != null) {
-                AppLogger.i("V2VPN", "device unlocked; refreshing stale transport")
-                scope.launch { restartV2() }
+            if (intent?.action != Intent.ACTION_USER_PRESENT) return
+            val active = client ?: return
+            scope.launch {
+                val healthy = try {
+                    active.health()
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+                if (SessionRecovery.shouldRestartOnUnlock(healthy)) {
+                    AppLogger.i("V2VPN", "device unlocked with stale session; refreshing")
+                    restartV2()
+                }
             }
         }
     }
@@ -103,10 +111,21 @@ class KvnV2VpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
+        val previousConfig = lastConfigJson
         lastConfigJson = configJson
         lastIncludeApps = includeApps
         lastExcludeApps = excludeApps
-        if (client != null) return START_STICKY
+        if (client != null) {
+            if (configJson != previousConfig) {
+                AppLogger.i("V2VPN", "config changed while connected; restarting")
+                stateListener?.invoke(ConnectionState.CONNECTING)
+                restartV2()
+            } else {
+                // Re-emit so a fresh UI listener cannot stay in CONNECTING.
+                stateListener?.invoke(ConnectionState.CONNECTED)
+            }
+            return START_STICKY
+        }
         startForeground(NOTIFICATION_ID, notification())
         scope.launch {
             try {
@@ -136,14 +155,20 @@ class KvnV2VpnService : VpnService() {
             .setMtu(1200)
             .addAddress(ip, prefix)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer("1.1.1.1")
-        if (includeApps.isNotEmpty()) {
-            for (pkg in includeApps) runCatching { builder.addAllowedApplication(pkg) }
-        } else {
-            for (pkg in excludeApps) runCatching { builder.addDisallowedApplication(pkg) }
-            // Keep the Go transport outside the VPN loop.
-            runCatching { builder.addDisallowedApplication(packageName) }
+        for (dns in VpnConfigParser.dnsServers(configJson)) {
+            runCatching { builder.addDnsServer(dns) }
         }
+        val included = includeApps.filter { it != packageName }
+        if (included.isNotEmpty()) {
+            for (pkg in included) runCatching { builder.addAllowedApplication(pkg) }
+        } else {
+            for (pkg in excludeApps.filter { it != packageName }) {
+                runCatching { builder.addDisallowedApplication(pkg) }
+            }
+        }
+        // Keep our own process outside the tunnel in both modes: the Go
+        // transport and in-process direct-DNS resolution must not loop back.
+        runCatching { builder.addDisallowedApplication(packageName) }
         val pfd = builder.establish() ?: error("VpnService.establish returned null")
         tunFd = pfd
         try {
@@ -230,20 +255,20 @@ class KvnV2VpnService : VpnService() {
     }
 
     private fun stopV2() {
+        lastConfigJson = null
         stopClientAndTun()
+        networkTracker.reset()
         stateListener?.invoke(ConnectionState.DISCONNECTED)
         stateListener = null
         errorListener = null
         trafficListener = null
-        restarting = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun restartV2() {
         val cfg = lastConfigJson ?: return
-        if (restarting) return
-        restarting = true
+        if (!restartGate.tryEnter()) return
         AppLogger.i("V2VPN", "restarting after network/session change")
         stateListener?.invoke(ConnectionState.CONNECTING)
         stopClientAndTun()
@@ -260,7 +285,7 @@ class KvnV2VpnService : VpnService() {
                     stopV2()
                 }
             } finally {
-                restarting = false
+                restartGate.exit()
             }
         }
     }
@@ -270,32 +295,31 @@ class KvnV2VpnService : VpnService() {
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                // Keep KVN on the physical network, not on its own VPN network.
-                val previous = lastNetworkHandle
-                val changed = networkLost || (previous != null && previous != network.networkHandle)
-                if (!changed && previous != null) return
-                lastNetworkHandle = network.networkHandle
-                networkLost = false
-                runCatching { setUnderlyingNetworks(arrayOf(network)) }
-                if (changed && client != null) {
-                    scope.launch { restartV2() }
-                }
+                networksByHandle[network.networkHandle] = network
+                applyNetworkSelection(networkTracker.onAvailable(network.networkHandle))
             }
 
             override fun onLost(network: Network) {
-                if (lastNetworkHandle == network.networkHandle) {
-                    lastNetworkHandle = null
-                    networkLost = true
-                    runCatching { setUnderlyingNetworks(null) }
-                }
+                networksByHandle.remove(network.networkHandle)
+                applyNetworkSelection(networkTracker.onLost(network.networkHandle))
             }
         }
         networkCallback = callback
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .build()
-        runCatching { cm.registerNetworkCallback(request, callback) }
+        networkTracker.beginRegistration()
+        // The default-network callback reports a single active network, so
+        // extra available networks (Wi-Fi + LTE) cannot trigger a restart loop.
+        runCatching { cm.registerDefaultNetworkCallback(callback) }
+    }
+
+    private fun applyNetworkSelection(selection: NetworkSelection) {
+        val target = selection.activeHandle?.let { networksByHandle[it] }
+        runCatching {
+            if (target != null) setUnderlyingNetworks(arrayOf(target)) else setUnderlyingNetworks(null)
+        }
+        if (selection.changed && !selection.lostAll && client != null) {
+            AppLogger.i("V2VPN", "underlying network changed; restarting")
+            scope.launch { restartV2() }
+        }
     }
 
     private fun unregisterNetworkCallback() {
@@ -304,8 +328,7 @@ class KvnV2VpnService : VpnService() {
         runCatching {
             getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(callback)
         }
-        lastNetworkHandle = null
-        networkLost = false
+        networksByHandle.clear()
     }
 
     private fun registerScreenReceiver() {

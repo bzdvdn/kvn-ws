@@ -13,6 +13,8 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
+const maxConcurrentPings = 32
+
 func isICMPv4(packet []byte) bool {
 	return len(packet) >= 20 && packet[0]>>4 == 4 && packet[9] == 1
 }
@@ -28,6 +30,11 @@ func (c *Client) handlePing(parent context.Context, httpClient *transport.Client
 	if target == nil {
 		return
 	}
+	if !c.tryAcquirePing() {
+		c.logger.Debug("v2 ping concurrency limit reached")
+		return
+	}
+	defer c.releasePing()
 	c.logger.Debug("v2 ping", zap.String("target", target.String()))
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
@@ -41,6 +48,28 @@ func (c *Client) handlePing(parent context.Context, httpClient *transport.Client
 		return
 	}
 	_, _ = dev.Write(buildPingReply(packet, reply, ihl))
+}
+
+func (c *Client) tryAcquirePing() bool {
+	if c.pingSem == nil {
+		return true
+	}
+	select {
+	case c.pingSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Client) releasePing() {
+	if c.pingSem == nil {
+		return
+	}
+	select {
+	case <-c.pingSem:
+	default:
+	}
 }
 
 func buildPingReply(req, reply []byte, ihl int) []byte {
