@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "slug": "android-network-resilience",
+  "base_sha": "8a3a0dcfa0aedd6efad8d39f364d779490d4b1ff",
+  "head_sha": "d0159b244e427b14da1de7f92f16b2f1d99572ba",
+  "base_branch": "8a3a0dc",
+  "base_source": "explicit",
+  "source": "git",
+  "generated_at": "2026-11-01T08:39:46Z",
+  "dirty": true,
+  "commits": [
+    {
+      "sha": "d0159b244e427b14da1de7f92f16b2f1d99572ba",
+      "subject": "fix android network lifecycle"
+    }
+  ],
+  "files": [
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/vpn/KvnV2VpnService.kt",
+      "status": "M",
+      "additions": 64,
+      "deletions": 41,
+      "tasks": [
+        "T1.1",
+        "T2.1",
+        "T2.3",
+        "T3.1"
+      ],
+      "anchors": [
+        "screenReceiver"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/vpn/VpnPolicy.kt",
+      "status": "A",
+      "additions": 107,
+      "tasks": [
+        "T1.1",
+        "T2.1",
+        "T2.3",
+        "T3.1"
+      ],
+      "anchors": [
+        "NetworkTracker",
+        "RestartGate",
+        "VpnConfigParser"
+      ]
+    },
+    {
+      "path": "src/android/app/src/test/java/com/kvn/client/vpn/VpnPolicyTest.kt",
+      "status": "A",
+      "additions": 149,
+      "tasks": [
+        "T1.2",
+        "T2.1",
+        "T2.3",
+        "T3.2"
+      ],
+      "anchors": [
+        "NetworkTrackerTest",
+        "RestartGateTest"
+      ]
+    },
+    {
+      "path": "src/internal/client/client.go",
+      "status": "M",
+      "additions": 19,
+      "deletions": 3,
+      "tasks": [
+        "T2.2",
+        "T4.1",
+        "T4.2"
+      ]
+    },
+    {
+      "path": "src/internal/client/ping.go",
+      "status": "M",
+      "additions": 29,
+      "tasks": [
+        "T4.2"
+      ]
+    },
+    {
+      "path": "src/internal/client/ping_test.go",
+      "status": "A",
+      "additions": 30,
+      "tasks": [
+        "T4.2"
+      ],
+      "anchors": [
+        "TestPingConcurrencyBounded"
+      ]
+    },
+    {
+      "path": "src/internal/transport/client.go",
+      "status": "M",
+      "additions": 11,
+      "tasks": [
+        "T4.1"
+      ],
+      "anchors": [
+        "Close"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic.go",
+      "status": "M",
+      "additions": 6,
+      "deletions": 4,
+      "tasks": [
+        "T2.2"
+      ]
+    },
+    {
+      "path": "src/internal/transport/quic_test.go",
+      "status": "A",
+      "additions": 43,
+      "tasks": [
+        "T2.2"
+      ],
+      "anchors": [
+        "TestNewQUICClientBoundedOnBlackhole"
+      ]
+    },
+    {
+      "path": "src/internal/transport/transport_test.go",
+      "status": "M",
+      "additions": 43,
+      "tasks": [
+        "T4.1"
+      ]
+    }
+  ],
+  "artifacts": [
+    "specs/active/android-network-resilience/spec.md",
+    "specs/active/android-network-resilience/tasks.md",
+    "specs/active/android-network-resilience/trace-meta.json",
+    "specs/active/android-network-resilience/verify.md"
+  ]
+}
