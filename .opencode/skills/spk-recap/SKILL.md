@@ -12,7 +12,7 @@ description: SpecKeep-фаза «recap» — Project-level overview of all activ
 ## Output expectations
 
 - Таблица: `Slug | Phase | Status (blockers?) | Next`
-- Если доступен `./.speckeep/scripts/list-specs.*` — используйте его вывод.
+- Если доступен `./.speckeep/scripts/list-specs.sh` — используйте его вывод.
 - Если перечисляете артефакты или пробелы, используйте канонические пути внутри `specs/<slug>/`: `plan.md`, `tasks.md`, `verify.md`.
 - Не добавляйте стандартный end block — recap это проектный обзор, а не фаза фичи.
 
