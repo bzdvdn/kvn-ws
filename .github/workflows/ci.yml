@@ -6,6 +6,10 @@ on:
   push:
     branches-ignore:
       - "revert-*"
+    # Without an explicit tags filter, GitHub ignores tag pushes entirely
+    # when branches/branches-ignore is present.
+    tags:
+      - "v*"
   pull_request:
   workflow_dispatch:
     inputs:
