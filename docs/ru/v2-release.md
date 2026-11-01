@@ -1,5 +1,14 @@
 # v2 — release checklist
 
+## 2.0.4 — Android UDP/QUIC reliability
+
+- [x] QUIC keepalive + dead-connection fallback на HTTP/2 UDP stream.
+- [x] Крупные датаграммы → HTTP/2 fallback (клиент/сервер), `MaxQUICPayload=1100`.
+- [x] Дроп IP-фрагментов, TUN MTU 1280, увеличенные очереди.
+- [x] CI-эквивалент локально: `go test -race`, `go vet`, `gosec`, `golangci-lint`.
+- [x] `versionName` 2.0.4, CHANGELOG 2.0.4.
+- [ ] Тег `v2.0.4`, обновить клиент **и сервер**.
+
 ## 2.0.3 — Android QUIC fix
 
 - [x] QUIC datagram read loop не зависит от стартового таймаута; регрессионный тест `TestQUICClientSurvivesDialContextCancel`.

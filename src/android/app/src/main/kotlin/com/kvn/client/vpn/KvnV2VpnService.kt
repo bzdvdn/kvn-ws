@@ -152,7 +152,7 @@ class KvnV2VpnService : VpnService() {
 
         val builder = Builder()
             .setSession("KVN v2")
-            .setMtu(1200)
+            .setMtu(1280)
             .addAddress(ip, prefix)
             .addRoute("0.0.0.0", 0)
         for (dns in VpnConfigParser.dnsServers(configJson)) {

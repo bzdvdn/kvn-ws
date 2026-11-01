@@ -278,7 +278,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("client_id", v2ClientId)
             .put("servers", org.json.JSONArray().put(server))
             .put("mode", "tun")
-            .put("mtu", 1200)
+            .put("mtu", 1280)
             .put("quic_enabled", config.quicEnabled)
             .put("keep_awake", config.keepAwakeEnabled)
             .put("routing", routing)
