@@ -16,16 +16,30 @@ import (
 )
 
 const (
-	quicMsgAuth   byte = 1
-	quicMsgAuthOK byte = 2
-	quicMsgData   byte = 3
-	quicMsgReply  byte = 4
-	quicMsgClose  byte = 5
+	quicMsgAuth     byte = 1
+	quicMsgAuthOK   byte = 2
+	quicMsgData     byte = 3
+	quicMsgReply    byte = 4
+	quicMsgClose    byte = 5
+	quicMsgFallback byte = 6
 
-	// MaxQUICPayload keeps one datagram under a typical 1200-byte QUIC
-	// datagram budget after the flow/target header.
-	MaxQUICPayload = 1170
+	// MaxQUICPayload is the inner UDP payload that fits a QUIC DATAGRAM frame
+	// on a 1200-byte path after the KVN flow/target header and QUIC+AEAD
+	// overhead. Larger datagrams are moved to the reliable HTTP/2 UDP stream
+	// instead of being silently dropped by the QUIC packetizer.
+	MaxQUICPayload = 1100
 )
+
+// ErrDatagramTooLarge reports that a UDP payload does not fit the QUIC
+// datagram budget and should be carried by the HTTP/2 UDP stream instead.
+var ErrDatagramTooLarge = errors.New("udp packet exceeds QUIC datagram budget")
+
+func makeFallbackDatagram(id uint32) []byte {
+	msg := make([]byte, 5)
+	msg[0] = quicMsgFallback
+	binary.BigEndian.PutUint32(msg[1:5], id)
+	return msg
+}
 
 // QUICServer carries best-effort UDP flows over QUIC datagrams.
 type QUICServer struct {
@@ -44,6 +58,7 @@ func ListenQUIC(addr string, tlsCfg *tls.Config, tokens TokenLookup, logger *zap
 	ln, err := quic.ListenAddr(addr, cfgTLS, &quic.Config{
 		EnableDatagrams:      true,
 		MaxIdleTimeout:       2 * time.Minute,
+		KeepAlivePeriod:      30 * time.Second,
 		HandshakeIdleTimeout: 3 * time.Second,
 	})
 	if err != nil {
@@ -122,11 +137,29 @@ func (s *QUICServer) handle(ctx context.Context, conn quic.Connection) {
 			}
 			target := string(data[7 : 7+targetLen])
 			payload := data[7+targetLen:]
+			if len(payload) > MaxQUICPayload {
+				for i := 0; i < 3; i++ {
+					if serr := send(makeFallbackDatagram(id)); serr != nil {
+						break
+					}
+				}
+				flowsMu.Lock()
+				if f := flows[id]; f != nil {
+					f.close()
+					delete(flows, id)
+				}
+				flowsMu.Unlock()
+				continue
+			}
 			flowsMu.Lock()
 			f := flows[id]
 			if f == nil {
 				var ferr error
-				f, ferr = newServerUDPFlow(id, target, send)
+				f, ferr = newServerUDPFlow(id, target, send, func() {
+					flowsMu.Lock()
+					delete(flows, id)
+					flowsMu.Unlock()
+				})
 				if ferr != nil {
 					flowsMu.Unlock()
 					s.logger.Debug("quic udp target", zap.String("target", target), zap.Error(ferr))
@@ -152,14 +185,15 @@ func (s *QUICServer) handle(ctx context.Context, conn quic.Connection) {
 }
 
 type serverUDPFlow struct {
-	conn *net.UDPConn
-	send func([]byte) error
-	done chan struct{}
-	once sync.Once
-	id   uint32
+	conn   *net.UDPConn
+	send   func([]byte) error
+	remove func()
+	done   chan struct{}
+	once   sync.Once
+	id     uint32
 }
 
-func newServerUDPFlow(id uint32, target string, send func([]byte) error) (*serverUDPFlow, error) {
+func newServerUDPFlow(id uint32, target string, send func([]byte) error, remove func()) (*serverUDPFlow, error) {
 	addr, err := net.ResolveUDPAddr("udp", target)
 	if err != nil {
 		return nil, err
@@ -168,7 +202,7 @@ func newServerUDPFlow(id uint32, target string, send func([]byte) error) (*serve
 	if err != nil {
 		return nil, err
 	}
-	f := &serverUDPFlow{id: id, conn: conn, send: send, done: make(chan struct{})}
+	f := &serverUDPFlow{id: id, conn: conn, send: send, remove: remove, done: make(chan struct{})}
 	go f.readLoop()
 	return f, nil
 }
@@ -181,6 +215,7 @@ func (f *serverUDPFlow) write(payload []byte) {
 }
 
 func (f *serverUDPFlow) readLoop() {
+	defer f.close()
 	buf := make([]byte, 65535)
 	for {
 		_ = f.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -198,7 +233,17 @@ func (f *serverUDPFlow) readLoop() {
 			return
 		}
 		if n > MaxQUICPayload {
-			continue
+			// The reply does not fit a QUIC datagram on this path; ask the
+			// client to carry this flow over the HTTP/2 UDP stream.
+			for i := 0; i < 3; i++ {
+				if serr := f.send(makeFallbackDatagram(f.id)); serr != nil {
+					break
+				}
+			}
+			if f.remove != nil {
+				f.remove()
+			}
+			return
 		}
 		msg := make([]byte, 5+n)
 		msg[0] = quicMsgReply
@@ -230,6 +275,8 @@ type QUICClient struct {
 	once       sync.Once
 	authOK     chan struct{}
 	loopCancel context.CancelFunc
+	dead       atomic.Bool
+	onFallback func(target string)
 }
 
 // NewQUICClient dials the QUIC datagram endpoint and authenticates once.
@@ -242,6 +289,7 @@ func NewQUICClient(ctx context.Context, endpoint, token string, tlsCfg *tls.Conf
 	conn, err := quic.DialAddr(ctx, endpoint, cfgTLS, &quic.Config{
 		EnableDatagrams:      true,
 		MaxIdleTimeout:       2 * time.Minute,
+		KeepAlivePeriod:      30 * time.Second,
 		HandshakeIdleTimeout: 3 * time.Second,
 	})
 	if err != nil {
@@ -287,7 +335,10 @@ func (c *QUICClient) send(data []byte) error {
 }
 
 func (c *QUICClient) readLoop(ctx context.Context) {
-	defer c.closeAll()
+	defer func() {
+		c.dead.Store(true)
+		c.closeAll()
+	}()
 	for {
 		data, err := c.conn.ReceiveDatagram(ctx)
 		if err != nil {
@@ -313,14 +364,43 @@ func (c *QUICClient) readLoop(ctx context.Context) {
 			if f != nil {
 				f.deliver(data[5:])
 			}
+		case quicMsgFallback:
+			if len(data) < 5 {
+				continue
+			}
+			id := binary.BigEndian.Uint32(data[1:5])
+			c.mu.Lock()
+			f := c.flows[id]
+			handler := c.onFallback
+			delete(c.flows, id)
+			c.mu.Unlock()
+			if f != nil {
+				_ = f.Close()
+				if handler != nil {
+					handler(f.target)
+				}
+			}
 		}
 	}
 }
 
+// SetFallbackHandler registers a callback invoked when the peer asks to move a
+// flow from unreliable QUIC datagrams to the reliable HTTP/2 UDP stream.
+func (c *QUICClient) SetFallbackHandler(fn func(target string)) {
+	c.mu.Lock()
+	c.onFallback = fn
+	c.mu.Unlock()
+}
+
 // DialFlow creates a logical UDP flow inside the shared QUIC connection.
+// It fails once the QUIC connection is dead so the caller can fall back to the
+// HTTP/2 UDP stream instead of blackholing datagrams.
 func (c *QUICClient) DialFlow(_ context.Context, target string) (*QUICFlow, error) {
+	if c.dead.Load() || c.conn.Context().Err() != nil {
+		return nil, errors.New("quic connection closed")
+	}
 	id := c.nextID.Add(1)
-	f := &QUICFlow{client: c, id: id, target: target, in: make(chan []byte, 256), done: make(chan struct{})}
+	f := &QUICFlow{client: c, id: id, target: target, in: make(chan []byte, 1024), done: make(chan struct{})}
 	c.mu.Lock()
 	c.flows[id] = f
 	c.mu.Unlock()
@@ -331,6 +411,7 @@ func (c *QUICClient) DialFlow(_ context.Context, target string) (*QUICFlow, erro
 func (c *QUICClient) Close() error {
 	var err error
 	c.once.Do(func() {
+		c.dead.Store(true)
 		if c.loopCancel != nil {
 			c.loopCancel()
 		}
@@ -366,8 +447,11 @@ type QUICFlow struct {
 }
 
 func (f *QUICFlow) WritePacket(payload []byte) error {
+	if f.client.dead.Load() {
+		return errors.New("quic connection closed")
+	}
 	if len(payload) > MaxQUICPayload {
-		return fmt.Errorf("udp payload %d exceeds QUIC datagram budget %d", len(payload), MaxQUICPayload)
+		return fmt.Errorf("%w: payload %d budget %d", ErrDatagramTooLarge, len(payload), MaxQUICPayload)
 	}
 	msg := make([]byte, 7+len(f.target)+len(payload))
 	msg[0] = quicMsgData
@@ -375,7 +459,14 @@ func (f *QUICFlow) WritePacket(payload []byte) error {
 	binary.BigEndian.PutUint16(msg[5:7], uint16(len(f.target))) // #nosec G115 -- target length is validated by config
 	copy(msg[7:], f.target)
 	copy(msg[7+len(f.target):], payload)
-	return f.client.send(msg)
+	err := f.client.send(msg)
+	if err != nil {
+		var tooLarge *quic.DatagramTooLargeError
+		if errors.As(err, &tooLarge) {
+			return fmt.Errorf("%w: %w", ErrDatagramTooLarge, err)
+		}
+	}
+	return err
 }
 
 func (f *QUICFlow) ReadPacket() ([]byte, error) {

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -10,13 +11,15 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/bzdvdn/kvn-ws/src/internal/transport"
 	"github.com/bzdvdn/kvn-ws/src/internal/tun"
 )
 
 const (
 	udpFlowIdle     = 30 * time.Second
-	udpFlowQueue    = 256
+	udpFlowQueue    = 1024
 	udpCleanupEvery = 10 * time.Second
+	udpFallbackTTL  = 10 * time.Minute
 )
 
 // packetFlow is implemented by HTTP/2 and QUIC datagram flows.
@@ -36,12 +39,46 @@ type udpManager struct {
 
 	mu    sync.Mutex
 	flows map[string]*udpFlow
+
+	forceMu sync.Mutex
+	forceH2 map[string]time.Time
 }
 
 func newUDPManager(ctx context.Context, dev tun.TunDevice, dial packetDialer, logger *zap.Logger) *udpManager {
-	m := &udpManager{ctx: ctx, dev: dev, dial: dial, logger: logger, flows: make(map[string]*udpFlow)}
+	m := &udpManager{
+		ctx:     ctx,
+		dev:     dev,
+		dial:    dial,
+		logger:  logger,
+		flows:   make(map[string]*udpFlow),
+		forceH2: make(map[string]time.Time),
+	}
 	go m.cleanup()
 	return m
+}
+
+// preferHTTP2 reports whether a target previously fell back from QUIC
+// datagrams to the HTTP/2 UDP stream.
+func (m *udpManager) preferHTTP2(target string) bool {
+	m.forceMu.Lock()
+	defer m.forceMu.Unlock()
+	until, ok := m.forceH2[target]
+	if !ok {
+		return false
+	}
+	if time.Now().After(until) {
+		delete(m.forceH2, target)
+		return false
+	}
+	return true
+}
+
+// forceHTTP2 pins a target to the HTTP/2 UDP stream for a while. UDP is
+// best-effort, so a brief loss while the flow is re-established is acceptable.
+func (m *udpManager) forceHTTP2(target string) {
+	m.forceMu.Lock()
+	m.forceH2[target] = time.Now().Add(udpFallbackTTL)
+	m.forceMu.Unlock()
 }
 
 func (m *udpManager) cleanup() {
@@ -73,6 +110,9 @@ func (m *udpManager) Handle(packet []byte) {
 		}
 	}()
 	if len(packet) < 28 || packet[0]>>4 != 4 || packet[9] != 17 {
+		return
+	}
+	if isIPv4Fragment(packet) {
 		return
 	}
 	ihl := int(packet[0]&0x0f) * 4
@@ -165,6 +205,14 @@ func (f *udpFlow) run() {
 				return
 			case payload := <-f.out:
 				if err := stream.WritePacket(payload); err != nil {
+					if errors.Is(err, transport.ErrDatagramTooLarge) {
+						// QUIC DATAGRAM frames cannot carry this payload: move
+						// the target to the reliable HTTP/2 UDP stream instead
+						// of silently dropping video-sized packets.
+						f.manager.logger.Debug("v2 udp datagram too large; using HTTP/2 stream",
+							zap.String("target", target))
+						f.manager.forceHTTP2(target)
+					}
 					_ = stream.Close()
 					return
 				}

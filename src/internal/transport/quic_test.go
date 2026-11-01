@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -114,5 +115,101 @@ func TestQUICClientSurvivesDialContextCancel(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("no datagram reply: QUIC read loop was canceled with the dial context")
+	}
+}
+
+func newQUICPair(t *testing.T) *QUICClient {
+	t.Helper()
+	cert := selfSignedCert(t)
+	server, err := ListenQUIC("127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h3"}},
+		func(token string) (string, bool) { return "t", token == "secret" }, zap.NewNop())
+	if err != nil {
+		t.Fatalf("ListenQUIC: %v", err)
+	}
+	serveCtx, serveCancel := context.WithCancel(context.Background())
+	t.Cleanup(serveCancel)
+	go func() { _ = server.Serve(serveCtx) }()
+
+	client, err := NewQUICClient(context.Background(), server.Addr().String(), "secret",
+		&tls.Config{InsecureSkipVerify: true}, zap.NewNop())
+	if err != nil {
+		t.Fatalf("NewQUICClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
+func TestQUICFlowRejectsOversizeDatagram(t *testing.T) {
+	client := newQUICPair(t)
+	flow, err := client.DialFlow(context.Background(), "127.0.0.1:9")
+	if err != nil {
+		t.Fatalf("DialFlow: %v", err)
+	}
+	defer func() { _ = flow.Close() }()
+	if err := flow.WritePacket(make([]byte, MaxQUICPayload+1)); !errors.Is(err, ErrDatagramTooLarge) {
+		t.Fatalf("WritePacket err = %v, want ErrDatagramTooLarge", err)
+	}
+}
+
+func TestQUICDialFlowFailsAfterClose(t *testing.T) {
+	client := newQUICPair(t)
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := client.DialFlow(context.Background(), "127.0.0.1:53"); err == nil {
+		t.Fatal("DialFlow succeeded on a closed QUIC connection")
+	}
+}
+
+// TestQUICFallbackForLargeReplies proves the server asks the client to move a
+// flow to the reliable HTTP/2 UDP stream when a reply exceeds the datagram
+// budget (video-sized UDP packets).
+func TestQUICFallbackForLargeReplies(t *testing.T) {
+	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = udpConn.Close() }()
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			if _, addr, rerr := udpConn.ReadFromUDP(buf); rerr != nil {
+				return
+			} else {
+				_, _ = udpConn.WriteToUDP(make([]byte, MaxQUICPayload+100), addr)
+			}
+		}
+	}()
+
+	client := newQUICPair(t)
+	fallback := make(chan string, 1)
+	client.SetFallbackHandler(func(target string) {
+		select {
+		case fallback <- target:
+		default:
+		}
+	})
+
+	target := udpConn.LocalAddr().String()
+	flow, err := client.DialFlow(context.Background(), target)
+	if err != nil {
+		t.Fatalf("DialFlow: %v", err)
+	}
+	defer func() { _ = flow.Close() }()
+	if err := flow.WritePacket([]byte("hi")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	select {
+	case got := <-fallback:
+		if got != target {
+			t.Fatalf("fallback target = %q, want %q", got, target)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("server did not request HTTP/2 fallback for a large reply")
 	}
 }

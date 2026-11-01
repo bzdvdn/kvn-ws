@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -259,18 +260,23 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 			defer func() { _ = qc.Close() }()
 		}
 	}
+	var udpMgr *udpManager
 	dialUDP := packetDialer(func(dctx context.Context, target string) (packetFlow, error) {
 		if direct.HasTarget(target) {
 			return newDirectUDPFlow(target)
 		}
-		if quicClient != nil {
+		if quicClient != nil && (udpMgr == nil || !udpMgr.preferHTTP2(target)) {
 			if f, ferr := quicClient.DialFlow(dctx, target); ferr == nil {
 				return f, nil
 			}
+			c.logger.Debug("v2 QUIC flow unavailable; using HTTP/2 UDP", zap.String("target", target))
 		}
 		return httpClient.DialUDP(dctx, target)
 	})
-	udpMgr := newUDPManager(ctx, dev, dialUDP, c.logger)
+	udpMgr = newUDPManager(ctx, dev, dialUDP, c.logger)
+	if quicClient != nil {
+		quicClient.SetFallbackHandler(udpMgr.forceHTTP2)
+	}
 	go stack.Run(ctx, func(p []byte) error { _, werr := dev.Write(p); return werr })
 	c.logger.Info("v2 mobile TUN started", zap.String("server", server.Name), zap.String("tun_ip", session.TUNAddress))
 	buf := make([]byte, 65535)
@@ -284,6 +290,12 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 		}
 		packet := make([]byte, n)
 		copy(packet, buf[:n])
+		// IP fragments cannot be forwarded one-by-one as UDP/TCP datagrams;
+		// the inner stack is expected to use the TUN MTU. Dropping them avoids
+		// creating bogus flows from non-first fragments.
+		if isIPv4Fragment(packet) {
+			continue
+		}
 		if isICMPv4(packet) {
 			go c.handlePing(ctx, httpClient, packet, dev)
 			continue
@@ -501,18 +513,23 @@ func (c *Client) runTUN(ctx context.Context) error {
 			c.logger.Info("v2 QUIC datagram channel ready", zap.String("endpoint", qep))
 		}
 	}
+	var udpMgr *udpManager
 	dialUDP := packetDialer(func(dctx context.Context, target string) (packetFlow, error) {
 		if direct.HasTarget(target) {
 			return newDirectUDPFlow(target)
 		}
-		if quicClient != nil {
+		if quicClient != nil && (udpMgr == nil || !udpMgr.preferHTTP2(target)) {
 			if f, ferr := quicClient.DialFlow(dctx, target); ferr == nil {
 				return f, nil
 			}
+			c.logger.Debug("v2 QUIC flow unavailable; using HTTP/2 UDP", zap.String("target", target))
 		}
 		return httpClient.DialUDP(dctx, target)
 	})
-	udpMgr := newUDPManager(ctx, dev, dialUDP, c.logger)
+	udpMgr = newUDPManager(ctx, dev, dialUDP, c.logger)
+	if quicClient != nil {
+		quicClient.SetFallbackHandler(udpMgr.forceHTTP2)
+	}
 	c.logger.Info("v2 TUN started",
 		zap.String("server", server.Name),
 		zap.String("tun_ip", session.TUNAddress),
@@ -535,6 +552,12 @@ func (c *Client) runTUN(ctx context.Context) error {
 		}
 		packet := make([]byte, n)
 		copy(packet, buf[:n])
+		// IP fragments cannot be forwarded one-by-one as UDP/TCP datagrams;
+		// the inner stack is expected to use the TUN MTU. Dropping them avoids
+		// creating bogus flows from non-first fragments.
+		if isIPv4Fragment(packet) {
+			continue
+		}
 		if isICMPv4(packet) {
 			go c.handlePing(ctx, httpClient, packet, dev)
 			continue
@@ -564,6 +587,13 @@ func defaultQUICEndpoint(endpoint string) string {
 		port = "443"
 	}
 	return net.JoinHostPort(u.Hostname(), port)
+}
+
+func isIPv4Fragment(packet []byte) bool {
+	if len(packet) < 8 || packet[0]>>4 != 4 {
+		return false
+	}
+	return binary.BigEndian.Uint16(packet[6:8])&0x3fff != 0
 }
 
 // @sk-task kvn-v2-transport#T4.1: route IPv4 UDP packets to the best-effort manager (AC-008)
