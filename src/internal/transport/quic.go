@@ -223,12 +223,13 @@ type QUICClient struct {
 	logger *zap.Logger
 	sendMu sync.Mutex
 
-	nextID atomic.Uint32
-	mu     sync.Mutex
-	flows  map[uint32]*QUICFlow
-	done   chan struct{}
-	once   sync.Once
-	authOK chan struct{}
+	nextID     atomic.Uint32
+	mu         sync.Mutex
+	flows      map[uint32]*QUICFlow
+	done       chan struct{}
+	once       sync.Once
+	authOK     chan struct{}
+	loopCancel context.CancelFunc
 }
 
 // NewQUICClient dials the QUIC datagram endpoint and authenticates once.
@@ -247,7 +248,11 @@ func NewQUICClient(ctx context.Context, endpoint, token string, tlsCfg *tls.Conf
 		return nil, err
 	}
 	c := &QUICClient{conn: conn, logger: logger, flows: make(map[uint32]*QUICFlow), done: make(chan struct{}), authOK: make(chan struct{}, 1)}
-	go c.readLoop(ctx)
+	// The read loop must outlive the dial context: callers bound startup with
+	// a short timeout and cancel it once the handshake finishes.
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	c.loopCancel = loopCancel
+	go c.readLoop(loopCtx)
 	auth := makeAuthDatagram(token)
 	for attempt := 0; attempt < 8; attempt++ {
 		if err := c.send(auth); err != nil {
@@ -326,6 +331,9 @@ func (c *QUICClient) DialFlow(_ context.Context, target string) (*QUICFlow, erro
 func (c *QUICClient) Close() error {
 	var err error
 	c.once.Do(func() {
+		if c.loopCancel != nil {
+			c.loopCancel()
+		}
 		close(c.done)
 		err = c.conn.CloseWithError(0, "client close")
 	})
