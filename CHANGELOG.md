@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-11-01
+
+### Fixed
+
+- **Android: видео/UDP при включённом QUIC (регрессия 2.0.2)** — датаграммный read loop больше не использует стартовый контекст handshake; его отмена после `NewQUICClient` больше не обрывает чтение UDP. Видео (YouTube и другие UDP-сервисы) снова работает через QUIC.
+
+### Changed
+
+- Android `versionName` поднят до `2.0.3`.
+
 ## [2.0.2] - 2026-11-01
 
 ### Fixed

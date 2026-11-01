@@ -1,5 +1,12 @@
 # v2 — release checklist
 
+## 2.0.3 — Android QUIC fix
+
+- [x] QUIC datagram read loop не зависит от стартового таймаута; регрессионный тест `TestQUICClientSurvivesDialContextCancel`.
+- [x] CI-эквивалент локально: `go test -race`, `go vet`, `gosec`, `golangci-lint`.
+- [x] `versionName` 2.0.3, CHANGELOG 2.0.3.
+- [ ] Тег `v2.0.3` и проверка release workflow.
+
 ## 2.0.2 — Android network fixes
 
 - [x] Android: устранены зависания сети (forward lifecycle, keepalive/health, async direct DNS, bounded TUN stop, ctx propagation).
