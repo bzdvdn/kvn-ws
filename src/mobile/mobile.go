@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"golang.org/x/sys/unix"
 
 	"github.com/bzdvdn/kvn-ws/src/internal/client"
 	"github.com/bzdvdn/kvn-ws/src/internal/config"
@@ -43,6 +45,7 @@ func Resolve(configJSON string) (string, error) {
 type Client struct {
 	cancel context.CancelFunc
 	dev    *fdDevice
+	inner  *client.Client
 	done   chan struct{}
 	mu     sync.Mutex
 	err    error
@@ -62,12 +65,13 @@ func Start(configJSON string, fd int) (*Client, error) {
 		return nil, err
 	}
 	dev := newFDDevice(fd)
-	c := &Client{dev: dev, done: make(chan struct{})}
+	inner := client.New(&cfg, zap.NewNop())
+	c := &Client{dev: dev, inner: inner, done: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 	go func() {
 		defer close(c.done)
-		err := client.New(&cfg, zap.NewNop()).RunTUNDevice(ctx, dev)
+		err := inner.RunTUNDevice(ctx, dev)
 		_ = dev.Close()
 		c.mu.Lock()
 		c.err = err
@@ -111,6 +115,17 @@ func (c *Client) Stop() {
 	}
 }
 
+// Health checks the running session transport with a bounded timeout. It
+// reuses the live HTTP/2 connection, so it reflects the actual data plane.
+func (c *Client) Health() error {
+	if c.inner == nil {
+		return fmt.Errorf("mobile session not started")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return c.inner.Health(ctx)
+}
+
 // Error returns the terminal session error, if any.
 func (c *Client) Error() string {
 	c.mu.Lock()
@@ -121,48 +136,106 @@ func (c *Client) Error() string {
 	return c.err.Error()
 }
 
+const tunPollTimeout = 100 * time.Millisecond
+
 type fdDevice struct {
-	fd int
-	rx atomic.Int64
-	tx atomic.Int64
+	fd   int
+	rx   atomic.Int64
+	tx   atomic.Int64
+	stop chan struct{}
+	once sync.Once
 }
 
 func newFDDevice(fd int) *fdDevice {
-	return &fdDevice{fd: fd}
+	// The VpnService descriptor is blocking by default. Non-blocking mode lets
+	// reads be interrupted instead of stranding a goroutine in read(2).
+	_ = syscall.SetNonblock(fd, true)
+	return &fdDevice{fd: fd, stop: make(chan struct{})}
 }
 
 func (d *fdDevice) Open() error { return nil }
 
-// Close is intentionally a no-op: Kotlin VpnService owns the fd.
-func (d *fdDevice) Close() error { return nil }
+// Close signals the packet pump to stop. Kotlin VpnService owns the fd, so Go
+// never closes it; the owner closes it after RunTUNDevice returns.
+func (d *fdDevice) Close() error {
+	d.once.Do(func() { close(d.stop) })
+	return nil
+}
+
+func (d *fdDevice) stopped() bool {
+	select {
+	case <-d.stop:
+		return true
+	default:
+		return false
+	}
+}
+
+// waitReady blocks until the fd is ready for events or the device is stopped.
+func (d *fdDevice) waitReady(events int16) bool {
+	fds := []unix.PollFd{{Fd: int32(d.fd), Events: events}} // #nosec G115 -- Linux fd fits in int32
+	for {
+		if d.stopped() {
+			return false
+		}
+		n, err := unix.Poll(fds, int(tunPollTimeout/time.Millisecond))
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return false
+		}
+		if n == 0 {
+			continue
+		}
+		if fds[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+			return false
+		}
+		return true
+	}
+}
 
 // Read reads packets from the Android TUN fd: outbound (upload) traffic.
 func (d *fdDevice) Read(p []byte) (int, error) {
 	for {
+		if d.stopped() {
+			return 0, io.EOF
+		}
 		n, err := syscall.Read(d.fd, p)
-		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
-			time.Sleep(10 * time.Millisecond)
-			continue
+		if err == nil {
+			if n > 0 {
+				d.tx.Add(int64(n))
+			}
+			return n, nil
 		}
-		if n > 0 {
-			d.tx.Add(int64(n))
+		if err != syscall.EAGAIN && err != syscall.EWOULDBLOCK {
+			return n, err
 		}
-		return n, err
+		if !d.waitReady(unix.POLLIN) {
+			return 0, io.EOF
+		}
 	}
 }
 
 // Write writes packets into the Android TUN fd: inbound (download) traffic.
 func (d *fdDevice) Write(p []byte) (int, error) {
 	for {
+		if d.stopped() {
+			return 0, io.EOF
+		}
 		n, err := syscall.Write(d.fd, p)
-		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
-			time.Sleep(10 * time.Millisecond)
-			continue
+		if err == nil {
+			if n > 0 {
+				d.rx.Add(int64(n))
+			}
+			return n, nil
 		}
-		if n > 0 {
-			d.rx.Add(int64(n))
+		if err != syscall.EAGAIN && err != syscall.EWOULDBLOCK {
+			return n, err
 		}
-		return n, err
+		if !d.waitReady(unix.POLLOUT) {
+			return 0, io.EOF
+		}
 	}
 }
 func (d *fdDevice) SetIP(net.IP, *net.IPNet) error                  { return nil }

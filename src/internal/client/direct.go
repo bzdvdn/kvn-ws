@@ -17,6 +17,22 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/routing"
 )
 
+const directDNSWorkers = 8
+
+// lookupIP is injectable so tests can simulate a slow resolver.
+var lookupIP = func(ctx context.Context, network, host string) ([]net.IP, error) {
+	return net.DefaultResolver.LookupIP(ctx, network, host)
+}
+
+type directDNSQuery struct {
+	domain   string
+	srcIP    net.IP
+	dstIP    net.IP
+	srcPort  uint16
+	id       uint16
+	question dnsmessage.Question
+}
+
 type directCache struct {
 	mu    sync.Mutex
 	until map[netip.Addr]time.Time
@@ -58,9 +74,9 @@ func (c *directCache) HasTarget(target string) bool {
 	return err == nil && c.Has(ip)
 }
 
-// handleDirectDNS intercepts DNS queries for excluded domains, resolves them
-// outside the tunnel and marks the returned IPs for direct TCP/UDP.
-func (c *Client) handleDirectDNS(packet []byte, dev interface {
+// handleDirectDNS intercepts DNS queries for excluded domains, dispatches
+// resolution off the packet pump and marks the returned IPs for direct TCP/UDP.
+func (c *Client) handleDirectDNS(ctx context.Context, packet []byte, dev interface {
 	Write([]byte) (int, error)
 }, rules *routing.RuleSet, cache *directCache) bool {
 	if rules == nil || len(packet) < 28 || packet[0]>>4 != 4 || packet[9] != 17 {
@@ -98,25 +114,57 @@ func (c *Client) handleDirectDNS(packet []byte, dev interface {
 	}
 	c.logger.Debug("v2 direct DNS", zap.String("domain", domain))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	c.dispatchDirectDNS(ctx, directDNSQuery{
+		domain:   domain,
+		srcIP:    append(net.IP(nil), srcIP...),
+		dstIP:    append(net.IP(nil), dstIP...),
+		srcPort:  srcPort,
+		id:       header.ID,
+		question: question,
+	}, dev, cache)
+	return true
+}
+
+func (c *Client) dispatchDirectDNS(ctx context.Context, q directDNSQuery, dev interface {
+	Write([]byte) (int, error)
+}, cache *directCache) {
+	if c.directDNSSem == nil {
+		c.resolveDirectDNS(ctx, q, dev, cache)
+		return
+	}
+	select {
+	case c.directDNSSem <- struct{}{}:
+		go func() {
+			defer func() { <-c.directDNSSem }()
+			c.resolveDirectDNS(ctx, q, dev, cache)
+		}()
+	default:
+		c.logger.Debug("v2 direct dns busy; dropping query", zap.String("domain", q.domain))
+	}
+}
+
+func (c *Client) resolveDirectDNS(ctx context.Context, q directDNSQuery, dev interface {
+	Write([]byte) (int, error)
+}, cache *directCache) {
+	rctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", domain)
+	ips, err := lookupIP(rctx, "ip4", q.domain)
 	if err != nil || len(ips) == 0 {
-		return false
+		return
 	}
 
 	builder := dnsmessage.NewBuilder(nil, dnsmessage.Header{
-		ID: header.ID, Response: true, RecursionAvailable: true,
+		ID: q.id, Response: true, RecursionAvailable: true,
 	})
 	builder.EnableCompression()
 	if err := builder.StartQuestions(); err != nil {
-		return false
+		return
 	}
-	if err := builder.Question(question); err != nil {
-		return false
+	if err := builder.Question(q.question); err != nil {
+		return
 	}
 	if err := builder.StartAnswers(); err != nil {
-		return false
+		return
 	}
 	for _, raw := range ips {
 		v4 := raw.To4()
@@ -126,20 +174,19 @@ func (c *Client) handleDirectDNS(packet []byte, dev interface {
 		var a [4]byte
 		copy(a[:], v4)
 		cache.Add(netip.AddrFrom4(a), 60*time.Second)
-		c.logger.Debug("v2 direct DNS address", zap.String("domain", domain), zap.String("ip", v4.String()))
+		c.logger.Debug("v2 direct DNS address", zap.String("domain", q.domain), zap.String("ip", v4.String()))
 		if err := builder.AResource(dnsmessage.ResourceHeader{
-			Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 60,
+			Name: q.question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 60,
 		}, dnsmessage.AResource{A: a}); err != nil {
-			return false
+			return
 		}
 	}
 	resp, err := builder.Finish()
 	if err != nil || len(resp) == 0 {
-		return false
+		return
 	}
-	reply := buildUDPReply(dstIP, srcIP, 53, srcPort, resp)
+	reply := buildUDPReply(q.dstIP, q.srcIP, 53, q.srcPort, resp)
 	_, _ = dev.Write(reply)
-	return true
 }
 
 type directUDPFlow struct {

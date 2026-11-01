@@ -81,6 +81,10 @@ func NewClientWithOptions(endpoint, token string, opts *ClientOptions) (*Client,
 		transport = &http2.Transport{
 			TLSClientConfig: cfg,
 			DialTLSContext:  dialer.DialTLSContext,
+			// Detect half-open connections (NAT/Doze blackholes) instead of
+			// letting requests hang on a dead HTTP/2 session.
+			ReadIdleTimeout: 15 * time.Second,
+			PingTimeout:     10 * time.Second,
 		}
 	} else {
 		transport = &http.Transport{
@@ -142,6 +146,16 @@ func (c *Client) Session(ctx context.Context, clientID string) (TUNSession, erro
 		return TUNSession{}, err
 	}
 	return session, nil
+}
+
+// Health validates the live transport by issuing a session request on the
+// existing HTTP/2 connection. It returns the first transport error.
+func (c *Client) Health(ctx context.Context) error {
+	if c.clientID == "" {
+		return errors.New("client_id is required")
+	}
+	_, err := c.Session(ctx, c.clientID)
+	return err
 }
 
 // DialTCP opens a TCP stream to target.

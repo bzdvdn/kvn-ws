@@ -39,6 +39,11 @@ type Client struct {
 	tunMu  sync.Mutex
 	tunDev tun.TunDevice
 
+	httpMu sync.RWMutex
+	http   *transport.Client
+
+	directDNSSem chan struct{}
+
 	rxBytes    atomic.Int64
 	txBytes    atomic.Int64
 	latencyMS  atomic.Uint64
@@ -50,7 +55,7 @@ func New(cfg *config.V2ClientConfig, logger *zap.Logger) *Client {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Client{cfg: cfg, logger: logger}
+	return &Client{cfg: cfg, logger: logger, directDNSSem: make(chan struct{}, directDNSWorkers)}
 }
 
 // @sk-task kvn-v2-transport#T3.3: release TUN during webui disconnect/reconnect (AC-005)
@@ -62,6 +67,25 @@ func (c *Client) StopTun() {
 	if dev != nil {
 		_ = dev.Close()
 	}
+}
+
+func (c *Client) setHTTPClient(h *transport.Client) {
+	c.httpMu.Lock()
+	c.http = h
+	c.httpMu.Unlock()
+}
+
+// Health checks the running session through its existing transport. It does
+// not open a new connection, so a blackholed HTTP/2 session is reported as
+// unhealthy instead of being masked by a fresh handshake.
+func (c *Client) Health(ctx context.Context) error {
+	c.httpMu.RLock()
+	h := c.http
+	c.httpMu.RUnlock()
+	if h == nil {
+		return fmt.Errorf("client is not connected")
+	}
+	return h.Health(ctx)
 }
 
 // ActiveServer returns the selected server entry.
@@ -170,6 +194,10 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 	if err != nil {
 		return err
 	}
+	// Expose the live transport so health checks reuse this session instead
+	// of dialing a brand-new connection.
+	c.setHTTPClient(httpClient)
+	defer c.setHTTPClient(nil)
 	sessionStart := time.Now()
 	sessionCtx, sessionCancel := context.WithTimeout(ctx, 2*time.Second)
 	session, err := httpClient.Session(sessionCtx, c.cfg.ClientID)
@@ -195,11 +223,11 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 	}
 	direct := newDirectCache()
 	dialer := &net.Dialer{}
-	stack, err := tcpstack.New(ip, c.cfg.MTU, func(dctx context.Context, target string) (io.ReadWriteCloser, error) {
+	stack, err := tcpstack.New(ctx, ip, c.cfg.MTU, func(dctx context.Context, target string) (io.ReadWriteCloser, error) {
 		if direct.HasTarget(target) {
 			return dialer.DialContext(dctx, "tcp", target)
 		}
-		return httpClient.DialTCP(ctx, target)
+		return httpClient.DialTCP(dctx, target)
 	}, c.logger)
 	if err != nil {
 		return fmt.Errorf("v2 tcp stack: %w", err)
@@ -248,7 +276,7 @@ func (c *Client) RunTUNDevice(ctx context.Context, dev tun.TunDevice) error {
 			continue
 		}
 		if isUDPv4(packet) {
-			if c.handleDirectDNS(packet, dev, routeSet, direct) {
+			if c.handleDirectDNS(ctx, packet, dev, routeSet, direct) {
 				continue
 			}
 			udpMgr.Handle(packet)
@@ -436,8 +464,8 @@ func (c *Client) runTUN(ctx context.Context) error {
 		}
 	}
 
-	stack, err := tcpstack.New(ip, c.cfg.MTU, func(_ context.Context, target string) (io.ReadWriteCloser, error) {
-		return httpClient.DialTCP(ctx, target)
+	stack, err := tcpstack.New(ctx, ip, c.cfg.MTU, func(dctx context.Context, target string) (io.ReadWriteCloser, error) {
+		return httpClient.DialTCP(dctx, target)
 	}, c.logger)
 	if err != nil {
 		return fmt.Errorf("v2 tcp stack: %w", err)
@@ -496,7 +524,7 @@ func (c *Client) runTUN(ctx context.Context) error {
 			continue
 		}
 		if isUDPv4(packet) {
-			if c.handleDirectDNS(packet, dev, routeSet, direct) {
+			if c.handleDirectDNS(ctx, packet, dev, routeSet, direct) {
 				continue
 			}
 			udpMgr.Handle(packet)

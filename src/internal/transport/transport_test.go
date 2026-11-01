@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -528,5 +529,75 @@ func TestSessionUnauthorizedFallback(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK || string(body) != "<html>site</html>" {
 		t.Fatalf("fallback status=%d body=%q", resp.StatusCode, body)
+	}
+}
+
+// TestClientHealthReusesConnection proves the health probe validates the
+// existing HTTP/2 connection instead of dialing a new one.
+func TestClientHealthReusesConnection(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tun_address":"10.66.0.10/24","tun_gateway":"10.66.0.1","lease_ttl_sec":60}`))
+	})
+	ts := httptest.NewUnstartedServer(mux)
+	ts.EnableHTTP2 = true
+	var newConns atomic.Int32
+	ts.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			newConns.Add(1)
+		}
+	}
+	ts.StartTLS()
+	defer ts.Close()
+
+	tlsCfg := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2"}}
+	opts := DefaultClientOptions(tlsCfg)
+	opts.ClientID = "cid"
+	c, err := NewClientWithOptions(ts.URL, "secret", &opts)
+	if err != nil {
+		t.Fatalf("NewClientWithOptions: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := c.Session(ctx, "cid"); err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+	if err := c.Health(ctx); err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	if got := newConns.Load(); got != 1 {
+		t.Fatalf("server saw %d connections, want 1 (health must reuse the session)", got)
+	}
+}
+
+// TestClientHealthBoundedOnBlackhole proves a silent server cannot make the
+// health probe hang: it must return within the caller's deadline.
+func TestClientHealthBoundedOnBlackhole(t *testing.T) {
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	ts.EnableHTTP2 = true
+	ts.StartTLS()
+	defer ts.Close()
+
+	tlsCfg := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2"}}
+	opts := DefaultClientOptions(tlsCfg)
+	opts.ClientID = "cid"
+	c, err := NewClientWithOptions(ts.URL, "secret", &opts)
+	if err != nil {
+		t.Fatalf("NewClientWithOptions: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err = c.Health(ctx)
+	if err == nil {
+		t.Fatal("Health() = nil, want timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("Health() blocked for %v, want bounded by context", elapsed)
 	}
 }

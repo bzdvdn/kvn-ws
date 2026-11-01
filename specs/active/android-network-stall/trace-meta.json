@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "slug": "android-network-stall",
+  "base_sha": "15127a77e1936e2069f93fbbea0bb5ee2240e2ef",
+  "base_branch": "master",
+  "base_source": "inferred",
+  "created_at": "2026-11-01T08:11:49Z",
+  "head_sha": "15127a77e1936e2069f93fbbea0bb5ee2240e2ef",
+  "branch": "feature/android-network-stall"
+}

@@ -25,18 +25,30 @@ import (
 // DialFunc opens a v2 stream to target.
 type DialFunc func(ctx context.Context, target string) (io.ReadWriteCloser, error)
 
+// defaultMaxInFlight bounds concurrent forwarded connection requests.
+const defaultMaxInFlight = 4096
+
 // Stack terminates TCP from TUN and forwards each flow through DialFunc.
 type Stack struct {
 	ep     *channel.Endpoint
 	stack  *stack.Stack
 	dial   DialFunc
 	logger *zap.Logger
+	ctx    context.Context
 }
 
-// New creates a gVisor netstack for one local TUN address.
-func New(localIP net.IP, mtu int, dial DialFunc, logger *zap.Logger) (*Stack, error) {
+// New creates a gVisor netstack for one local TUN address. The context bounds
+// all forwarded flows: canceling it cancels in-flight dials.
+func New(ctx context.Context, localIP net.IP, mtu int, dial DialFunc, logger *zap.Logger) (*Stack, error) {
+	return newWithForwardLimit(ctx, localIP, mtu, defaultMaxInFlight, dial, logger)
+}
+
+func newWithForwardLimit(ctx context.Context, localIP net.IP, mtu, maxInFlight int, dial DialFunc, logger *zap.Logger) (*Stack, error) {
 	if logger == nil {
 		logger = zap.NewNop()
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	if mtu <= 0 {
 		mtu = 1400
@@ -70,8 +82,8 @@ func New(localIP net.IP, mtu int, dial DialFunc, logger *zap.Logger) (*Stack, er
 	if err := s.SetSpoofing(1, true); err != nil {
 		return nil, fmt.Errorf("spoofing mode: %v", err)
 	}
-	ts := &Stack{ep: ep, stack: s, dial: dial, logger: logger}
-	forwarder := tcp.NewForwarder(s, 0, 4096, ts.handle)
+	ts := &Stack{ep: ep, stack: s, dial: dial, logger: logger, ctx: ctx}
+	forwarder := tcp.NewForwarder(s, 0, maxInFlight, ts.handle)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, forwarder.HandlePacket)
 	return ts, nil
 }
@@ -85,13 +97,17 @@ func (s *Stack) handle(req *tcp.ForwarderRequest) {
 		req.Complete(true)
 		return
 	}
+	// Release the forwarder slot as soon as the handshake is established.
+	// Without this every accepted connection stays in the forwarder's
+	// in-flight set forever and eventually blocks all new TCP SYN.
+	req.Complete(false)
 	local := gonet.NewTCPConn(&wq, ep)
 	go s.bridge(local, target)
 }
 
 func (s *Stack) bridge(local net.Conn, target string) {
 	defer func() { _ = local.Close() }()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 	stream, err := s.dial(ctx, target)
 	if err != nil {

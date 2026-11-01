@@ -175,7 +175,10 @@ class KvnV2VpnService : VpnService() {
                     // Doze/NAT can silently blackhole the HTTP/2 connection
                     // while the VpnService fd (and VPN icon) stays alive.
                     try {
-                        Mobile.resolve(lastConfigJson ?: break)
+                        // Probe the live session transport, not a new
+                        // connection: a blackholed HTTP/2 conn must be
+                        // reported as unhealthy.
+                        active.health()
                         healthFailures = 0
                     } catch (e: Exception) {
                         healthFailures++
@@ -202,13 +205,26 @@ class KvnV2VpnService : VpnService() {
         releaseWakeLock()
         val pfd = tunFd
         tunFd = null
-        // Closing the actual VpnService fd unblocks the Go TUN read loop.
-        runCatching { pfd?.close() }
         val active = client
         client = null
-        if (active != null) {
-            scope.launch {
+        if (active == null) {
+            runCatching { pfd?.close() }
+            return
+        }
+        // Stop the Go pump before freeing the fd. Closing the descriptor while
+        // a read is in flight can leak the tunnel or let the kernel reuse the
+        // fd for an unrelated socket.
+        scope.launch {
+            val watchdog = launch {
+                delay(3000)
+                AppLogger.w("V2VPN", "stop watchdog: forcing TUN fd close")
+                runCatching { pfd?.close() }
+            }
+            try {
                 withTimeoutOrNull(3000) { runCatching { active.stop() } }
+            } finally {
+                watchdog.cancel()
+                runCatching { pfd?.close() }
             }
         }
     }

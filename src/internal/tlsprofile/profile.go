@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	utls "github.com/refraction-networking/utls"
 )
@@ -79,7 +80,7 @@ func New(cfg Config) (*Dialer, error) {
 	}
 	d := cfg.Dialer
 	if d == nil {
-		d = &net.Dialer{}
+		d = &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 15 * time.Second}
 	}
 	return &Dialer{profile: profile, fallback: cfg.Fallback, tls: tlsCfg, dialer: d}, nil
 }
