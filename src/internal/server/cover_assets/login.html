@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — NOVA</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <a class="brand brand-center" href="/"><span class="brand-mark" aria-hidden="true"></span><span>NOVA</span></a>
+    <section class="auth-card">
+      <h1>Welcome back</h1>
+      <p class="muted">Sign in to continue watching.</p>
+      <form id="signin-form" novalidate>
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+        <label for="password">Password</label>
+        <div class="password-row">
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Your password" required>
+          <button type="button" class="icon-button" id="toggle-password" aria-label="Show password">Show</button>
+        </div>
+        <div class="auth-row">
+          <label class="check"><input type="checkbox" name="remember"> Remember me</label>
+          <a href="/login.html" class="muted">Forgot password?</a>
+        </div>
+        <p class="form-error" id="signin-error" role="alert" hidden>Invalid email or password.</p>
+        <button class="button primary wide" type="submit" id="signin-submit">Sign in</button>
+      </form>
+      <div class="divider"><span>or</span></div>
+      <button class="button ghost wide" type="button">Continue with SSO</button>
+      <p class="auth-switch muted">New to NOVA? <a href="/login.html">Create an account</a></p>
+    </section>
+    <p class="muted small">By signing in you agree to our <a href="/terms.html">Terms</a> and <a href="/privacy.html">Privacy Policy</a>.</p>
+  </main>
+  <script src="/assets/site.js"></script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -60,8 +61,17 @@ func (c *ServerConfig) UDPDatagramsEnabled() bool {
 
 // @sk-task fallback-auth-stealth#T1.1: fallback site/reverse-proxy for unauthenticated requests (AC-002, AC-004)
 type FallbackCfg struct {
-	Upstream string `mapstructure:"upstream"`
-	Title    string `mapstructure:"title"`
+	Upstream     string `mapstructure:"upstream"`
+	Title        string `mapstructure:"title"`
+	Dir          string `mapstructure:"dir"`
+	NotFound     string `mapstructure:"not_found"`
+	ServerHeader string `mapstructure:"server_header"`
+}
+
+// SNICertCfg is an additional certificate/key pair selected by SNI.
+type SNICertCfg struct {
+	Cert string `mapstructure:"cert"`
+	Key  string `mapstructure:"key"`
 }
 
 type CryptoCfg struct {
@@ -71,10 +81,11 @@ type CryptoCfg struct {
 
 // @sk-task security-acl#T1: TLSCfg extended with mTLS fields
 type TLSCfg struct {
-	Cert         string `mapstructure:"cert"`
-	Key          string `mapstructure:"key"`
-	ClientCAFile string `mapstructure:"client_ca_file"`
-	ClientAuth   string `mapstructure:"client_auth"`
+	Cert         string                `mapstructure:"cert"`
+	Key          string                `mapstructure:"key"`
+	ClientCAFile string                `mapstructure:"client_ca_file"`
+	ClientAuth   string                `mapstructure:"client_auth"`
+	SNICerts     map[string]SNICertCfg `mapstructure:"sni_certs"`
 }
 
 // @sk-task ipv6-dual-stack#T1.1: add PoolIPv6 config field (AC-001, AC-002)
@@ -269,6 +280,17 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		u, err := url.Parse(cfg.Fallback.Upstream)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return nil, fmt.Errorf("fallback.upstream must be an http(s) URL")
+		}
+	}
+	if cfg.Fallback.Dir != "" {
+		info, err := os.Stat(cfg.Fallback.Dir)
+		if err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("fallback.dir %q is not a directory", cfg.Fallback.Dir)
+		}
+	}
+	for name, pair := range cfg.TLS.SNICerts {
+		if strings.TrimSpace(name) == "" || pair.Cert == "" || pair.Key == "" {
+			return nil, fmt.Errorf("tls.sni_certs entries require a non-empty name, cert and key")
 		}
 	}
 

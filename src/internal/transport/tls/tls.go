@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // @sk-task foundation#T1.3: internal stubs (AC-002)
@@ -69,6 +70,44 @@ func newServerTLSConfig(cert *tls.Certificate, clientCAFile string, clientCAPEM 
 		return nil, fmt.Errorf("unsupported client_auth %q", clientAuth)
 	}
 	return cfg, nil
+}
+
+// CertKeyPair points at a certificate/key pair used for SNI selection.
+type CertKeyPair struct {
+	CertFile string
+	KeyFile  string
+}
+
+// NewPublicServerTLSConfig builds the public-facing site/v2 TLS config: TLS 1.2
+// and 1.3, HTTP/2 and HTTP/1.1 ALPN, optional SNI certificates.
+func NewPublicServerTLSConfig(certFile, keyFile, clientCAFile, clientAuth string, sni map[string]CertKeyPair) (*tls.Config, error) {
+	cfg, err := NewServerTLSConfig(certFile, keyFile, clientCAFile, clientAuth)
+	if err != nil {
+		return nil, err
+	}
+	cfg.MinVersion = tls.VersionTLS12
+	cfg.NextProtos = []string{"h2", "http/1.1"}
+	if len(sni) > 0 {
+		certs := make(map[string]*tls.Certificate, len(sni))
+		for name, pair := range sni {
+			cert, lerr := tls.LoadX509KeyPair(pair.CertFile, pair.KeyFile)
+			if lerr != nil {
+				return nil, fmt.Errorf("load SNI certificate %q: %w", name, lerr)
+			}
+			certs[normalizeServerName(name)] = &cert
+		}
+		cfg.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			if cert, ok := certs[normalizeServerName(hello.ServerName)]; ok {
+				return cert, nil
+			}
+			return nil, nil // fall back to TLSConfig.Certificates
+		}
+	}
+	return cfg, nil
+}
+
+func normalizeServerName(name string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
 }
 
 // @sk-task production-gap#T1.1: trusted client TLS builder (AC-001)

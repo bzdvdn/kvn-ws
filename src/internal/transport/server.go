@@ -58,13 +58,19 @@ func NewServer(tokens TokenLookup, fallback http.Handler, maxStreams int, logger
 }
 
 // ServeHTTP implements http.Handler.
+// v2 is only served over HTTP/2. HTTP/1.1 clients (browsers, active probes)
+// get the fallback/cover site, so the endpoint looks like a normal website.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.ProtoMajor < 2 {
+		s.fallback.ServeHTTP(w, r)
+		return
+	}
 	switch {
 	case r.URL.Path == DefaultPath && r.Method == http.MethodGet && wantsJSON(r) && s.validToken(r):
 		s.handleSession(w, r)
-	case r.URL.Path == Path:
+	case r.URL.Path == Path && r.Method == http.MethodPost:
 		s.handleTCP(w, r)
-	case r.URL.Path == UDPPath:
+	case r.URL.Path == UDPPath && r.Method == http.MethodPut:
 		s.handleUDP(w, r)
 	case r.URL.Path == DefaultPath && r.Method == http.MethodPost:
 		s.handleTCP(w, r)

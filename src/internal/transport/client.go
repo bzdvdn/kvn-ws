@@ -66,7 +66,7 @@ func NewClientWithOptions(endpoint, token string, opts *ClientOptions) (*Client,
 	u.Path = ""
 	cfg := opts.TLS.Clone()
 	if len(cfg.NextProtos) == 0 {
-		cfg.NextProtos = []string{"h2"}
+		cfg.NextProtos = []string{"h2", "http/1.1"}
 	}
 	var transport http.RoundTripper
 	if opts.UTLSProfile != "" {

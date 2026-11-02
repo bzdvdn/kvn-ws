@@ -3,12 +3,19 @@ listen: 0.0.0.0:443
 tls:
   cert: /etc/kvn-ws/certs/server.pem
   key: /etc/kvn-ws/certs/server-key.pem
+  # sni_certs:
+  #   alt.example:
+  #     cert: /etc/kvn-ws/certs/alt.pem
+  #     key: /etc/kvn-ws/certs/alt-key.pem
 auth:
   tokens:
     - name: default
       secret: change-me
 fallback:
-  title: Acme Telemetry
+  title: NOVA
+  # dir: /var/lib/kvn/cover          # built-in site is exported here by the installer
+  # not_found: 404.html
+  # server_header: nginx
   # upstream: https://real-site.example
 tun:
   subnet: 10.66.0.0/24

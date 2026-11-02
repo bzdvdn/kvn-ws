@@ -273,6 +273,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("upstreams", org.json.JSONArray(config.dnsServers.ifEmpty {
                 listOf("1.1.1.1:53", "8.8.8.8:53")
             }))
+        val tls = org.json.JSONObject()
+            .put("verify_mode", config.tlsVerifyMode.ifBlank { "verify" })
+        if (config.tlsServerName.isNotBlank()) {
+            tls.put("server_name", config.tlsServerName)
+        }
         return org.json.JSONObject()
             .put("active_server", "default")
             .put("client_id", v2ClientId)
@@ -283,7 +288,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("keep_awake", config.keepAwakeEnabled)
             .put("routing", routing)
             .put("dns_proxy", dns)
-            .put("tls", org.json.JSONObject().put("verify_mode", config.tlsVerifyMode.ifBlank { "verify" }))
+            .put("tls", tls)
             .put("utls", org.json.JSONObject().put("enabled", true).put("profile", "chrome").put("fallback", true))
             .put("stealth", org.json.JSONObject().put("enabled", true).put("padding", true).put("padding_size", 64))
             .toString()

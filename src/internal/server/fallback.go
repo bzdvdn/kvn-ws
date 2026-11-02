@@ -11,7 +11,14 @@ import (
 )
 
 // @sk-task kvn-v2-transport#T1.3: default fallback site for probes (AC-003)
-func NewFallback(cfg config.FallbackCfg) http.Handler {
+// @sk-task cover-site-front: prefer a local static cover site when configured.
+func NewFallback(cfg *config.FallbackCfg) http.Handler {
+	if cfg == nil {
+		cfg = &config.FallbackCfg{}
+	}
+	if site := NewCoverSite(cfg.Dir, cfg.NotFound, cfg.ServerHeader); site != nil {
+		return site
+	}
 	if cfg.Upstream != "" {
 		if target, err := url.Parse(cfg.Upstream); err == nil {
 			proxy := httputil.NewSingleHostReverseProxy(target)
@@ -26,9 +33,7 @@ func NewFallback(cfg config.FallbackCfg) http.Handler {
 			return proxy
 		}
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeFallbackHTML(w, cfg.Title, http.StatusOK)
-	})
+	return NewEmbeddedCoverSite(cfg.NotFound, cfg.ServerHeader)
 }
 
 func writeFallbackHTML(w http.ResponseWriter, title string, status int) {

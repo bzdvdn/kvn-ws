@@ -136,7 +136,7 @@ func (c *Client) connection() (config.V2ServerEntry, string, *tls.Config, error)
 	if err != nil {
 		return config.V2ServerEntry{}, "", nil, err
 	}
-	tlsCfg.NextProtos = []string{"h2"}
+	tlsCfg.NextProtos = []string{"h2", "http/1.1"}
 	return server, endpoint, tlsCfg, nil
 }
 

@@ -147,3 +147,42 @@ func TestNewServerTLSConfigMapsClientAuthModes(t *testing.T) {
 		})
 	}
 }
+
+func TestNewPublicServerTLSConfig(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile, _ := writeServerCertFiles(t, dir)
+	cfg, err := NewPublicServerTLSConfig(certFile, keyFile, "", "", map[string]CertKeyPair{
+		"Alt.Example.": {CertFile: certFile, KeyFile: keyFile},
+	})
+	if err != nil {
+		t.Fatalf("NewPublicServerTLSConfig: %v", err)
+	}
+	if cfg.MinVersion != stdtls.VersionTLS12 {
+		t.Fatalf("MinVersion = %d, want TLS 1.2", cfg.MinVersion)
+	}
+	if len(cfg.NextProtos) != 2 || cfg.NextProtos[0] != "h2" || cfg.NextProtos[1] != "http/1.1" {
+		t.Fatalf("NextProtos = %v", cfg.NextProtos)
+	}
+	if cfg.GetCertificate == nil {
+		t.Fatal("GetCertificate is nil for SNI config")
+	}
+	selected, err := cfg.GetCertificate(&stdtls.ClientHelloInfo{ServerName: "alt.example"})
+	if err != nil || selected == nil {
+		t.Fatalf("SNI cert: %v, %v", selected, err)
+	}
+	fallback, err := cfg.GetCertificate(&stdtls.ClientHelloInfo{ServerName: "other.example"})
+	if err != nil || fallback != nil {
+		t.Fatalf("unknown SNI must fall back to Certificates, got %v, %v", fallback, err)
+	}
+}
+
+func TestNewPublicServerTLSConfigRejectsBadSNI(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile, _ := writeServerCertFiles(t, dir)
+	_, err := NewPublicServerTLSConfig(certFile, keyFile, "", "", map[string]CertKeyPair{
+		"broken.example": {CertFile: filepath.Join(dir, "missing.pem"), KeyFile: keyFile},
+	})
+	if err == nil {
+		t.Fatal("expected error for missing SNI certificate")
+	}
+}

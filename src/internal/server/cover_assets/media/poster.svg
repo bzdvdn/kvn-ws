@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <defs>
+    <radialGradient id="p" cx="30%" cy="25%" r="90%">
+      <stop stop-color="#ffe7b0"/><stop offset="0.35" stop-color="#ff8e6e"/><stop offset="0.65" stop-color="#6d4dff"/><stop offset="1" stop-color="#0d1024"/>
+    </radialGradient>
+    <linearGradient id="v" x1="0" y1="0" x2="0" y2="1"><stop stop-color="rgba(0,0,0,0)"/><stop offset="1" stop-color="rgba(0,0,0,0.6)"/></linearGradient>
+  </defs>
+  <rect width="640" height="360" fill="url(#p)"/>
+  <circle cx="430" cy="150" r="95" fill="rgba(255,255,255,0.12)"/>
+  <rect width="640" height="360" fill="url(#v)"/>
+  <text x="36" y="300" fill="#eef1ff" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="700">Orbital Drift</text>
+  <text x="36" y="330" fill="#c7cdec" font-family="Inter, system-ui, sans-serif" font-size="18">NOVA original</text>
+</svg>

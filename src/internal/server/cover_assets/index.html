@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOVA — Stream what moves you</title>
+  <meta name="description" content="NOVA is a streaming service for films, series and live channels.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="NOVA home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>NOVA</span>
+    </a>
+    <nav class="site-nav" id="site-nav">
+      <a href="/" class="active">Home</a>
+      <a href="/#trending">Movies</a>
+      <a href="/#trending">Series</a>
+      <a href="/#live">Live</a>
+    </nav>
+    <div class="header-actions">
+      <a class="button ghost" href="/login.html">Sign in</a>
+      <button class="icon-button" id="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="badge">Featured today</span>
+        <h1>Orbital Drift</h1>
+        <p class="hero-meta">2026 · Sci-Fi · 2h 08m · <span class="rating">★ 8.4</span></p>
+        <p class="hero-text">A salvage crew wakes up on the wrong side of the solar system — and every route home is already gone.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="/watch.html">▶ Play</a>
+          <a class="button ghost" href="/watch.html">More info</a>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="orbit orbit-a"></div>
+        <div class="orbit orbit-b"></div>
+        <div class="planet"></div>
+      </div>
+    </section>
+
+    <section class="rail" id="trending">
+      <div class="rail-head">
+        <h2>Trending now</h2>
+        <a href="/#trending" class="muted">See all</a>
+      </div>
+      <div class="cards">
+        <a class="card" href="/watch.html"><span class="poster poster-1"></span><span class="card-title">Orbital Drift</span><span class="card-meta">Sci-Fi · 2026</span></a>
+        <a class="card" href="/watch.html"><span class="poster poster-2"></span><span class="card-title">Harbor Lights</span><span class="card-meta">Drama · 2025</span></a>
+        <a class="card" href="/watch.html"><span class="poster poster-3"></span><span class="card-title">Night Circuit</span><span class="card-meta">Thriller · 2026</span></a>
+        <a class="card" href="/watch.html"><span class="poster poster-4"></span><span class="card-title">Paper Kingdom</span><span class="card-meta">Fantasy · 2024</span></a>
+        <a class="card" href="/watch.html"><span class="poster poster-5"></span><span class="card-title">Signal Lost</span><span class="card-meta">Mystery · 2025</span></a>
+        <a class="card" href="/watch.html"><span class="poster poster-6"></span><span class="card-title">Solar Tide</span><span class="card-meta">Adventure · 2026</span></a>
+        <a class="card" href="/watch.html"><span class="poster poster-7"></span><span class="card-title">Static Bloom</span><span class="card-meta">Sci-Fi · 2024</span></a>
+        <a class="card" href="/watch.html"><span class="poster poster-8"></span><span class="card-title">The Long Way</span><span class="card-meta">Drama · 2025</span></a>
+      </div>
+    </section>
+
+    <section class="rail" id="live">
+      <div class="rail-head"><h2>Live channels</h2></div>
+      <div class="live-grid">
+        <a class="live-card" href="/watch.html"><span class="live-dot"></span><div><strong>NOVA News</strong><span class="muted">Live now</span></div></a>
+        <a class="live-card" href="/watch.html"><span class="live-dot"></span><div><strong>Deep Space</strong><span class="muted">Live now</span></div></a>
+        <a class="live-card" href="/watch.html"><span class="live-dot"></span><div><strong>Stadium</strong><span class="muted">Live now</span></div></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>NOVA</span></div>
+    <nav>
+      <a href="/about.html">About</a>
+      <a href="/terms.html">Terms</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/login.html">Sign in</a>
+    </nav>
+    <p class="muted">© <span id="year"></span> NOVA Media. All rights reserved.</p>
+  </footer>
+  <script src="/assets/site.js"></script>
+</body>
+</html>

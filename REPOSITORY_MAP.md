@@ -13,7 +13,7 @@ v2-only Go backend/CLI under `src/`; Android/Kotlin v2 client under `src/android
 
 ## Core Packages
 - `src/internal/client/` — v2 data plane, TUN/proxy, session, metrics, ICMP, DNS direct routing.
-- `src/internal/server/` — v2 fallback site.
+- `src/internal/server/` — embedded/customizable cover site (streaming "NOVA"), fallback, 404/MIME/Range.
 - `src/internal/transport/` — HTTP/2 streams, session, padding, QUIC datagrams, ICMP proxy, fallback.
 - `src/internal/tlsprofile/` — uTLS Chrome/Firefox/Safari profiles + fallback.
 - `src/internal/tcpstack/` — gVisor TCP split/forwarder.
@@ -38,6 +38,7 @@ v2-only Go backend/CLI under `src/`; Android/Kotlin v2 client under `src/android
 
 ## Key Paths
 - `configs/client.example.yaml`, `configs/server.example.yaml` — v2 examples.
+- `deploy/cover-site/README.md` — how to export/customize the built-in cover site.
 - `configs/server.example.yaml` — includes required `tun` pool and `lease_file`.
 - `bin/kvn-client`, `bin/kvn-server`, `bin/kvn-web` — build outputs.
 - `bin/kvn-v2.aar` — gomobile Android library.
@@ -65,6 +66,7 @@ v2-only Go backend/CLI under `src/`; Android/Kotlin v2 client under `src/android
 - Client data plane/TUN/DNS direct — `src/internal/client/`.
 - Server pool/session — `src/internal/tunpool/`, `src/internal/transport/session.go`.
 - Web UI/config — `src/internal/webui/`, `src/cmd/web/`, `src/internal/config/`.
+- Cover site/fallback — `src/internal/server/` (`cover.go`, `cover_assets/`).
 - Android UI/VpnService — `src/android/app/src/main/kotlin/com/kvn/client/`.
 - gomobile API — `src/mobile/`.
 - Build/release — `scripts/`, `.github/workflows/`, `Dockerfile`.

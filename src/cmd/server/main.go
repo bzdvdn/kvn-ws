@@ -18,13 +18,23 @@ import (
 	"github.com/bzdvdn/kvn-ws/src/internal/logger"
 	"github.com/bzdvdn/kvn-ws/src/internal/server"
 	"github.com/bzdvdn/kvn-ws/src/internal/transport"
+	tlspkg "github.com/bzdvdn/kvn-ws/src/internal/transport/tls"
 	"github.com/bzdvdn/kvn-ws/src/internal/tunpool"
 )
 
 // @sk-task kvn-v2-transport#T1.3: v2 server entrypoint (AC-001, AC-003)
 func main() {
 	configPath := flag.String("config", "configs/server.yaml", "path to v2 server config")
+	exportCover := flag.String("export-cover-site", "", "export the built-in cover site to a directory and exit")
 	flag.Parse()
+
+	if *exportCover != "" {
+		if err := server.ExportCoverSite(*exportCover); err != nil {
+			log.Fatalf("export cover site: %v", err)
+		}
+		fmt.Printf("cover site exported to %s\n", *exportCover)
+		return
+	}
 
 	cfg, err := config.LoadV2ServerConfig(*configPath)
 	if err != nil {
@@ -49,18 +59,23 @@ func main() {
 	if perr != nil {
 		log.Fatalf("tun pool: %v", perr)
 	}
-	fallback := server.NewFallback(cfg.Fallback)
+	fallback := server.NewFallback(&cfg.Fallback)
 	handler := transport.NewServer(lookup, fallback, cfg.MaxStreams, logger, transport.WithTUNPool(pool))
 
+	sniCerts := make(map[string]tlspkg.CertKeyPair, len(cfg.TLS.SNICerts))
+	for name, pair := range cfg.TLS.SNICerts {
+		sniCerts[name] = tlspkg.CertKeyPair{CertFile: pair.Cert, KeyFile: pair.Key}
+	}
+	tlsCfg, terr := tlspkg.NewPublicServerTLSConfig(cfg.TLS.Cert, cfg.TLS.Key, cfg.TLS.ClientCAFile, cfg.TLS.ClientAuth, sniCerts)
+	if terr != nil {
+		log.Fatalf("tls: %v", terr)
+	}
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
-		TLSConfig: &tls.Config{
-			MinVersion: tls.VersionTLS13,
-			NextProtos: []string{"h2"},
-		},
+		TLSConfig:         tlsCfg,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -88,7 +103,7 @@ func main() {
 		_ = httpServer.Shutdown(shutdownCtx)
 	}()
 	logger.Info("v2 server listening", zap.String("addr", cfg.Listen))
-	if err := httpServer.ListenAndServeTLS(cfg.TLS.Cert, cfg.TLS.Key); err != nil && err != http.ErrServerClosed {
+	if err := httpServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintf(os.Stderr, "v2 server: %v\n", err)
 		os.Exit(1) //nolint:gocritic // terminal error path; deferred signal stop is irrelevant
 	}

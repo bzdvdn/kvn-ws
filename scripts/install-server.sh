@@ -18,11 +18,21 @@ LEASE_TTL=300
 QUIC_LISTEN=""
 NO_QUIC=false
 FORCE=false
+DOMAIN=""
+TLS_CERT=""
+TLS_KEY=""
+COVER_DIR="$STATE_DIR/cover"
+ACME_EMAIL=""
 CONF="$CONF_DIR/server.yaml"
 
 usage() {
   echo "Usage: sudo $0 [--port 443] [--token TOKEN] [--force] [--no-quic]"
   echo "  --tun-subnet 10.66.0.0/24 --range-start 10.66.0.2 --range-end 10.66.0.254 --gateway 10.66.0.1"
+  echo "  --domain DOMAIN        public domain for the cover site / certificate"
+  echo "  --tls-cert PATH        existing certificate file (Let's Encrypt or other)"
+  echo "  --tls-key PATH         existing private key file"
+  echo "  --acme-email EMAIL     obtain a Let's Encrypt certificate with certbot (needs --domain, port 80)"
+  echo "  --cover-dir PATH       cover site directory (default: $STATE_DIR/cover)"
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +45,11 @@ while [[ $# -gt 0 ]]; do
     --lease-ttl) LEASE_TTL="$2"; shift 2 ;;
     --no-quic) NO_QUIC=true; shift ;;
     --force) FORCE=true; shift ;;
+    --domain) DOMAIN="$2"; shift 2 ;;
+    --tls-cert) TLS_CERT="$2"; shift 2 ;;
+    --tls-key) TLS_KEY="$2"; shift 2 ;;
+    --acme-email) ACME_EMAIL="$2"; shift 2 ;;
+    --cover-dir) COVER_DIR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -50,6 +65,14 @@ if ! [[ "$PORT" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
 fi
 if ! [[ "$LEASE_TTL" =~ ^[0-9]+$ ]] || (( LEASE_TTL < 1 )); then
   echo "Invalid lease TTL: $LEASE_TTL" >&2
+  exit 1
+fi
+if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]] && [[ -z "$TLS_CERT" || -z "$TLS_KEY" ]]; then
+  echo "--tls-cert and --tls-key must be provided together" >&2
+  exit 1
+fi
+if [[ -n "$ACME_EMAIL" && -z "$DOMAIN" ]]; then
+  echo "--acme-email requires --domain" >&2
   exit 1
 fi
 if [[ -n "$TOKEN" && ! "$TOKEN" =~ ^[A-Za-z0-9._~@+/-]+$ ]]; then
@@ -93,8 +116,23 @@ install -m 0755 "$BIN_SRC" "$BIN_DIR/kvn-server"
 mkdir -p "$CONF_DIR" "$CERT_DIR" "$STATE_DIR"
 chmod 700 "$CONF_DIR" "$CERT_DIR" "$STATE_DIR"
 
-if [[ ! -f "$CERT_DIR/server.pem" || ! -f "$CERT_DIR/server-key.pem" ]]; then
-  HOST="$(hostname -f 2>/dev/null || hostname)"
+if [[ -n "$TLS_CERT" && -n "$TLS_KEY" ]]; then
+  install -m 0644 "$TLS_CERT" "$CERT_DIR/server.pem"
+  install -m 0600 "$TLS_KEY" "$CERT_DIR/server-key.pem"
+elif [[ -n "$ACME_EMAIL" ]]; then
+  if ! command -v certbot >/dev/null 2>&1; then
+    apt-get update -y >/dev/null
+    apt-get install -y certbot >/dev/null
+  fi
+  certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos -m "$ACME_EMAIL" --keep-until-expiring
+  LE_DIR="/etc/letsencrypt/live/$DOMAIN"
+  ln -sf "$LE_DIR/fullchain.pem" "$CERT_DIR/server.pem"
+  ln -sf "$LE_DIR/privkey.pem" "$CERT_DIR/server-key.pem"
+  mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+  printf '#!/bin/sh\nsystemctl restart kvn-server\n' > /etc/letsencrypt/renewal-hooks/deploy/kvn-server.sh
+  chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/kvn-server.sh
+elif [[ ! -f "$CERT_DIR/server.pem" || ! -f "$CERT_DIR/server-key.pem" ]]; then
+  HOST="${DOMAIN:-$(hostname -f 2>/dev/null || hostname)}"
   IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
   SAN="DNS:$HOST"
   [[ -n "$IP" ]] && SAN="$SAN,IP:$IP"
@@ -102,6 +140,11 @@ if [[ ! -f "$CERT_DIR/server.pem" || ! -f "$CERT_DIR/server-key.pem" ]]; then
     -keyout "$CERT_DIR/server-key.pem" -out "$CERT_DIR/server.pem" \
     -subj "/CN=$HOST" -addext "subjectAltName=$SAN" >/dev/null 2>&1
   chmod 600 "$CERT_DIR/server-key.pem"
+fi
+
+mkdir -p "$COVER_DIR"
+if [[ ! -f "$COVER_DIR/index.html" ]]; then
+  "$BIN_DIR/kvn-server" --export-cover-site "$COVER_DIR" >/dev/null
 fi
 
 if [[ -z "$TOKEN" ]]; then TOKEN="$(openssl rand -hex 24)"; fi
@@ -122,7 +165,8 @@ auth:
     - name: default
       secret: "$TOKEN"
 fallback:
-  title: Welcome
+  dir: $COVER_DIR
+  title: NOVA
 max_streams: 512
 tun:
   subnet: $TUN_SUBNET
@@ -161,6 +205,7 @@ echo
 echo "Installed."
 echo "  config: $CONF"
 echo "  token:  $TOKEN"
-echo "  tls:    self-signed cert in $CERT_DIR (clients need verify_mode=insecure)"
+echo "  tls:    $CERT_DIR (use a Let's Encrypt cert for production)"
+echo "  cover:  $COVER_DIR (built-in streaming site)"
 echo "  tun:    $TUN_SUBNET ($RANGE_START-$RANGE_END, gw $GATEWAY)"
 echo "  service: systemctl status kvn-server"
