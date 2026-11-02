@@ -1,0 +1,376 @@
+{
+  "version": 1,
+  "slug": "cover-site-front",
+  "base_sha": "726db22af93cd8868c94cae22c676e18c0c635aa",
+  "head_sha": "c0da2f1e89bd507a2d4b2a371b543588892a96a4",
+  "base_branch": "master",
+  "base_source": "inferred",
+  "source": "git",
+  "generated_at": "2026-11-02T10:45:23Z",
+  "dirty": true,
+  "commits": [
+    {
+      "sha": "c0da2f1e89bd507a2d4b2a371b543588892a96a4",
+      "subject": "feat(server): cover-site front with embedded streaming site"
+    }
+  ],
+  "files": [
+    {
+      "path": "REPOSITORY_MAP.md",
+      "status": "M",
+      "additions": 3,
+      "deletions": 1
+    },
+    {
+      "path": "configs/server.example.yaml",
+      "status": "M",
+      "additions": 8,
+      "deletions": 1,
+      "tasks": [
+        "T1.4"
+      ]
+    },
+    {
+      "path": "deploy/cover-site/README.md",
+      "status": "A",
+      "additions": 21,
+      "tasks": [
+        "T1.4"
+      ]
+    },
+    {
+      "path": "docs/en/v2.md",
+      "status": "M",
+      "additions": 13,
+      "deletions": 2,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "docs/ru/v2.md",
+      "status": "M",
+      "additions": 14,
+      "deletions": 3,
+      "tasks": [
+        "T5.2"
+      ]
+    },
+    {
+      "path": "scripts/dpi-check.sh",
+      "status": "M",
+      "additions": 86,
+      "deletions": 24,
+      "tasks": [
+        "T5.1"
+      ],
+      "anchors": [
+        "probe_path"
+      ]
+    },
+    {
+      "path": "scripts/install-server.sh",
+      "status": "M",
+      "additions": 49,
+      "deletions": 4,
+      "tasks": [
+        "T1.4"
+      ],
+      "anchors": [
+        "export-cover-site"
+      ]
+    },
+    {
+      "path": "src/android/app/src/main/kotlin/com/kvn/client/ui/MainViewModel.kt",
+      "status": "M",
+      "additions": 6,
+      "deletions": 1,
+      "tasks": [
+        "T4.2"
+      ],
+      "anchors": [
+        "v2ConfigJson"
+      ]
+    },
+    {
+      "path": "src/cmd/server/main.go",
+      "status": "M",
+      "additions": 21,
+      "deletions": 6,
+      "tasks": [
+        "T1.4",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/client/client.go",
+      "status": "M",
+      "additions": 1,
+      "deletions": 1,
+      "tasks": [
+        "T4.1"
+      ]
+    },
+    {
+      "path": "src/internal/config/server.go",
+      "status": "M",
+      "additions": 28,
+      "deletions": 6,
+      "tasks": [
+        "T1.1",
+        "T3.1"
+      ]
+    },
+    {
+      "path": "src/internal/server/CONTEXT.md",
+      "status": "M",
+      "additions": 7,
+      "deletions": 3
+    },
+    {
+      "path": "src/internal/server/cover.go",
+      "status": "A",
+      "additions": 100,
+      "tasks": [
+        "T1.1",
+        "T1.3"
+      ],
+      "anchors": [
+        "newCoverHandler"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets.go",
+      "status": "A",
+      "additions": 45,
+      "tasks": [
+        "T1.3"
+      ],
+      "anchors": [
+        "EmbeddedCoverFS"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/404.html",
+      "status": "A",
+      "additions": 19,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/about.html",
+      "status": "A",
+      "additions": 6,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/assets/site.css",
+      "status": "A",
+      "additions": 135,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/assets/site.js",
+      "status": "A",
+      "additions": 49,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/favicon.ico",
+      "status": "A",
+      "binary": true,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/favicon.svg",
+      "status": "A",
+      "additions": 5,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/index.html",
+      "status": "A",
+      "additions": 88,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/login.html",
+      "status": "A",
+      "additions": 39,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/media/demo.mp4",
+      "status": "A",
+      "binary": true,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/media/poster.svg",
+      "status": "A",
+      "additions": 13,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/privacy.html",
+      "status": "A",
+      "additions": 6,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/robots.txt",
+      "status": "A",
+      "additions": 3,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/sitemap.xml",
+      "status": "A",
+      "additions": 9,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/terms.html",
+      "status": "A",
+      "additions": 6,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_assets/watch.html",
+      "status": "A",
+      "additions": 29,
+      "tasks": [
+        "T1.3"
+      ]
+    },
+    {
+      "path": "src/internal/server/cover_test.go",
+      "status": "A",
+      "additions": 121,
+      "tasks": [
+        "T1.2"
+      ],
+      "anchors": [
+        "TestCoverSiteServesFiles"
+      ]
+    },
+    {
+      "path": "src/internal/server/fallback.go",
+      "status": "M",
+      "additions": 9,
+      "deletions": 4,
+      "tasks": [
+        "T1.1"
+      ]
+    },
+    {
+      "path": "src/internal/server/fallback_test.go",
+      "status": "M",
+      "additions": 46,
+      "deletions": 8
+    },
+    {
+      "path": "src/internal/transport/client.go",
+      "status": "M",
+      "additions": 1,
+      "deletions": 1,
+      "tasks": [
+        "T4.1"
+      ],
+      "anchors": [
+        "NewClientWithOptions"
+      ]
+    },
+    {
+      "path": "src/internal/transport/routing_test.go",
+      "status": "A",
+      "additions": 153,
+      "tasks": [
+        "T2.2",
+        "T6.1"
+      ],
+      "anchors": [
+        "TestClientWithHTTP2OnlyALPNConnects",
+        "TestRoutingInvalidTokenServesCover"
+      ]
+    },
+    {
+      "path": "src/internal/transport/server.go",
+      "status": "M",
+      "additions": 8,
+      "deletions": 2,
+      "tasks": [
+        "T2.1"
+      ],
+      "anchors": [
+        "ServeHTTP"
+      ]
+    },
+    {
+      "path": "src/internal/transport/tls/tls.go",
+      "status": "M",
+      "additions": 39,
+      "tasks": [
+        "T3.1"
+      ],
+      "anchors": [
+        "NewPublicServerTLSConfig"
+      ]
+    },
+    {
+      "path": "src/internal/transport/tls/tls_test.go",
+      "status": "M",
+      "additions": 39,
+      "tasks": [
+        "T3.2"
+      ],
+      "anchors": [
+        "TestNewPublicServerTLSConfig"
+      ]
+    }
+  ],
+  "unmapped": [
+    "REPOSITORY_MAP.md",
+    "src/internal/server/CONTEXT.md",
+    "src/internal/server/fallback_test.go"
+  ],
+  "declared_not_changed": [
+    "src/android/app/src/main/kotlin/com/kvn/client/config/AppConfig.kt",
+    "src/android/app/src/test/java/com/kvn/client/config/AppConfigTest.kt",
+    "src/internal/transport/transport_test.go"
+  ],
+  "artifacts": [
+    "specs/active/cover-site-front/plan.md",
+    "specs/active/cover-site-front/spec.md",
+    "specs/active/cover-site-front/tasks.md",
+    "specs/active/cover-site-front/trace-meta.json",
+    "specs/active/cover-site-front/verify.md"
+  ]
+}

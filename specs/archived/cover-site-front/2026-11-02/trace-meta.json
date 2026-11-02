@@ -4,5 +4,7 @@
   "base_sha": "726db22af93cd8868c94cae22c676e18c0c635aa",
   "base_branch": "master",
   "base_source": "inferred",
-  "created_at": "2026-11-02T10:30:48Z"
+  "created_at": "2026-11-02T10:30:48Z",
+  "head_sha": "c0da2f1e89bd507a2d4b2a371b543588892a96a4",
+  "branch": "feature/cover-site-front"
 }
