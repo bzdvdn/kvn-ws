@@ -1,5 +1,14 @@
 # v2 — release checklist
 
+## 2.0.5 — cover-site front (unreleased)
+
+- [x] Built-in NOVA site (landing/login/watch/404), `fallback.dir`, `--export-cover-site`.
+- [x] TLS 1.2+1.3, ALPN `h2,http/1.1`, v2 only over h2+valid Bearer; h1/unknown/invalid → site/404.
+- [x] `install-server.sh`: exports the site, `--domain/--acme-email/--tls-cert/--tls-key`.
+- [x] `dpi-check.sh` extended; local run PASS.
+- [x] CI green on `dev`.
+- [ ] Tag `v2.0.5`, field DPI run with a real domain/LE, Android on-device.
+
 ## 2.0.4 — Android UDP/QUIC reliability
 
 - [x] QUIC keepalive + dead-connection fallback to the HTTP/2 UDP stream.

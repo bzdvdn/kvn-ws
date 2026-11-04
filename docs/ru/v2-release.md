@@ -1,5 +1,14 @@
 # v2 — release checklist
 
+## 2.0.5 — cover-site front (unreleased)
+
+- [x] Встроенный сайт NOVA (лендинг/login/watch/404), `fallback.dir`, `--export-cover-site`.
+- [x] TLS 1.2+1.3, ALPN `h2,http/1.1`, v2 только h2+valid Bearer; h1/unknown/invalid → сайт/404.
+- [x] `install-server.sh`: экспорт сайта, `--domain/--acme-email/--tls-cert/--tls-key`.
+- [x] `dpi-check.sh` расширен; локальный прогон PASS.
+- [x] CI зелёный на `dev`.
+- [ ] Тег `v2.0.5`, полевой DPI-прогон с реальным доменом/LE, on-device Android.
+
 ## 2.0.4 — Android UDP/QUIC reliability
 
 - [x] QUIC keepalive + dead-connection fallback на HTTP/2 UDP stream.

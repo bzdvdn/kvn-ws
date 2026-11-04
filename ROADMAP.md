@@ -14,6 +14,12 @@
 
 ## 2.1 — Network hardening
 
+### Cover-site / probe resistance — done (2.0.5)
+
+- [x] Встроенный стриминговый сайт (лендинг, login, watch, 404), `fallback.dir`, экспорт.
+- [x] HTTP/1.1, TLS 1.2+1.3, ALPN, v2 только h2+valid Bearer.
+- [x] `install-server.sh` экспортирует сайт; `dpi-check.sh` расширен.
+
 ### ECH (Encrypted Client Hello) — P0
 
 Скрыть настоящий SNI от пассивного DPI.

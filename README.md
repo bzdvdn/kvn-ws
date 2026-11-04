@@ -70,8 +70,8 @@ powershell -ExecutionPolicy Bypass -File .\install-web.ps1
 ## Сборка из исходников
 
 ```bash
-# сервер (root, systemd, TLS, TUN pool)
-sudo ./scripts/install-server.sh --port 443
+# сервер + встроенный cover-site (root, systemd, TLS, TUN pool)
+sudo ./scripts/install-server.sh --port 443 --domain vpn.example --acme-email you@example.com
 
 # клиент (root, systemd, TUN)
 sudo ./scripts/install-client.sh --server https://HOST:443 --token TOKEN
@@ -79,6 +79,8 @@ sudo ./scripts/install-client.sh --server https://HOST:443 --token TOKEN
 # web + desktop из локальной сборки
 sudo ./scripts/install-web.sh --start --desktop
 ```
+
+Установщик экспортирует встроенный стриминговый сайт в `/var/lib/kvn/cover` и прописывает `fallback.dir`; для своего контента: `kvn-server --export-cover-site /path`. Без `--acme-email` можно передать готовые `--tls-cert/--tls-key` или использовать self-signed для lab.
 
 Скрипты также умеют скачивать `kvn-server`/`kvn-client` из GitHub Releases, если локального бинаря нет.
 
@@ -97,7 +99,7 @@ sudo ./bin/kvn-client --config configs/client.yaml
 
 - [v2 RU](docs/ru/v2.md) · [v2 EN](docs/en/v2.md)
 - [v1 legacy: скачать и запустить старый релиз](docs/ru/v1-legacy.md) · [EN](docs/en/v1-legacy.md)
-- [Release checklist 2.0.0](docs/ru/v2-release.md) · [EN](docs/en/v2-release.md)
+- [Release checklist](docs/ru/v2-release.md) · [EN](docs/en/v2-release.md)
 - [DPI lab report](docs/ru/v2-dpi-report.md) · [EN](docs/en/v2-dpi-report.md)
 - [Roadmap](ROADMAP.md)
 - [CHANGELOG](CHANGELOG.md)

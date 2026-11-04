@@ -1,13 +1,13 @@
 # KVN 2.0 — tester guide
 
-This is a closed-group release candidate. v1 and v2 are not compatible; use only 2.0.0 APK/binaries.
+This is a closed-group release candidate. v1 and v2 are not compatible; use only 2.0.x APK/binaries.
 
 ## Requirements
 
 - Android 8.0+ (minSdk 26).
 - APK from the release candidate.
 - Server address and token from the administrator.
-- The server uses a self-signed certificate by default; enable `Allow insecure TLS` in Settings. There is no shared default key: the installer generates a separate key per server.
+- For a production domain with a Let's Encrypt certificate, the certificate is verified; enable `Allow insecure TLS` only for a self-signed lab server.
 
 ## Android setup
 
@@ -17,6 +17,7 @@ This is a closed-group release candidate. v1 and v2 are not compatible; use only
 4. Connect.
 5. Test YouTube/sites, `ping`, Wi-Fi ↔ LTE switching, reconnect.
 6. Configure included/excluded apps and Direct domains (`.ru`) if needed.
+7. Open the server website in a browser: `https://HOST/` should show the streaming site, `/login.html` a sign-in form, and a random path a 404.
 
 ## Checklist
 
@@ -27,6 +28,8 @@ This is a closed-group release candidate. v1 and v2 are not compatible; use only
 - [ ] Connection recovers after phone reboot.
 - [ ] kvn-web QR imports into Android.
 - [ ] Multiple servers switch without reinstall.
+- [ ] `https://HOST/` serves a site, `/login.html` a form, a random path a 404.
+- [ ] `curl --http1.1 https://HOST/` works (not h2-only).
 
 ## Reporting issues
 

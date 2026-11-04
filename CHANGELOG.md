@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Cover-site front (Go-only)** — сервер отдаёт встроенный стриминговый сайт «NOVA» (лендинг, каталог, login-форма, watch с видео, стилизованный 404, about/terms/privacy) на том же `:443`, что и v2. `fallback.dir` переопределяет сайт; `kvn-server --export-cover-site <dir>` экспортирует ассеты; `install-server.sh` делает это автоматически.
+- **Install-server TLS/ACME** — `--domain`, `--tls-cert/--tls-key`, `--acme-email` (certbot + deploy-hook на restart), `--cover-dir`.
+
+### Changed
+
+- Сервер: TLS 1.2+1.3 и ALPN `h2,http/1.1`; v2 обслуживается только по HTTP/2 с валидным Bearer, HTTP/1.1/неизвестные пути/невалидный токен получают cover-site/404. Опциональные `tls.sni_certs`.
+- Клиент: ALPN `h2,http/1.1`; `tls.server_name` из конфига/QR; verify по умолчанию.
+- `dpi-check.sh`: h1/h2, catch-all/404, favicon, issuer, login form, invalid token, отсутствие KVN/`pad=`.
+
+### Fixed
+
+- Fallback больше не отвечает 200-HTML на любой путь; legacy-пути с неверным методом не отдают пустой 200.
+
 ## [2.0.4] - 2026-11-01
 
 ### Fixed
