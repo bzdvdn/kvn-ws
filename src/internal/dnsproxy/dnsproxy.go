@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -31,6 +32,7 @@ type Server struct {
 	configMu      sync.RWMutex
 	routeDirect   func(domain string) bool
 	origResolves  []string
+	corpDomains   []string
 	tracker       *dns.Tracker
 	directRouteFn func(ips []netip.Addr)
 }
@@ -54,6 +56,16 @@ func (s *Server) SetRouteFunc(fn func(domain string) bool) {
 func (s *Server) SetOrigResolvers(resolvers []string) {
 	s.configMu.Lock()
 	s.origResolves = resolvers
+	s.configMu.Unlock()
+}
+
+// SetCorporateDomains sets the domain suffixes served by the corporate
+// resolvers (for example the search domains of another VPN). Names outside
+// these suffixes are resolved via public upstreams first; names inside them
+// use the corporate resolvers first. When empty, every name is public-first.
+func (s *Server) SetCorporateDomains(domains []string) {
+	s.configMu.Lock()
+	s.corpDomains = append([]string(nil), domains...)
 	s.configMu.Unlock()
 }
 
@@ -119,79 +131,30 @@ func (s *Server) Shutdown() error {
 func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) {
 	s.configMu.RLock()
 	routeDirect := s.routeDirect
-	origResolves := s.origResolves
+	origResolvers := s.origResolves
 	upstreams := s.upstreams
+	corpDomains := s.corpDomains
 	s.configMu.RUnlock()
 
+	domain := extractDNSDomain(query)
+
 	// Check domain-based routing first (no stream needed for direct resolution)
-	if routeDirect != nil {
-		if domain := extractDNSDomain(query); domain != "" && routeDirect(domain) {
-			s.resolveDirect(ctx, query, raddr, origResolves)
-			return
-		}
-	}
-
-	// direct TCP to upstreams in order
-
-	if len(upstreams) == 0 {
+	if routeDirect != nil && domain != "" && routeDirect(domain) {
+		s.resolveDirect(ctx, query, raddr, origResolvers)
 		return
 	}
 
-	dialer := net.Dialer{Timeout: 5 * time.Second}
-
-	qlen := len(query)
-	if qlen > math.MaxUint16 {
-		return
-	}
-	wire := make([]byte, 2+qlen)
-	wire[0] = byte(qlen >> 8)
-	wire[1] = byte(qlen & 0xff)
-	copy(wire[2:], query)
-
-	var resp []byte
-	var lastErr error
-	for _, addr := range upstreams {
-		upConn, err := dialer.DialContext(ctx, "tcp", addr)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		_ = upConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if _, err := upConn.Write(wire); err != nil {
-			upConn.Close() // #nosec G104
-			lastErr = err
-			continue
-		}
-
-		_ = upConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		br := bufio.NewReader(upConn)
-		respLen, err := readUint16(br)
-		if err != nil {
-			upConn.Close() // #nosec G104
-			lastErr = err
-			continue
-		}
-		if respLen > 1500 {
-			upConn.Close() // #nosec G104
-			continue
-		}
-		resp = make([]byte, respLen)
-		if _, err := br.Read(resp); err != nil {
-			upConn.Close() // #nosec G104
-			lastErr = err
-			continue
-		}
-		upConn.Close() // #nosec G104
-		lastErr = nil
-		break
-	}
-	if lastErr != nil || resp == nil {
+	// Corporate resolvers only own their own domains. Public names must not
+	// inherit corporate filtering (for example a FortiGate blocking youtube
+	// with NXDOMAIN), so the order depends on the query name.
+	candidates := orderUpstreams(domain, upstreams, origResolvers, corpDomains)
+	resp := exchangeTCP(ctx, query, candidates)
+	if resp == nil {
 		return
 	}
 
 	// @sk-task dns-response-tracker#T3.2: track IPs from direct DNS response
-	if domain := extractDNSDomain(query); domain != "" {
+	if domain != "" {
 		s.configMu.RLock()
 		tracker := s.tracker
 		s.configMu.RUnlock()
@@ -202,6 +165,137 @@ func (s *Server) forward(ctx context.Context, query []byte, raddr *net.UDPAddr) 
 
 	_ = s.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	_, _ = s.conn.WriteToUDP(resp, raddr)
+}
+
+const (
+	rcodeNoError  = 0
+	rcodeServFail = 2
+	rcodeNXDomain = 3
+	rcodeRefused  = 5
+)
+
+func dnsRcode(resp []byte) int {
+	if len(resp) < 4 {
+		return -1
+	}
+	return int(resp[3] & 0x0f)
+}
+
+// retryableRcode reports whether another upstream may still answer better.
+// A corporate resolver often returns NXDOMAIN for names blocked by policy;
+// that answer must not shadow a public resolver that still resolves them.
+func retryableRcode(rcode int) bool {
+	switch rcode {
+	case rcodeServFail, rcodeNXDomain, rcodeRefused:
+		return true
+	default:
+		return false
+	}
+}
+
+// orderUpstreams returns the candidate list for a query name: corporate
+// resolvers first for their own domains, public upstreams first otherwise.
+// Duplicates are removed while preserving order.
+func orderUpstreams(domain string, public, corporate, corpDomains []string) []string {
+	first, second := public, corporate
+	if isCorporateDomain(domain, corpDomains) {
+		first, second = corporate, public
+	}
+	out := make([]string, 0, len(first)+len(second))
+	out = appendUnique(out, first...)
+	out = appendUnique(out, second...)
+	return out
+}
+
+func isCorporateDomain(domain string, corpDomains []string) bool {
+	d := strings.ToLower(strings.TrimSuffix(domain, "."))
+	if d == "" {
+		return false
+	}
+	for _, suffix := range corpDomains {
+		s := strings.ToLower(strings.Trim(strings.TrimSpace(suffix), "."))
+		if s == "" {
+			continue
+		}
+		if d == s || strings.HasSuffix(d, "."+s) {
+			return true
+		}
+	}
+	return false
+}
+
+func appendUnique(dst []string, src ...string) []string {
+	for _, v := range src {
+		duplicate := false
+		for _, existing := range dst {
+			if existing == v {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			dst = append(dst, v)
+		}
+	}
+	return dst
+}
+
+// exchangeTCP resolves query via the first upstream that returns a usable
+// answer, falling through on transport errors and retryable RCODEs.
+func exchangeTCP(ctx context.Context, query []byte, upstreams []string) []byte {
+	qlen := len(query)
+	if qlen > math.MaxUint16 {
+		return nil
+	}
+	wire := make([]byte, 2+qlen)
+	wire[0] = byte(qlen >> 8)
+	wire[1] = byte(qlen & 0xff)
+	copy(wire[2:], query)
+
+	var lastResp []byte
+	for _, addr := range upstreams {
+		resp, err := exchangeTCPOne(ctx, addr, wire)
+		if err != nil {
+			continue
+		}
+		lastResp = resp
+		if retryableRcode(dnsRcode(resp)) {
+			continue
+		}
+		return resp
+	}
+	// All upstreams gave a retryable RCODE: return the last answer so the
+	// client still receives a definitive response instead of a timeout.
+	return lastResp
+}
+
+func exchangeTCPOne(ctx context.Context, addr string, wire []byte) ([]byte, error) {
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	upConn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	defer upConn.Close() // #nosec G104
+
+	_ = upConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if _, err := upConn.Write(wire); err != nil {
+		return nil, err
+	}
+
+	_ = upConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	br := bufio.NewReader(upConn)
+	respLen, err := readUint16(br)
+	if err != nil {
+		return nil, err
+	}
+	if respLen > 1500 {
+		return nil, fmt.Errorf("dnsproxy: upstream response too large: %d", respLen)
+	}
+	resp := make([]byte, respLen)
+	if _, err := io.ReadFull(br, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // @sk-task transparent-proxy#T5.4: local UDP DNS resolution for excluded domains

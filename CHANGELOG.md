@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-11-12
+
 ### Added
 
 - **Cover-site front (Go-only)** — сервер отдаёт встроенный стриминговый сайт «NOVA» (лендинг, каталог, login-форма, watch с видео, стилизованный 404, about/terms/privacy) на том же `:443`, что и v2. `fallback.dir` переопределяет сайт; `kvn-server --export-cover-site <dir>` экспортирует ассеты; `install-server.sh` делает это автоматически.
@@ -18,10 +20,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Сервер: TLS 1.2+1.3 и ALPN `h2,http/1.1`; v2 обслуживается только по HTTP/2 с валидным Bearer, HTTP/1.1/неизвестные пути/невалидный токен получают cover-site/404. Опциональные `tls.sni_certs`.
 - Клиент: ALPN `h2,http/1.1`; `tls.server_name` из конфига/QR; verify по умолчанию.
 - `dpi-check.sh`: h1/h2, catch-all/404, favicon, issuer, login form, invalid token, отсутствие KVN/`pad=`.
+- Android `versionName` поднят до `2.0.5`.
 
 ### Fixed
 
 - Fallback больше не отвечает 200-HTML на любой путь; legacy-пути с неверным методом не отдают пустой 200.
+- **Клиент/desktop: DNS при совместной работе с другим VPN (openfortivpn)** — DNS-прокси больше не отдаёт корпоративный NXDOMAIN за публичные имена: корпоративные резолверы опрашиваются первыми только для своих доменов (`search`/`domain` из `/etc/resolv.conf`), остальные имена идут в публичные upstream'ы, а при NXDOMAIN/SERVFAIL/REFUSED перебор продолжается. Исправляет `youtube.com` и другие домены, которые блокирует корпоративная политика.
 
 ## [2.0.4] - 2026-11-01
 

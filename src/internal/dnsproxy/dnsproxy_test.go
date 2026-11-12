@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -340,5 +341,192 @@ func TestDNSProxyFallback(t *testing.T) {
 	domain := extractDNSDomain(gotQuery)
 	if domain != "fallback.example.com" {
 		t.Errorf("upstream got domain %q, want %q", domain, "fallback.example.com")
+	}
+}
+
+func buildDNSResponse(query []byte, rcode byte, ip net.IP) []byte {
+	resp := make([]byte, len(query))
+	copy(resp, query)
+	resp[2] = 0x81
+	resp[3] = 0x80 | (rcode & 0x0f)
+	binary.BigEndian.PutUint16(resp[6:8], 0)
+	if rcode == rcodeNoError && ip != nil {
+		if v4 := ip.To4(); v4 != nil {
+			binary.BigEndian.PutUint16(resp[6:8], 1)
+			answer := []byte{
+				0xc0, 0x0c, // name pointer to question
+				0x00, 0x01, 0x00, 0x01, // TYPE A, CLASS IN
+				0x00, 0x00, 0x00, 0x3c, // TTL 60
+				0x00, 0x04, // RDLENGTH 4
+			}
+			answer = append(answer, v4...)
+			resp = append(resp, answer...)
+		}
+	}
+	return resp
+}
+
+func startTCPDNS(t *testing.T, rcode byte, ip net.IP) (string, *atomic.Int32) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	var hits atomic.Int32
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				var lenBuf [2]byte
+				if _, err := io.ReadFull(c, lenBuf[:]); err != nil {
+					return
+				}
+				q := make([]byte, binary.BigEndian.Uint16(lenBuf[:]))
+				if _, err := io.ReadFull(c, q); err != nil {
+					return
+				}
+				hits.Add(1)
+				resp := buildDNSResponse(q, rcode, ip)
+				wire := make([]byte, 2+len(resp))
+				binary.BigEndian.PutUint16(wire, uint16(len(resp)))
+				copy(wire[2:], resp)
+				_, _ = c.Write(wire)
+			}(conn)
+		}
+	}()
+	return ln.Addr().String(), &hits
+}
+
+func forwardOnce(t *testing.T, s *Server, client *net.UDPConn, domain string) []byte {
+	t.Helper()
+	s.forward(context.Background(), dnsQuery(domain), client.LocalAddr().(*net.UDPAddr))
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 1500)
+	n, _, err := client.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("read response for %s: %v", domain, err)
+	}
+	return append([]byte(nil), buf[:n]...)
+}
+
+func newForwardServer(t *testing.T, public, corporate, corpDomains []string) (*Server, *net.UDPConn) {
+	t.Helper()
+	proxyConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = proxyConn.Close() })
+	client, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	s := New("127.0.0.1:0", public...)
+	s.SetOrigResolvers(corporate)
+	s.SetCorporateDomains(corpDomains)
+	s.conn = proxyConn
+	return s, client
+}
+
+func TestIsCorporateDomain(t *testing.T) {
+	domains := []string{"we-on.com", ".corp.example."}
+	cases := map[string]bool{
+		"we-on.com":      true,
+		"echo.we-on.com": true,
+		"notwe-on.com":   false,
+		"a.corp.example": true,
+		"youtube.com":    false,
+	}
+	for domain, want := range cases {
+		if got := isCorporateDomain(domain, domains); got != want {
+			t.Errorf("isCorporateDomain(%q) = %v, want %v", domain, got, want)
+		}
+	}
+}
+
+func TestOrderUpstreams(t *testing.T) {
+	public := []string{"1.1.1.1:53", "8.8.8.8:53"}
+	corporate := []string{"10.0.0.53:53", "1.1.1.1:53"}
+
+	got := orderUpstreams("youtube.com", public, corporate, []string{"we-on.com"})
+	want := []string{"1.1.1.1:53", "8.8.8.8:53", "10.0.0.53:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("external order = %v, want %v", got, want)
+	}
+
+	got = orderUpstreams("host.we-on.com", public, corporate, []string{"we-on.com"})
+	want = []string{"10.0.0.53:53", "1.1.1.1:53", "8.8.8.8:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("corporate order = %v, want %v", got, want)
+	}
+}
+
+func TestForwardPrefersPublicForExternalDomain(t *testing.T) {
+	corpAddr, corpHits := startTCPDNS(t, rcodeNXDomain, nil)
+	pubAddr, pubHits := startTCPDNS(t, rcodeNoError, net.IPv4(1, 2, 3, 4))
+
+	s, client := newForwardServer(t, []string{pubAddr}, []string{corpAddr}, []string{"we-on.com"})
+	resp := forwardOnce(t, s, client, "youtube.com")
+
+	if got := dnsRcode(resp); got != rcodeNoError {
+		t.Fatalf("rcode = %d, want NOERROR", got)
+	}
+	if pubHits.Load() != 1 {
+		t.Errorf("public hits = %d, want 1", pubHits.Load())
+	}
+	if corpHits.Load() != 0 {
+		t.Errorf("corporate hits = %d, want 0 (public must be tried first)", corpHits.Load())
+	}
+}
+
+func TestForwardUsesCorporateForCorporateDomain(t *testing.T) {
+	corpAddr, corpHits := startTCPDNS(t, rcodeNoError, net.IPv4(10, 1, 2, 3))
+	pubAddr, pubHits := startTCPDNS(t, rcodeNoError, net.IPv4(8, 8, 4, 4))
+
+	s, client := newForwardServer(t, []string{pubAddr}, []string{corpAddr}, []string{"we-on.com"})
+	resp := forwardOnce(t, s, client, "echo.we-on.com")
+
+	if got := dnsRcode(resp); got != rcodeNoError {
+		t.Fatalf("rcode = %d, want NOERROR", got)
+	}
+	want := netip.MustParseAddr("10.1.2.3")
+	ips := dns.ParseDNSResponse(resp)
+	if len(ips) == 0 || ips[0] != want {
+		t.Fatalf("answer = %v, want [%v]", ips, want)
+	}
+	if corpHits.Load() != 1 {
+		t.Errorf("corporate hits = %d, want 1", corpHits.Load())
+	}
+	if pubHits.Load() != 0 {
+		t.Errorf("public hits = %d, want 0 (corporate must be tried first)", pubHits.Load())
+	}
+}
+
+func TestForwardFallsBackOnNXDomain(t *testing.T) {
+	corpAddr, corpHits := startTCPDNS(t, rcodeNoError, net.IPv4(10, 9, 9, 9))
+	pubAddr, pubHits := startTCPDNS(t, rcodeNXDomain, nil)
+
+	// External name: public is tried first but returns NXDOMAIN, so the
+	// corporate resolver must still be attempted.
+	s, client := newForwardServer(t, []string{pubAddr}, []string{corpAddr}, []string{"we-on.com"})
+	resp := forwardOnce(t, s, client, "youtube.com")
+
+	if got := dnsRcode(resp); got != rcodeNoError {
+		t.Fatalf("rcode = %d, want NOERROR from fallback", got)
+	}
+	want := netip.MustParseAddr("10.9.9.9")
+	ips := dns.ParseDNSResponse(resp)
+	if len(ips) == 0 || ips[0] != want {
+		t.Fatalf("answer = %v, want [%v]", ips, want)
+	}
+	if pubHits.Load() != 1 || corpHits.Load() != 1 {
+		t.Errorf("hits public=%d corporate=%d, want 1/1", pubHits.Load(), corpHits.Load())
 	}
 }

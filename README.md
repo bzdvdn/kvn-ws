@@ -23,14 +23,14 @@ sudo ./bin/kvn-web --no-browser
 
 Сервер выдаёт каждому клиенту уникальный `tun_address` из пула; `client_id` генерируется клиентом автоматически, если его нет в JSON/QR.
 
-## Установка из релиза 2.0.4
+## Установка из релиза 2.0.5
 
-Скрипты рассчитаны на готовые артефакты из GitHub Releases. Для своего тега замените `v2.0.4` на актуальный.
+Скрипты рассчитаны на готовые артефакты из GitHub Releases. Для своего тега замените `v2.0.5` на актуальный.
 
 ### Сервер на Linux
 
 ```bash
-curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.4/install-server.sh -o /tmp/install-server.sh
+curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.5/install-server.sh -o /tmp/install-server.sh
 sudo bash /tmp/install-server.sh --port 443
 ```
 
@@ -39,7 +39,7 @@ sudo bash /tmp/install-server.sh --port 443
 ### Клиент на Linux
 
 ```bash
-curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.4/install-client.sh -o /tmp/install-client.sh
+curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.5/install-client.sh -o /tmp/install-client.sh
 sudo bash /tmp/install-client.sh --server https://SERVER:443 --token TOKEN
 ```
 
@@ -50,7 +50,7 @@ sudo bash /tmp/install-client.sh --server https://SERVER:443 --token TOKEN
 Linux и macOS:
 
 ```bash
-curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.4/install-web.sh -o /tmp/install-web.sh
+curl -fsSL https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.5/install-web.sh -o /tmp/install-web.sh
 sudo bash /tmp/install-web.sh --start --desktop
 ```
 
@@ -59,7 +59,7 @@ sudo bash /tmp/install-web.sh --start --desktop
 Windows (PowerShell от администратора):
 
 ```powershell
-iwr -useb https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.4/install-web.ps1 -OutFile install-web.ps1
+iwr -useb https://github.com/bzdvdn/kvn-ws/releases/download/v2.0.5/install-web.ps1 -OutFile install-web.ps1
 powershell -ExecutionPolicy Bypass -File .\install-web.ps1
 ```
 

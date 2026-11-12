@@ -411,21 +411,11 @@ func (c *Client) runTUN(ctx context.Context) error {
 			_ = dev.AddExcludeRoute(ns.String()+"/32", phyGW, phyIface)
 		}
 	}
-	// Try the original/corporate resolver first for all names, then public
-	// upstreams. This restores split DNS coexistence with another VPN.
-	dnsUpstreams := append([]string{}, origResolvers...)
-	for _, upstream := range upstreams {
-		duplicate := false
-		for _, existing := range dnsUpstreams {
-			if existing == upstream {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			dnsUpstreams = append(dnsUpstreams, upstream)
-		}
-	}
+	// Split DNS coexistence with another VPN: corporate resolvers are used
+	// first only for their own domains, while public upstreams own everything
+	// else. This keeps corporate policy (blocked names returning NXDOMAIN)
+	// from shadowing publicly resolvable domains.
+	corpDomains := resolvSearchDomains()
 	gateway := net.ParseIP(session.TUNGateway)
 	if gateway == nil {
 		return fmt.Errorf("invalid tun assignment gateway %q", session.TUNGateway)
@@ -438,8 +428,9 @@ func (c *Client) runTUN(ctx context.Context) error {
 
 	dnsCtx, dnsCancel := context.WithCancel(ctx)
 	defer dnsCancel()
-	dnsSrv := dnsproxy.New(dnsProxyListen, dnsUpstreams...)
+	dnsSrv := dnsproxy.New(dnsProxyListen, upstreams...)
 	dnsSrv.SetOrigResolvers(origResolvers)
+	dnsSrv.SetCorporateDomains(corpDomains)
 	var routeSet *routing.RuleSet
 	if c.cfg.Routing != nil {
 		routeSet, _ = routing.NewRuleSet(c.cfg.Routing, c.logger)
@@ -622,6 +613,40 @@ func resolvServers() []string {
 	}
 	if len(out) == 0 {
 		out = resolvectlServers()
+	}
+	return out
+}
+
+// resolvSearchDomains returns the search/domain suffixes from /etc/resolv.conf.
+// They identify the corporate DNS namespace when another VPN (for example
+// openfortivpn) shares the resolver file, so dnsproxy can keep those names on
+// the corporate resolvers and everything else on public upstreams.
+func resolvSearchDomains() []string {
+	f, err := os.Open("/etc/resolv.conf")
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+
+	var out []string
+	seen := make(map[string]struct{})
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 2 || (fields[0] != "search" && fields[0] != "domain") {
+			continue
+		}
+		for _, raw := range fields[1:] {
+			domain := strings.Trim(strings.ToLower(raw), ".")
+			if domain == "" {
+				continue
+			}
+			if _, ok := seen[domain]; ok {
+				continue
+			}
+			seen[domain] = struct{}{}
+			out = append(out, domain)
+		}
 	}
 	return out
 }

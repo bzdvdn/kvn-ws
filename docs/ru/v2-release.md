@@ -1,11 +1,14 @@
 # v2 — release checklist
 
-## 2.0.5 — cover-site front (unreleased)
+## 2.0.5 — cover-site front + split-DNS (unreleased)
 
 - [x] Встроенный сайт NOVA (лендинг/login/watch/404), `fallback.dir`, `--export-cover-site`.
 - [x] TLS 1.2+1.3, ALPN `h2,http/1.1`, v2 только h2+valid Bearer; h1/unknown/invalid → сайт/404.
 - [x] `install-server.sh`: экспорт сайта, `--domain/--acme-email/--tls-cert/--tls-key`.
 - [x] `dpi-check.sh` расширен; локальный прогон PASS.
+- [x] DNS split-DNS при совместной работе с openfortivpn: корпоративные домены → Forti, остальные → публичные upstreams, fallback на NXDOMAIN/SERVFAIL; тесты `TestForward*`.
+- [x] `versionName` 2.0.5, CHANGELOG 2.0.5.
+- [x] CI-эквивалент локально: `go test -race ./src/...`, `go vet`, `gosec`, `golangci-lint`, `check-v2-only.sh`, `build.sh both`.
 - [x] CI зелёный на `dev`.
 - [ ] Тег `v2.0.5`, полевой DPI-прогон с реальным доменом/LE, on-device Android.
 
