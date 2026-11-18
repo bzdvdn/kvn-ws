@@ -95,19 +95,30 @@ if [ -z "$BINARY_SRC" ]; then
 fi
 
 DESKTOP_BINARY_SRC=""
+desktop_binary_for_host() {
+  # Prefer the WebKitGTK 4.1 build; use the 4.0 build when only 4.0 is available.
+  if command -v ldconfig >/dev/null 2>&1 &&
+    ! ldconfig -p 2>/dev/null | grep -q 'libwebkit2gtk-4\.1\.so\.0' &&
+    ldconfig -p 2>/dev/null | grep -q 'libwebkit2gtk-4\.0\.so\.37'; then
+    echo "kvn-desktop-compat40"
+  else
+    echo "kvn-desktop"
+  fi
+}
 if [ "$DESKTOP" = true ]; then
-  if [ -f "$SCRIPT_DIR/kvn-desktop" ]; then
-    DESKTOP_BINARY_SRC="$SCRIPT_DIR/kvn-desktop"
+  DESKTOP_BIN_NAME=$(desktop_binary_for_host)
+  if [ -f "$SCRIPT_DIR/$DESKTOP_BIN_NAME" ]; then
+    DESKTOP_BINARY_SRC="$SCRIPT_DIR/$DESKTOP_BIN_NAME"
     echo "Using local desktop binary: $DESKTOP_BINARY_SRC"
   elif [ -f "$SCRIPT_DIR/bin/kvn-desktop" ]; then
     DESKTOP_BINARY_SRC="$SCRIPT_DIR/bin/kvn-desktop"
     echo "Using local desktop binary: $DESKTOP_BINARY_SRC"
-  elif [ -n "${SERVICES_DIR:-}" ] && [ -f "$SERVICES_DIR/kvn-desktop" ]; then
-    DESKTOP_BINARY_SRC="$SERVICES_DIR/kvn-desktop"
+  elif [ -n "${SERVICES_DIR:-}" ] && [ -f "$SERVICES_DIR/$DESKTOP_BIN_NAME" ]; then
+    DESKTOP_BINARY_SRC="$SERVICES_DIR/$DESKTOP_BIN_NAME"
     echo "Using desktop binary from archive: $DESKTOP_BINARY_SRC"
   else
     echo "WARN: kvn-desktop binary not found. Skipping desktop installation."
-    echo "  Build it with: go build -o bin/kvn-desktop ./src/cmd/desktop"
+    echo "  Build it with: ./scripts/build.sh desktop"
   fi
 fi
 

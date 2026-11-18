@@ -52,3 +52,5 @@ require (
 )
 
 tool golang.org/x/mobile/cmd/gobind
+
+replace github.com/webview/webview_go => ./third_party/webview_go

@@ -1,5 +1,15 @@
 # v2 — release checklist
 
+## 2.0.6 — WebKitGTK 4.1 / Ubuntu 24.04 (unreleased)
+
+- [x] `kvn-desktop`: local `webview_go` fork (`third_party/webview_go`), WebKitGTK 4.1 by default, `-tags webkit2_40` for 4.0.
+- [x] `scripts/build.sh`/`build-web.sh`: auto-detect WebKit via `pkg-config`; CI builds `kvn-desktop` (4.1) and `kvn-desktop-compat40` (4.0).
+- [x] `install-web.sh`: picks the binary matching the installed WebKitGTK.
+- [x] Linux DNS: `systemd-resolved` override via the physical default-route interface (Ubuntu 24.04).
+- [x] `versionName` 2.0.6, CHANGELOG 2.0.6.
+- [ ] Local CI equivalent and green CI on `dev`.
+- [ ] Tag `v2.0.6`, verify release workflow.
+
 ## 2.0.5 — cover-site front + split-DNS (unreleased)
 
 - [x] Built-in NOVA site (landing/login/watch/404), `fallback.dir`, `--export-cover-site`.

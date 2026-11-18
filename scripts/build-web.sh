@@ -13,13 +13,21 @@ echo "Building kvn-web binary..."
 go build -o bin/kvn-web ./src/cmd/web
 
 echo "Building kvn-desktop binary (CGo native)..."
-if go build -o bin/kvn-desktop ./src/cmd/desktop 2>/dev/null; then
+WEBKIT_TAGS=""
+if command -v pkg-config >/dev/null 2>&1 &&
+	! pkg-config --exists webkit2gtk-4.1 2>/dev/null &&
+	pkg-config --exists webkit2gtk-4.0 2>/dev/null; then
+	WEBKIT_TAGS="-tags webkit2_40"
+fi
+# shellcheck disable=SC2086
+if go build $WEBKIT_TAGS -o bin/kvn-desktop ./src/cmd/desktop 2>/dev/null; then
 	echo "Done: bin/kvn-desktop"
 	ls -lh bin/kvn-desktop
 else
 	echo ""
 	echo "WARN: kvn-desktop build failed (CGo deps missing)."
-	echo "  Linux:  apt install libgtk-3-dev libwebkit2gtk-4.1-dev + symlink webkit2gtk-4.0 -> 4.1"
+	echo "  Debian/Ubuntu 22.04:  apt install libgtk-3-dev libwebkit2gtk-4.0-dev"
+	echo "  Debian/Ubuntu 24.04+: apt install libgtk-3-dev libwebkit2gtk-4.1-dev"
 	echo "  macOS:  CGo WKWebView — build on macOS"
 	echo "  Windows: CGo WebView2 — build on Windows"
 fi

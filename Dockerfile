@@ -11,6 +11,7 @@ RUN npm run build
 FROM golang:1.26-alpine AS build
 WORKDIR /app
 COPY go.mod go.sum ./
+COPY third_party/webview_go/go.mod third_party/webview_go/go.mod
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/dist ./src/internal/webui/frontend/dist

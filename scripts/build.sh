@@ -22,9 +22,19 @@ build_web() {
   go build -ldflags="-s -w" -o bin/kvn-web ./src/cmd/web
 }
 
+webkit_tags() {
+  if ! command -v pkg-config >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! pkg-config --exists webkit2gtk-4.1 2>/dev/null && pkg-config --exists webkit2gtk-4.0 2>/dev/null; then
+    echo "-tags webkit2_40"
+  fi
+}
+
 build_desktop() {
   echo "Building v2 desktop..."
-  go build -ldflags="-s -w" -o bin/kvn-desktop ./src/cmd/desktop
+  # shellcheck disable=SC2046
+  go build $(webkit_tags) -ldflags="-s -w" -o bin/kvn-desktop ./src/cmd/desktop
 }
 
 case "$TARGET" in

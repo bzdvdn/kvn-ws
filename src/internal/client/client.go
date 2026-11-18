@@ -472,8 +472,8 @@ func (c *Client) runTUN(ctx context.Context) error {
 		dnsCancel()
 		dnsSrv = nil
 	case <-time.After(100 * time.Millisecond):
-		if backup, berr := dnsproxy.BackupResolvConf(); berr == nil && backup != nil {
-			if oerr := dnsproxy.OverrideResolvConf(dnsProxyListen); oerr != nil {
+		if backup, berr := dnsproxy.BackupResolvConf(phyIface); berr == nil && backup != nil {
+			if oerr := dnsproxy.OverrideResolvConf(dnsProxyListen, phyIface); oerr != nil {
 				c.logger.Warn("v2 dns override failed", zap.Error(oerr))
 			} else {
 				defer func() { _ = backup.Restore() }()

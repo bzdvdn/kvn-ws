@@ -7,8 +7,8 @@ package dnsproxy
 // explicit direct-domain queries; system DNS remains owned by the OS/other VPN.
 type ResolvConfBackup struct{}
 
-func BackupResolvConf() (*ResolvConfBackup, error) { return nil, nil }
+func BackupResolvConf(...string) (*ResolvConfBackup, error) { return nil, nil }
 
-func OverrideResolvConf(string) error { return nil }
+func OverrideResolvConf(string, ...string) error { return nil }
 
 func (b *ResolvConfBackup) Restore() error { return nil }

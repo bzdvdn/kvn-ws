@@ -536,7 +536,7 @@ The `kvn-web` interface automatically detects Windows and shows the **TUN** mode
 #### DNS
 
 TUN mode automatically configures DNS on the virtual adapter via `luid.SetDNS()`:
-- DNS servers are set to `127.0.0.54` (local DNS proxy)
+- DNS servers are set to `127.0.0.153` (local DNS proxy)
 - Original DNS settings are not saved (restored automatically when the TUN adapter is closed)
 - `CleanupStaleDNS` removes stale DNS entries on the adapter after an abnormal session termination
 
@@ -592,7 +592,7 @@ launchctl load ~/Library/LaunchAgents/com.kvn.web.plist
 #### DNS
 
 TUN mode automatically configures DNS via `networksetup -setdnsservers`:
-- DNS servers are set to `127.0.0.54` (local DNS proxy)
+- DNS servers are set to `127.0.0.153` (local DNS proxy)
 - Network service is detected via `-listallhardwareports` (primary) with fallback to direct `utunX`
 - Original DNS servers are saved and restored when the connection closes
 - `CleanupStaleDNS` removes stale DNS entries on utun interfaces

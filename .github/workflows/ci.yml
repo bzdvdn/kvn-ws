@@ -36,7 +36,7 @@ jobs:
           cache: "npm"
           cache-dependency-path: src/internal/webui/frontend/package-lock.json
       - name: Install system deps (desktop CGo)
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Build frontend
         run: |
           cd src/internal/webui/frontend
@@ -150,24 +150,40 @@ jobs:
     strategy:
       matrix:
         include:
+          # Primary Linux build: WebKitGTK 4.1 (Ubuntu 24.04+ and 22.04 with 4.1 installed).
+          - os: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            cgo: 1
+            deps: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+            tags: ""
+            suffix: ""
+            artifact: kvn-desktop-linux-amd64
+          # Legacy Linux build: WebKitGTK 4.0 only (Ubuntu 22.04 without 4.1).
           - os: ubuntu-22.04
             goos: linux
             goarch: amd64
             cgo: 1
             deps: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+            tags: "-tags webkit2_40"
             suffix: ""
+            artifact: kvn-desktop-linux-amd64-compat40
           - os: macos-latest
             goos: darwin
             goarch: arm64
             cgo: 1
             deps: ""
+            tags: ""
             suffix: ""
+            artifact: kvn-desktop-darwin-arm64
           - os: windows-latest
             goos: windows
             goarch: amd64
             cgo: 1
             deps: go install github.com/akavel/rsrc@latest
+            tags: ""
             suffix: .exe
+            artifact: kvn-desktop-windows-amd64.exe
     runs-on: ${{ matrix.os }}
     needs: [ci]
     steps:
@@ -199,12 +215,12 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: ${{ matrix.cgo }}
         run: |
-          go build -ldflags="-s -w${{ matrix.os == 'windows-latest' && ' -H windowsgui' || '' }}" \
+          go build ${{ matrix.tags }} -ldflags="-s -w${{ matrix.os == 'windows-latest' && ' -H windowsgui' || '' }}" \
             -o bin/kvn-desktop${{ matrix.suffix }} ./src/cmd/desktop
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kvn-desktop-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
+          name: ${{ matrix.artifact }}
           path: bin/kvn-desktop${{ matrix.suffix }}
           retention-days: 30
 
@@ -332,6 +348,12 @@ jobs:
             else
               echo "WARN: kvn-desktop for $os/$arch not found at $desktop_artifact"
             fi
+            # Legacy WebKitGTK 4.0 build for older distros (Linux only).
+            compat_artifact="/tmp/kvn-desktop-artifacts/kvn-desktop-${os}-${arch}-compat40/kvn-desktop${suffix}"
+            if [ "$os" = "linux" ] && [ -f "$compat_artifact" ]; then
+              cp "$compat_artifact" "$dir/kvn-desktop-compat40${suffix}"
+              echo "Added kvn-desktop-compat40${suffix} to $dir"
+            fi
           done
 
       - name: Copy install scripts + desktop icon to dist
@@ -423,8 +445,8 @@ jobs:
               # CHANGELOG headers are "[1.3.1]" while tags are "v1.3.1" — strip the v prefix.
               tag_no_v="${{ steps.tag.outputs.tag }}"
               tag_no_v="${tag_no_v#v}"
-              grep -A 100 "^## \[${tag_no_v}" CHANGELOG.md \
-                | sed '/^## \[/q' | head -n -1 || true
+              grep -A 200 "^## \[${tag_no_v}" CHANGELOG.md \
+                | sed '1d; /^## \[/,$d' || true
             fi
             echo "EOFNOTES"
           } >> "$GITHUB_OUTPUT"

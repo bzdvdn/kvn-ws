@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.0.6] - 2026-11-19
+
+### Changed
+
+- **kvn-desktop/Linux: поддержка WebKitGTK 4.1 (Ubuntu 24.04+)** — `webview_go` заменён на локальную копию в `third_party/webview_go` с build-тегом: по умолчанию `webkit2gtk-4.1`, с `-tags webkit2_40` — `webkit2gtk-4.0`. `scripts/build.sh`/`build-web.sh` выбирают тег автоматически по `pkg-config`; CI собирает оба варианта Linux-бинарника (`kvn-desktop` и `kvn-desktop-compat40`), а `install-web.sh` ставит тот, чей WebKitGTK есть в системе.
+- Android `versionName` поднят до `2.0.6`.
+
+### Fixed
+
+- **Linux/systemd-resolved: DNS override (Ubuntu 24.04)** — вместо `resolvectl dns lo` (systemd отклоняет loopback: «Link lo is loopback device») DNS теперь ставится на физический default-route интерфейс; `BackupResolvConf`/`OverrideResolvConf` принимают `iface`, клиент передаёт `phyIface`. Исходные per-interface DNS сохраняются и возвращаются при остановке (не затирая DNS openfortivpn), ошибки `resolvectl` логируются вместе со stderr, частично применённый override откатывается, а `CleanupStaleDNS` снимает stale-настройку через `resolvectl revert`.
+
 ## [2.0.5] - 2026-11-12
 
 ### Added

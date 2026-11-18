@@ -46,6 +46,7 @@ v2-only Go backend/CLI under `src/`; Android/Kotlin v2 client under `src/android
 - `scripts/install-client.sh` — Linux/systemd v2 client install.
 - `scripts/install-web.ps1` — Windows WebView desktop + v1 cleanup.
 - `scripts/build.sh` — v2 client/server/web/desktop build.
+- `third_party/webview_go/` — форк webview Go-bindings: WebKitGTK 4.1 по умолчанию, `-tags webkit2_40` для 4.0.
 - `scripts/build-android-aar.sh` — gomobile AAR build.
 - `scripts/build-android.sh` — Android APK build.
 - `scripts/dpi-check.sh` — TLS/H2/active-probe lab gate.

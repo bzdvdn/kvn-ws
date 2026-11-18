@@ -10,3 +10,4 @@
 - `kvn-web` uses unified `~/.config/kvn/config.yaml` (old v1 → `.v1.bak`).
 - No v1 entrypoints exist; v1 доступен только в старых GitHub Releases.
 - Windows installer defaults to `kvn-desktop` + `kvn-web` autostart and cleans v1.
+- `kvn-desktop` на Linux использует `third_party/webview_go`: по умолчанию WebKitGTK 4.1, с `-tags webkit2_40` — WebKitGTK 4.0. `scripts/build.sh desktop` выбирает тег автоматически.

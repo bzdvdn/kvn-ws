@@ -144,7 +144,7 @@ logging:
 | `reconnect.max_backoff_sec` | int | `30` | Maximum reconnect backoff in seconds |
 | `system_proxy` | bool | `false` | Enable automatic OS-level proxy settings (Linux/macOS/Windows) |
 | `transparent` | bool | `false` | Enable transparent proxy via iptables REDIRECT (Linux only) |
-| `dns_proxy.listen` | string | `127.0.0.54:53` | DNS proxy listen address |
+| `dns_proxy.listen` | string | `127.0.0.153:53` | DNS proxy listen address |
 | `dns_proxy.upstreams` | []string | `[1.1.1.1:53, 8.8.8.8:53]` | List of upstream DNS servers (fallback in order). Also accepts deprecated `upstream: string` |
 | `log.level` | string | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 

@@ -144,7 +144,7 @@ logging:
 | `reconnect.max_backoff_sec` | int | `30` | Максимальная задержка переподключения в секундах |
 | `system_proxy` | bool | `false` | Автоуправление системными прокси (Linux/macOS/Windows) |
 | `transparent` | bool | `false` | Прозрачный прокси через iptables REDIRECT (только Linux) |
-| `dns_proxy.listen` | string | `127.0.0.54:53` | Адрес DNS-прокси |
+| `dns_proxy.listen` | string | `127.0.0.153:53` | Адрес DNS-прокси |
 | `dns_proxy.upstreams` | []string | `[1.1.1.1:53, 8.8.8.8:53]` | Список вышестоящих DNS-серверов (fallback по порядку). Также принимает устаревший `upstream: string` |
 | `log.level` | string | `info` | Уровень логирования (`debug`, `info`, `warn`, `error`) |
 

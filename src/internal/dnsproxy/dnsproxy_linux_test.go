@@ -5,6 +5,7 @@ package dnsproxy
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -123,5 +124,204 @@ func TestBackupResolvConfNameservers(t *testing.T) {
 	}
 	if nss[1] != "10.0.0.2:53" {
 		t.Errorf("ns[1]=%q, want %q", nss[1], "10.0.0.2:53")
+	}
+}
+
+func TestParseDefaultRouteIfaces(t *testing.T) {
+	out := "default via 192.168.1.1 dev eno1 proto dhcp src 192.168.1.10 metric 100 \n" +
+		"default via 10.0.0.1 dev ppp0 proto static metric 50\n" +
+		"default dev lo scope link\n" +
+		"default via 192.168.1.1 dev eno1 proto dhcp metric 200\n"
+	got := parseDefaultRouteIfaces(out)
+	want := []string{"eno1", "ppp0"}
+	if len(got) != len(want) {
+		t.Fatalf("parseDefaultRouteIfaces: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("parseDefaultRouteIfaces: got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestSystemdResolvedOverrideUsesDefaultRouteIface(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "stub-resolv.conf")
+	if err := os.WriteFile(target, []byte("nameserver 127.0.0.53\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "resolv.conf")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := resolvConfPath
+	origLinks := systemdResolvedLinks
+	resolvConfPath = link
+	systemdResolvedLinks = []string{target}
+	t.Cleanup(func() {
+		resolvConfPath = origPath
+		systemdResolvedLinks = origLinks
+	})
+
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "calls.log")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"dns\" ] && [ $# -eq 2 ]; then\n" +
+		"  echo 'Link 2 (eth0): 10.0.0.1 10.0.0.2'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"printf '%s\\n' \"$*\" >> '" + logPath + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "resolvectl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	backup, err := BackupResolvConf("eth0")
+	if err != nil {
+		t.Fatalf("BackupResolvConf: %v", err)
+	}
+	if err := OverrideResolvConf("127.0.0.153:53", "eth0"); err != nil {
+		t.Fatalf("OverrideResolvConf: %v", err)
+	}
+	if err := backup.Restore(); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "dns eth0 127.0.0.153\ndns eth0 10.0.0.1 10.0.0.2\n"
+	if string(data) != want {
+		t.Fatalf("resolvectl calls: got %q, want %q", string(data), want)
+	}
+}
+
+func TestSystemdResolvedOverrideReportsResolvectlError(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "stub-resolv.conf")
+	if err := os.WriteFile(target, []byte("nameserver 127.0.0.53\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "resolv.conf")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := resolvConfPath
+	origLinks := systemdResolvedLinks
+	resolvConfPath = link
+	systemdResolvedLinks = []string{target}
+	t.Cleanup(func() {
+		resolvConfPath = origPath
+		systemdResolvedLinks = origLinks
+	})
+
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\necho 'Link lo is loopback device.' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "resolvectl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := OverrideResolvConf("127.0.0.153:53", "eth0")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "loopback device") {
+		t.Fatalf("error %q does not include resolvectl stderr", err)
+	}
+}
+
+func TestCleanupStaleResolvedRevertsOnlyProxyLink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "stub-resolv.conf")
+	if err := os.WriteFile(target, []byte("nameserver 127.0.0.53\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "resolv.conf")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	origPath := resolvConfPath
+	origLinks := systemdResolvedLinks
+	resolvConfPath = link
+	systemdResolvedLinks = []string{target}
+	t.Cleanup(func() {
+		resolvConfPath = origPath
+		systemdResolvedLinks = origLinks
+	})
+
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "calls.log")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"dns\" ]; then\n" +
+		"  echo 'Link 2 (eno1): 127.0.0.153'\n" +
+		"  echo 'Link 3 (wlp3s0): 8.8.8.8'\n" +
+		"elif [ \"$1\" = \"revert\" ]; then\n" +
+		"  printf '%s\\n' \"$*\" >> '" + logPath + "'\n" +
+		"fi\n"
+	if err := os.WriteFile(filepath.Join(bin, "resolvectl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	CleanupStaleDNS("127.0.0.153:53")
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "revert eno1\n" {
+		t.Fatalf("resolvectl calls: got %q, want %q", string(data), "revert eno1\n")
+	}
+}
+
+func TestLineHasDNSServer(t *testing.T) {
+	if !lineHasDNSServer(": 127.0.0.153 8.8.8.8", "127.0.0.153") {
+		t.Fatal("expected exact server match")
+	}
+	if lineHasDNSServer(": 127.0.0.1530 8.8.8.8", "127.0.0.153") {
+		t.Fatal("prefix must not match")
+	}
+	if !lineHasDNSServer(": 127.0.0.153:5353", "127.0.0.153") {
+		t.Fatal("expected host:port match")
+	}
+}
+
+func TestResolvectlRestore(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "calls.log")
+	script := "#!/bin/sh\nprintf '%s|' \"$@\" >> '" + logPath + "'\necho >> '" + logPath + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "resolvectl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := resolvectlRestore([]string{"eth0", "ppp0"}, map[string][]string{"eth0": {}}); err != nil {
+		t.Fatalf("resolvectlRestore: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "dns|eth0||\nrevert|ppp0|\n"
+	if string(data) != want {
+		t.Fatalf("resolvectl calls: got %q, want %q", string(data), want)
 	}
 }

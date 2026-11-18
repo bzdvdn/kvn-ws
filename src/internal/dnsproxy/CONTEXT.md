@@ -16,7 +16,7 @@
 - `Run(ctx)` слушает UDP; каждый запрос обрабатывается в `forward` под snapshot конфигурации.
 - `routeDirect(qname)` → `resolveDirect` через orig resolvers (UDP, 3с на попытку, перебор).
 - Иначе — DNS-over-TCP: корпоративные домены сначала идут в корпоративные резолверы, остальные — в публичные upstreams; при NXDOMAIN/SERVFAIL/REFUSED перебор продолжается. Ответ отправляется клиенту и трекается.
-- Linux: `BackupResolvConf` → `OverrideResolvConf` → `Restore`; `CleanupStaleDNS` убирает stale proxy nameserver.
+- Linux: `BackupResolvConf` → `OverrideResolvConf` → `Restore`; `CleanupStaleDNS` убирает stale proxy nameserver (resolv.conf или `resolvectl revert`).
 
 ## Public contracts
 
@@ -30,3 +30,5 @@
 - TCP-fallback ограничен 1500 байтами.
 - `extractDNSDomain` не поддерживает compression pointers.
 - `OverrideResolvConf` не делает backup сам; порядок Backup → Override → Restore обязателен.
+- `systemd-resolved` (Ubuntu 24.04, systemd 255) отклоняет `resolvectl dns lo` («Link lo is loopback device»). DNS ставится на физический default-route интерфейс: `BackupResolvConf`/`OverrideResolvConf` принимают `iface`, клиент передаёт `phyIface`; при отсутствии — определяется через `ip route show default`.
+- `Restore` возвращает сохранённые per-interface DNS (`resolvectl dns <iface> ...`), а не делает `revert` — это сохраняет DNS другого VPN (openfortivpn); `revert` используется только как fallback, если исходный список получить не удалось, и в `CleanupStaleDNS`.

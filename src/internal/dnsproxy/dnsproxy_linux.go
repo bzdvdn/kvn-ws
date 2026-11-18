@@ -3,6 +3,7 @@
 package dnsproxy
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -20,13 +21,15 @@ var systemdResolvedLinks = []string{
 
 // @sk-task dns-setup#T1.1: extract Linux resolv.conf/systemd-resolved code (AC-005)
 type ResolvConfBackup struct {
-	original    string
-	saved       bool
-	nameservers []string
+	original       string
+	saved          bool
+	nameservers    []string
+	resolvedIfaces []string
+	resolvedDNS    map[string][]string
 }
 
 // @sk-task dns-setup#T1.1: extract Linux resolv.conf/systemd-resolved code (AC-005)
-func BackupResolvConf() (*ResolvConfBackup, error) {
+func BackupResolvConf(iface ...string) (*ResolvConfBackup, error) {
 	data, err := os.ReadFile(resolvConfPath)
 	if err != nil {
 		return nil, err
@@ -45,7 +48,17 @@ func BackupResolvConf() (*ResolvConfBackup, error) {
 			}
 		}
 	}
-	return &ResolvConfBackup{original: string(data), saved: true, nameservers: nss}, nil
+	b := &ResolvConfBackup{original: string(data), saved: true, nameservers: nss}
+	if isSystemdResolved() {
+		b.resolvedIfaces = resolvedIfaces(iface...)
+		b.resolvedDNS = make(map[string][]string, len(b.resolvedIfaces))
+		for _, name := range b.resolvedIfaces {
+			if servers, ok := resolvedDNSFor(name); ok {
+				b.resolvedDNS[name] = servers
+			}
+		}
+	}
+	return b, nil
 }
 
 func (b *ResolvConfBackup) Nameservers() []string {
@@ -58,7 +71,7 @@ func (b *ResolvConfBackup) Restore() error {
 		return nil
 	}
 	if isSystemdResolved() {
-		return resolvectlRevert()
+		return resolvectlRestore(b.resolvedIfaces, b.resolvedDNS)
 	}
 	return os.WriteFile(resolvConfPath, []byte(b.original), 0o644) // #nosec G306
 }
@@ -78,17 +91,153 @@ func isSystemdResolved() bool {
 }
 
 // @sk-task dns-setup#T1.1: extract Linux resolv.conf/systemd-resolved code (AC-005)
-func resolvectlSet(host string) error {
-	return exec.Command("resolvectl", "dns", "lo", host).Run() // #nosec G204 — validated as IP by caller
+func resolvectlSet(iface, host string) error {
+	out, err := exec.Command("resolvectl", "dns", iface, host).CombinedOutput() // #nosec G204 — iface/host validated by caller
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // @sk-task dns-setup#T1.1: extract Linux resolv.conf/systemd-resolved code (AC-005)
-func resolvectlRevert() error {
-	return exec.Command("resolvectl", "revert", "lo").Run()
+func resolvectlRevert(ifaces []string) error {
+	var errs []error
+	for _, iface := range ifaces {
+		if iface == "" {
+			continue
+		}
+		out, err := exec.Command("resolvectl", "revert", iface).CombinedOutput() // #nosec G204 — iface from route table
+		if err != nil {
+			errs = append(errs, fmt.Errorf("interface %s: %w: %s", iface, err, strings.TrimSpace(string(out))))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func resolvedDNSFor(iface string) ([]string, bool) {
+	out, err := exec.Command("resolvectl", "dns", iface).Output() // #nosec G204 — iface from route table
+	if err != nil {
+		return nil, false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		idx := strings.Index(line, "):")
+		if idx < 0 {
+			continue
+		}
+		return strings.Fields(line[idx+2:]), true
+	}
+	return nil, true
+}
+
+func resolvectlRestore(ifaces []string, saved map[string][]string) error {
+	var errs []error
+	for _, iface := range ifaces {
+		if iface == "" {
+			continue
+		}
+		servers, known := saved[iface]
+		if !known {
+			if err := resolvectlRevert([]string{iface}); err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
+		args := []string{"dns", iface}
+		if len(servers) == 0 {
+			args = append(args, "")
+		} else {
+			args = append(args, servers...)
+		}
+		out, err := exec.Command("resolvectl", args...).CombinedOutput() // #nosec G204 — iface/servers from resolvectl
+		if err != nil {
+			errs = append(errs, fmt.Errorf("interface %s: %w: %s", iface, err, strings.TrimSpace(string(out))))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// resolvedIfaces returns the interface(s) whose DNS should point at the local
+// proxy. systemd-resolved rejects SetLinkDNS for loopback ("Link lo is
+// loopback device"), so use the physical default-route interface instead.
+func resolvedIfaces(preferred ...string) []string {
+	for _, name := range preferred {
+		if name != "" && name != "lo" {
+			return []string{name}
+		}
+	}
+	out, err := exec.Command("ip", "-o", "route", "show", "default").Output() // #nosec G204
+	if err != nil {
+		return nil
+	}
+	return parseDefaultRouteIfaces(string(out))
+}
+
+func cleanupStaleResolved(host string) {
+	out, err := exec.Command("resolvectl", "dns").Output() // #nosec G204
+	if err != nil {
+		return
+	}
+	seen := make(map[string]struct{})
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		openIdx := strings.Index(line, "(")
+		closeIdx := strings.Index(line, ")")
+		if !strings.HasPrefix(line, "Link ") || openIdx < 0 || closeIdx < openIdx {
+			continue
+		}
+		if !lineHasDNSServer(line[closeIdx+1:], host) {
+			continue
+		}
+		iface := line[openIdx+1 : closeIdx]
+		if iface == "" || iface == "lo" {
+			continue
+		}
+		if _, ok := seen[iface]; ok {
+			continue
+		}
+		seen[iface] = struct{}{}
+		_ = resolvectlRevert([]string{iface})
+	}
+}
+
+func lineHasDNSServer(rest, host string) bool {
+	idx := strings.Index(rest, ":")
+	if idx < 0 {
+		return false
+	}
+	for _, field := range strings.Fields(rest[idx+1:]) {
+		if field == host || strings.HasPrefix(field, host+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func parseDefaultRouteIfaces(out string) []string {
+	seen := make(map[string]struct{})
+	var ifaces []string
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		for i := 0; i+1 < len(fields); i++ {
+			if fields[i] != "dev" {
+				continue
+			}
+			name := fields[i+1]
+			if name == "" || name == "lo" {
+				break
+			}
+			if _, ok := seen[name]; !ok {
+				seen[name] = struct{}{}
+				ifaces = append(ifaces, name)
+			}
+			break
+		}
+	}
+	return ifaces
 }
 
 // @sk-task dns-setup#T1.1: extract Linux resolv.conf/systemd-resolved code (AC-005)
-func OverrideResolvConf(addr string) error {
+func OverrideResolvConf(addr string, iface ...string) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr
@@ -98,7 +247,24 @@ func OverrideResolvConf(addr string) error {
 	}
 
 	if isSystemdResolved() {
-		return resolvectlSet(host)
+		ifaces := resolvedIfaces(iface...)
+		if len(ifaces) == 0 {
+			return fmt.Errorf("dnsproxy: systemd-resolved: no non-loopback default-route interface found")
+		}
+		var errs []error
+		var applied []string
+		for _, name := range ifaces {
+			if err := resolvectlSet(name, host); err != nil {
+				errs = append(errs, fmt.Errorf("interface %s: %w", name, err))
+				continue
+			}
+			applied = append(applied, name)
+		}
+		if len(errs) > 0 {
+			_ = resolvectlRevert(applied)
+			return errors.Join(errs...)
+		}
+		return nil
 	}
 
 	nsLine := "nameserver " + host
@@ -150,6 +316,10 @@ func CleanupStaleDNS(proxyListen string) {
 		host = proxyListen
 	}
 	if host == "" {
+		return
+	}
+	if isSystemdResolved() {
+		cleanupStaleResolved(host)
 		return
 	}
 	data, err := os.ReadFile(resolvConfPath)
